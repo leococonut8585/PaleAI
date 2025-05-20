@@ -54,10 +54,15 @@ async def upscale_image(url: str) -> str:
     import replicate
     client = replicate.Client(api_token=token)
     try:
+        print("Replicate upscale input URL:", url)
         output = await run_in_threadpool(client.run, "cjwbw/real-esrgan", input={"image": url})
+        print("Replicate upscale raw response:", output)
         if isinstance(output, list):
-            return output[-1]
-        return str(output)
+            result = output[-1]
+        else:
+            result = str(output)
+        print("Replicate upscale result URL:", result)
+        return result
     except Exception as e:
         print(f"Upscale error: {e}")
         return url
@@ -81,9 +86,21 @@ async def generate_images(req: ImageGenerationRequest, current_user: models.User
         try:
             for i in range(req.count):
                 seed = base_seed if req.deference == 1 else base_seed + i
-                res = await openai_client.images.generate(model="dall-e-3", prompt=optimized, n=1, size="1024x1024", seed=seed)
-                urls.append(res.data[0].url)
+                params = {
+                    "model": "dall-e-3",
+                    "prompt": optimized,
+                    "n": 1,
+                    "size": "1024x1024",
+                    "seed": seed,
+                }
+                print("DALL·E request params:", params)
+                res = await openai_client.images.generate(**params)
+                print("DALL·E raw response:", res)
+                url = res.data[0].url
+                print("DALL·E image URL:", url)
+                urls.append(url)
         except Exception as e:
+            print("DALL·E error:", e)
             raise HTTPException(status_code=500, detail=f"OpenAI image error: {e}")
     else:
         try:
@@ -98,21 +115,24 @@ async def generate_images(req: ImageGenerationRequest, current_user: models.User
         negative = None if req.allow_text else "text, watermark, letters, logo"
         for i in range(req.count):
             seed = base_seed if req.deference == 1 else base_seed + i
-            answer = await run_in_threadpool(
-                stability.generate,
-                prompt=optimized,
-                steps=30,
-                seed=seed,
-                cfg_scale=cfg_scale,
-                negative_prompt=negative,
-            )
+            params = {
+                "prompt": optimized,
+                "steps": 30,
+                "seed": seed,
+                "cfg_scale": cfg_scale,
+                "negative_prompt": negative,
+            }
+            print("Stable Diffusion request params:", params)
+            answer = await run_in_threadpool(stability.generate, **params)
             for resp in answer:
                 for art in resp.artifacts:
                     if art.finish_reason == generation.FILTER:
                         continue
                     if art.type == generation.ARTIFACT_IMAGE:
                         b64 = base64.b64encode(art.binary).decode()
-                        urls.append(f"data:image/png;base64,{b64}")
+                        url = f"data:image/png;base64,{b64}"
+                        print("Stable Diffusion image URL:", url)
+                        urls.append(url)
     upscaled = []
     for u in urls:
         upscaled.append(await upscale_image(u))
