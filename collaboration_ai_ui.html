@@ -217,7 +217,7 @@
 
             <div id="sessionSection" class="flex flex-col mt-8 hidden">
                 <div class="flex flex-row items-center justify-between text-xs">
-                    <span class="font-bold text-gray-600">会話履歴</span>
+                    <span class="font-bold text-gray-600">チャット一覧</span>
                     <div class="flex items-center space-x-1">
                         <button id="newChatButton" class="flex items-center justify-center bg-teal-400 hover:bg-teal-500 text-white h-6 w-6 rounded-full" title="新しいチャットを開始">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
@@ -265,7 +265,7 @@
                         <label class="flex items-center"><input type="checkbox" id="videoSubtitles" class="mr-1" checked> 字幕</label>
                     </div>
                     <div>
-                        <button id="videoGenerateBtn" class="bg-teal-500 hover:bg-teal-600 text-white px-4 py-2 rounded text-sm">動画生成</button>
+                        <button id="videoGenerateBtn" class="bg-teal-500 hover:bg-teal-600 text-white px-4 py-2 rounded text-sm">ペイルの像(動画生成モード)</button>
                     </div>
                     <div id="videoProgress" class="w-full bg-gray-200 rounded h-2 hidden">
                         <div id="videoProgressBar" class="bg-teal-500 h-2 rounded" style="width:0%"></div>
@@ -297,15 +297,15 @@
                 <div id="chatInputRow" class="flex flex-row items-center h-16 rounded-xl bg-gray-50 w-full px-4 shadow-inner">
                     <div class="mr-3">
                         <select id="aiMode" class="p-2 border-gray-300 rounded-lg shadow-sm focus:ring-teal-500 focus:border-teal-500 text-sm bg-white">
-                            <option value="balance" selected>バランス</option>
-                            <option value="search3">検索(3段階)</option>
-                            <option value="search6">超検索(6段階)</option>
-                            <option value="code">コード</option>
-                            <option value="writing">執筆</option>
-                            <option value="longwriting">超長文執筆</option>
-                            <option value="fastchat">高速&チャット特化</option>
-                            <option value="imagegen">画像生成</option>
-                            <option value="videogen">動画生成</option>
+                            <option value="balance" selected>ペイルの愛 (ハイクオリティモード)</option>
+                            <option value="search3">ペイルの知恵(検索特化モード)</option>
+                            <option value="search6">ペイルの叡智(超検索特化モード)</option>
+                            <option value="code">ペイルの創造(コード生成特化モード)</option>
+                            <option value="writing">ペイルの手紙(執筆特化モード)</option>
+                            <option value="longwriting">ペイルの書（長文執筆モード）</option>
+                            <option value="fastchat">ペイルの対話(高速・対話特化モード)</option>
+                            <option value="imagegen">ペイルの絵(画像生成モード)</option>
+                            <option value="videogen">ペイルの像(動画生成モード)</option>
                         </select>
                     </div>
                     <div class="mr-3 flex items-center space-x-2">
@@ -741,7 +741,7 @@
         currentUserProfileImage = null;
         currentSessionId = null;
         if (chatMessagesContainer) chatMessagesContainer.innerHTML = '';
-        if (chatSessionListDiv) chatSessionListDiv.innerHTML = '<p class="text-xs text-gray-500 px-2">ログインすると会話履歴が表示されます。</p>';
+        if (chatSessionListDiv) chatSessionListDiv.innerHTML = '<p class="text-xs text-gray-500 px-2">ログインするとチャット一覧が表示されます。</p>';
         if (folderListDiv) folderListDiv.innerHTML = '<p class="text-xs text-gray-500 px-2">ログインしてください</p>';
     }
 
@@ -1306,7 +1306,7 @@
                     chatSessionListDiv.appendChild(sessionElementContainer);
                 });
             } else {
-                chatSessionListDiv.innerHTML = '<p class="text-xs text-gray-500 px-2">会話履歴はありません。</p>';
+                chatSessionListDiv.innerHTML = '<p class="text-xs text-gray-500 px-2">チャット一覧はありません。</p>';
             }
         } catch (error) {
             console.error("セッション一覧読込エラー:", error);
