@@ -58,6 +58,7 @@ class ChatSessionBase(BaseModel):
     tags: Optional[str] = None
     mode: str = "chat"
     is_complete: bool = True
+    status: Optional[str] = "complete"
 
 class ChatSessionCreate(ChatSessionBase):
     pass
@@ -79,6 +80,7 @@ class ChatSessionResponse(ChatSessionBase):
     updated_at: Optional[datetime] = None
     mode: str
     is_complete: bool
+    status: str
 
     class Config:
         from_attributes = True

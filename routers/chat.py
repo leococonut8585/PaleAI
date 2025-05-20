@@ -40,6 +40,7 @@ async def create_chat_session(
         tags=chat_session_in.tags if hasattr(chat_session_in, 'tags') else None,
         mode='chat',
         is_complete=True,
+        status=chat_session_in.status if hasattr(chat_session_in, 'status') else 'complete',
     )
     db.add(new_session)
     db.commit()
@@ -225,6 +226,7 @@ async def clone_chat_session(
         folder_id=clone_data.folder_id,
         mode=original.mode,
         is_complete=original.is_complete,
+        status='complete',
     )
     db.add(new_session)
     db.commit()
