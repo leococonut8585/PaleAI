@@ -60,7 +60,8 @@ async def _gen_with_sdxl(prompt: str, neg: str) -> bytes:
             "height": 1024,
         }
         print("SDXL request params:", params)
-        return sd_client.run(f"{MODEL_ID}:main", input=params)
+        # Pass the SDXL model ID directly without a tag like :main
+        return sd_client.run(MODEL_ID, input=params)
 
     url = await asyncio.to_thread(_run)
     print("SDXL image URL:", url)
