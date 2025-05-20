@@ -109,10 +109,11 @@ async def generate_and_save(c1_hex: str, c2_hex: str, gender: str, user_id: int)
 
     def _build_prompt(subject: str) -> str:
         return (
-            f"A front-facing {subject} as a profile icon, digital illustration, transparent background. "
-            f"Color palette: vivid {c1_name} and vivid {c2_name}. "
+            f"A front-facing {subject}, digital illustration, transparent background. "
+            f"Vivid {c1_name} and vivid {c2_name} color scheme. "
             f"{gender_desc} "
-            "Simple, clean line art, no text, no watermark, modern and friendly look."
+            "Cute, friendly, playful, soft colors, simple illustration, no text, no watermark, "
+            "no bars, no extra design elements, no shapes, only monkey."
         )
 
     prompt_variants = [
