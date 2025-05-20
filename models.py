@@ -58,6 +58,7 @@ class ChatSession(Base):
     tags = Column(String, nullable=True)
     mode = Column(String, nullable=False, server_default="chat")
     is_complete = Column(Boolean, nullable=False, server_default=text('1'))
+    status = Column(String, nullable=False, server_default="complete")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

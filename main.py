@@ -593,7 +593,7 @@ async def collaborative_answer_mode_endpoint(
             potential_title = "新しいチャット"  # プロンプトが全くない場合
         # ★★★ ここまで ★★★
 
-        active_session = models.ChatSession(user_id=current_user.id, title=potential_title)
+        active_session = models.ChatSession(user_id=current_user.id, title=potential_title, status='loading')
         db.add(active_session)
         db.commit()  # 先にセッションをコミットしてIDを確定させる
         db.refresh(active_session)
@@ -621,7 +621,7 @@ async def collaborative_answer_mode_endpoint(
         session_title = (
             original_prompt[:70].strip() + "..." if len(original_prompt) > 70 else original_prompt.strip()
         )
-        active_session = models.ChatSession(user_id=current_user.id, title=session_title)
+        active_session = models.ChatSession(user_id=current_user.id, title=session_title, status='loading')
         print(
             f"警告: active_sessionが未作成だったため、新規作成します。Title='{active_session.title}'"
         )
@@ -644,6 +644,7 @@ async def collaborative_answer_mode_endpoint(
 
     db.add(user_message_db)
     active_session.updated_at = func.now()  # セッションの最終更新日時を更新
+    active_session.status = 'loading'
     db.add(active_session)  # 明示的に追加して更新をトラッキング
     db.commit()
     db.refresh(user_message_db)
@@ -764,6 +765,7 @@ async def collaborative_answer_mode_endpoint(
                 )
                 db.add(ai_message_db)
                 active_session.updated_at = func.now() # セッション最終更新
+                active_session.status = 'complete'
                 db.add(active_session) # 明示的なadd
                 db.commit()
                 db.refresh(ai_message_db)
@@ -901,6 +903,7 @@ async def run_super_search_mode_flow(
                     )
                     db.add(ai_message_db)
                     active_session.updated_at = func.now()
+                    active_session.status = 'complete'
                     db.commit()
                     db.refresh(ai_message_db)
                     db.refresh(active_session)

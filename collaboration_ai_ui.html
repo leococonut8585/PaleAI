@@ -1208,6 +1208,7 @@
                     const sessionElementContainer = document.createElement('div'); // ★★★ 各セッションのコンテナ ★★★
                     sessionElementContainer.className = 'session-element flex items-center w-full hover:bg-teal-50 rounded-md group';
                     sessionElementContainer.setAttribute('data-session-id', session.id);
+                    sessionElementContainer.setAttribute('data-status', session.status || 'complete');
 
                     sessionElementContainer.draggable = true;
                     sessionElementContainer.addEventListener('dragstart', (e) => {
@@ -1234,6 +1235,11 @@
                         <span class="session-title-text flex-grow truncate" title="${session.title || ''}">${titleText}</span>
                         <span class="text-xs text-gray-400 flex-shrink-0 ml-1">${formattedDate}</span>
                     `;
+                    if (session.status && session.status !== 'complete') {
+                        const sp = document.createElement('span');
+                        sp.className = 'session-loading-spinner';
+                        sessionButton.appendChild(sp);
+                    }
                     sessionButton.addEventListener('click', () => handleSessionSelection(session.id));
 
                     // アクションボタンコンテナ
@@ -1462,6 +1468,12 @@ async function handleSessionSelection(sessionId) {
             newlySelectedButton.classList.add('session-button-active');
         }
 
+        const statusContainer = chatSessionListDiv.querySelector(`.session-element[data-session-id="${sessionId}"]`);
+        if (statusContainer && statusContainer.dataset.status && statusContainer.dataset.status !== 'complete') {
+            if (chatMessagesContainer) chatMessagesContainer.innerHTML = '';
+            displayMessage('回答生成中...', 'system');
+        }
+
 
         currentSessionId = sessionId;
         if (chatMessagesContainer) chatMessagesContainer.innerHTML = ''; // メッセージ表示エリアをクリア
@@ -1588,17 +1600,26 @@ async function handleSessionSelection(sessionId) {
             displayMessage(promptValue, 'user'); // ユーザーのメッセージを先に表示
             promptTextarea.value = ''; // 入力欄をクリア
 
+            if (currentSessionId === null) {
+                try {
+                    const provisional = promptValue.split(/\n/)[0].substring(0, 20) || '新しいチャット';
+                    const createRes = await makeAuthenticatedRequest(API_ENDPOINT_CHAT_SESSIONS, {
+                        method: 'POST',
+                        body: JSON.stringify({ title: provisional, status: 'loading' })
+                    });
+                    if (createRes.ok) {
+                        const newS = await createRes.json();
+                        currentSessionId = newS.id;
+                        await loadChatSessions();
+                    }
+                } catch(e) { console.error('session create error', e); }
+            }
+
             const requestSessionId = currentSessionId;
             const targetKey = requestSessionId !== null ? String(requestSessionId) : 'new';
             if (sessionLoading[targetKey]) { alert('このチャットは応答待ちです。'); return; }
             sessionLoading[targetKey] = true;
             const container = document.querySelector(`.session-element[data-session-id="${requestSessionId}"]`);
-            let spinnerEl = null;
-            if (container) {
-                spinnerEl = document.createElement('span');
-                spinnerEl.className = 'session-loading-spinner';
-                container.appendChild(spinnerEl);
-            }
             if (currentSessionId === requestSessionId && requestSessionId !== null) {
                 loadingIndicator.classList.remove('hidden');
             }
@@ -1690,7 +1711,6 @@ async function handleSessionSelection(sessionId) {
                 displayMessage(`リクエスト処理中にエラーが発生しました: ${error.message}`, 'ai', 'SystemError');
             } finally {
                 sessionLoading[targetKey] = false;
-                if (spinnerEl && spinnerEl.parentNode) spinnerEl.remove();
                 if (requestSessionId !== null && currentSessionId === requestSessionId) {
                     loadingIndicator.classList.add('hidden');
                 }
