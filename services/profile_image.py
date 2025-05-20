@@ -101,19 +101,15 @@ async def generate_and_save(c1_hex: str, c2_hex: str, gender: str, user_id: int)
 
     c1_name = _hex_to_color_name(c1_hex)
     c2_name = _hex_to_color_name(c2_hex)
-    gender_desc = (
-        "With a strong and confident expression." if gender == "男性" else
-        "With a gentle and friendly expression." if gender == "女性" else
-        "With a neutral and approachable expression."
-    )
 
-    def _build_prompt(subject: str) -> str:
+    def _build_prompt(alt: str) -> str:
         return (
-            f"A front-facing {subject}, digital illustration, transparent background. "
-            f"Vivid {c1_name} and vivid {c2_name} color scheme. "
-            f"{gender_desc} "
-            "Cute, friendly, playful, soft colors, simple illustration, no text, no watermark, "
-            "no bars, no extra design elements, no shapes, only monkey."
+            f"A front-facing {alt} cartoon character as a profile icon, digital illustration, transparent background. "
+            "Simple line art with thick black outlines, flat bright colors, minimal shading. "
+            f"{c1_name} and {c2_name} color scheme. "
+            "Visible mechanical parts: arm joints, neck, headband. "
+            "With a cheerful, smiling expression, mouth open. "
+            "Friendly, approachable, playful look. No text, no watermark, no extra shapes or bars, no background."
         )
 
     prompt_variants = [
@@ -122,7 +118,7 @@ async def generate_and_save(c1_hex: str, c2_hex: str, gender: str, user_id: int)
         _build_prompt("monkey character"),
         _build_prompt("animal character"),
     ]
-    neg = "more than 2 colors, gradients, photo, text"
+    neg = "more than 2 colors, gradients, photo, text, watermark, bars, background"
 
     try:
         img_bytes = await _gen_with_dalle_retry(prompt_variants)

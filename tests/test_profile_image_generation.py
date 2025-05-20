@@ -32,7 +32,7 @@ async def test_profile_image_generation_real():
     except Exception as e:
         print(f"DALL\u00b7E generation failed: {e}")
         try:
-            img_bytes = await pi._gen_with_sdxl(prompt, "more than 2 colors, gradients, photo, text")
+            img_bytes = await pi._gen_with_sdxl(prompt, "more than 2 colors, gradients, photo, text, watermark, bars, background")
             print(f"SDXL response bytes: {len(img_bytes)}")
         except Exception as e2:
             print(f"SDXL generation failed: {e2}")
