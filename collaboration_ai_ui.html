@@ -1,0 +1,1968 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pale AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'M PLUS Rounded 1c', sans-serif;
+            background-color: #f0fdfa; /* Tailwind teal-50 */
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+        .session-button-active {
+            background-color: #ccfbf1; /* Tailwind teal-100 */
+            font-weight: 600;
+            color: #0f766e; /* Tailwind teal-700 */
+        }
+        .session-button-active svg {
+            color: #14b8a6; /* Tailwind teal-500 */
+        }
+
+        .qa-container {
+            display: flex;
+            align-items: flex-start;
+            margin-top: 1rem; /* qa-container の上マージン調整 */
+            margin-bottom: 1rem; /* qa-container の下マージン調整 */
+            gap: 0.75rem; /* キャラと吹き出しの間隔を少し詰める */
+        }
+        .character-area {
+            flex-shrink: 0;
+            width: 40px; /* キャラクターアイコンを小さく */
+            height: 40px;
+            margin-top: 0.1rem; /* 吹き出しとの微調整 */
+        }
+        .character-image {
+            max-width: 100%;
+            max-height: 100%;
+            border-radius: 9999px; /* 丸くクリップ */
+            object-fit: cover; /* アイコンが見切れないように cover */
+        }
+        .speech-bubble-card {
+            background-color: white;
+            border-radius: 0.75rem; /* 吹き出しの角丸 */
+            padding: 0.75rem 1rem; /* パディング調整 */
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05); /*影を少し薄く*/
+            position: relative;
+            border-width: 1px; /* 枠線を1pxに */
+            flex-grow: 1;
+        }
+        .speech-bubble-card.user-bubble {
+            background-color: #e0f2fe; /* sky-100 */
+            border-color: #7dd3fc; /* sky-300 */
+        }
+        .speech-bubble-card.ai-bubble {
+            background-color: #f0fdfa; /* teal-50 */
+            border-color: #5eead4; /* teal-300 */
+        }
+
+        /* ユーザー吹き出しのしっぽ */
+        .speech-bubble-card.user-bubble::before {
+            content: ""; position: absolute; top: 10px; left: auto; right: -8px;
+            width: 0; height: 0; border-style: solid;
+            border-width: 8px 0 8px 8px; /* サイズ調整 */
+            border-color: transparent transparent transparent #7dd3fc; /* しっぽの色を枠線に合わせる */
+        }
+        .speech-bubble-card.user-bubble::after {
+            content: ""; position: absolute; top: 11px; left: auto; right: -6px; /* 位置調整 */
+            width: 0; height: 0; border-style: solid;
+            border-width: 7px 0 7px 7px; /* サイズ調整 */
+            border-color: transparent transparent transparent #e0f2fe;/* しっぽの色を背景に合わせる */
+        }
+
+        /* AI吹き出しのしっぽ */
+        .speech-bubble-card.ai-bubble::before {
+            content: ""; position: absolute; top: 10px; left: -8px; right: auto;
+            width: 0; height: 0; border-style: solid;
+            border-width: 8px 8px 8px 0;
+            border-color: transparent #5eead4 transparent transparent;
+        }
+        .speech-bubble-card.ai-bubble::after {
+            content: ""; position: absolute; top: 11px; left: -6px; right: auto;
+            width: 0; height: 0; border-style: solid;
+            border-width: 7px 7px 7px 0;
+            border-color: transparent #f0fdfa transparent transparent;
+        }
+
+        .prose { font-size: 0.9rem; } /* prose全体を少し小さく */
+        .prose pre { margin-top: 0.5em; margin-bottom: 0.5em; }
+        .prose p { margin-top: 0.5em; margin-bottom: 0.5em; }
+        .prose ul, .prose ol { margin-top: 0.5em; margin-bottom: 0.5em; }
+
+        .loader { border: 4px solid #ccfbf1; border-top: 4px solid #14b8a6; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 15px auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* チャットリストのボタンコンテナ */
+        .session-element {
+            position: relative;
+            padding-right: 2rem; /* アクション表示用の余白 */
+        }
+        .session-button-actions {
+            display: none; /* 通常は非表示 */
+            position: absolute;
+            right: 0.25rem;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 20;
+            background-color: rgba(255,255,255,0.9);
+            padding-left: 0.25rem;
+        }
+        .session-element:hover .session-button-actions {
+            display: flex; /* ホバー時に表示 */
+        }
+        .action-button {
+            padding: 0.2rem;
+            margin-left: 0.2rem;
+            border-radius: 0.25rem;
+        }
+        .action-button:hover {
+            background-color: #e0e7ff; /* indigo-100 or gray-200 */
+        }
+        .action-button.delete:hover {
+            background-color: #fee2e2; /* red-100 */
+            color: #ef4444; /* red-500 */
+        }
+        .folder-element.drop-target {
+            background-color: #d1fae5; /* green-100 */
+        }
+        .session-element.dragging {
+            opacity: 0.5;
+        }
+        .session-loading-spinner {
+            border: 2px solid #5eead4;
+            border-top-color: transparent;
+            border-radius: 50%;
+            width: 12px;
+            height: 12px;
+            animation: spin 1s linear infinite;
+            margin-left: 4px;
+        }
+    </style>
+</head>
+<body class="flex h-screen antialiased text-gray-800 bg-slate-100">
+    <div class="flex flex-row h-full w-full overflow-x-hidden">
+
+        <div class="flex flex-col py-8 pl-6 pr-2 w-72 bg-white flex-shrink-0 shadow-lg"> 
+            <div class="flex flex-row items-center justify-center h-12 w-full">
+                <div class="flex items-center justify-center rounded-2xl text-teal-700 bg-teal-100 h-10 w-10">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>
+                    </svg>
+                </div>
+                <div class="ml-2 font-bold text-2xl text-teal-700">Pale AI</div>
+            </div>
+
+            <div id="userInfoArea" class="flex flex-col items-center border border-gray-200 mt-4 w-full py-6 px-4 rounded-lg hidden">
+                <div class="h-16 w-16 rounded-full border overflow-hidden bg-gray-200 flex items-center justify-center text-gray-500 text-2xl" id="userAvatar">?</div>
+                <div class="text-sm font-semibold mt-2" id="userNameDisplay">未ログイン</div>
+                <button id="logoutButton" class="mt-3 text-xs bg-red-500 hover:bg-red-600 text-white py-1 px-3 rounded-md">ログアウト</button>
+            </div>
+            <div id="loginFormArea" class="mt-4 p-4 border border-gray-200 rounded-lg">
+                <h3 class="text-sm font-semibold mb-2 text-gray-700">ログイン</h3>
+                <input type="text" id="loginEmail" placeholder="メールアドレスまたはユーザー名" class="w-full p-2 border border-gray-300 rounded-md mb-2 text-sm">
+                <input type="password" id="loginPassword" placeholder="パスワード" class="w-full p-2 border border-gray-300 rounded-md mb-2 text-sm">
+                <button id="loginButton" class="w-full bg-teal-500 hover:bg-teal-600 text-white py-2 px-4 rounded-md text-sm">ログイン</button>
+                <p class="text-xs text-center mt-2">アカウントがない場合は<a href="#" id="showRegisterLink" class="text-teal-600 hover:underline">登録</a></p>
+            </div>
+            <div id="registerFormArea" class="hidden mt-4 p-4 border border-gray-200 rounded-lg">
+                <h3 class="text-sm font-semibold mb-2 text-gray-700">新規登録</h3>
+                <input type="text" id="registerUsername" placeholder="ユーザー名 (4-20文字)" class="w-full p-2 border border-gray-300 rounded-md mb-2 text-sm">
+                <input type="email" id="registerEmail" placeholder="メールアドレス" class="w-full p-2 border border-gray-300 rounded-md mb-2 text-sm">
+                <input type="password" id="registerPassword" placeholder="パスワード" class="w-full p-2 border border-gray-300 rounded-md mb-2 text-sm">
+                <div class="flex items-center space-x-2 mb-2 text-sm">
+                    <label><input type="radio" name="gender" value="男性" checked> 男性</label>
+                    <label><input type="radio" name="gender" value="女性"> 女性</label>
+                    <label><input type="radio" name="gender" value="その他"> その他</label>
+                </div>
+                <div class="flex items-center justify-center space-x-2 mb-1 text-sm">
+                    <input type="color" id="color1" value="#ff0000" class="w-10 h-8 p-0 border rounded-md">
+                    <input type="color" id="color2" value="#0000ff" class="w-10 h-8 p-0 border rounded-md">
+                </div>
+                <p class="text-xs text-center mb-2">好きな色を2色選択してください</p>
+                <button id="registerButton" class="w-full bg-sky-500 hover:bg-sky-600 text-white py-2 px-4 rounded-md text-sm">登録する</button>
+                <p class="text-xs text-center mt-2">既にアカウントをお持ちの場合は<a href="#" id="showLoginLink" class="text-teal-600 hover:underline">ログイン</a></p>
+            </div>
+            <div id="registerProgress" class="hidden mt-4 p-4 border border-gray-200 rounded-lg text-center">
+                <p class="text-lg font-semibold mb-2">しばらくお待ちください...</p>
+                <div class="border-4 border-t-4 border-gray-200 rounded-full w-8 h-8 mx-auto animate-spin"></div>
+            </div>
+            <div id="registerSuccess" class="hidden mt-4 p-4 border border-gray-200 rounded-lg text-center">
+                <p class="text-lg font-semibold mb-2">登録成功！あなたのメタモンキーが生成されました！</p>
+                <img id="registerSuccessImage" src="" alt="profile" class="mx-auto mb-2 w-32 h-32 object-contain">
+                <button id="registerSuccessLogin" class="bg-teal-500 hover:bg-teal-600 text-white py-2 px-4 rounded-md">早速ログインする</button>
+            </div>
+
+            <div id="globalSearchWrapper" class="mt-4 hidden">
+                <input id="globalSearch" type="text" placeholder="会話を検索" class="w-full p-1 border rounded-md text-xs" />
+                <div id="globalSearchResults" class="mt-2 text-xs max-h-40 overflow-y-auto"></div>
+            </div>
+
+            <div id="folderSection" class="flex flex-col mt-8 hidden">
+                <div class="flex flex-row items-center justify-between text-xs">
+                    <span class="font-bold text-gray-600">フォルダ</span>
+                    <div class="flex items-center space-x-1">
+                        <button id="newFolderButton" class="flex items-center justify-center bg-teal-400 hover:bg-teal-500 text-white h-6 w-6 rounded-full" title="新しいフォルダを作成">+</button>
+                        <span class="text-teal-600 hidden sm:inline">新しいフォルダを作る</span>
+                    </div>
+                </div>
+                <div id="folderList" class="flex flex-col space-y-1 mt-2 -mx-2"></div>
+            </div>
+
+            <div id="sessionSection" class="flex flex-col mt-8 hidden">
+                <div class="flex flex-row items-center justify-between text-xs">
+                    <span class="font-bold text-gray-600">会話履歴</span>
+                    <div class="flex items-center space-x-1">
+                        <button id="newChatButton" class="flex items-center justify-center bg-teal-400 hover:bg-teal-500 text-white h-6 w-6 rounded-full" title="新しいチャットを開始">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+                        </button>
+                        <span class="text-teal-600 hidden sm:inline">新しく会話を始める</span>
+                        <button id="memoryManageButton" class="ml-2 text-teal-600 underline text-xs">メモリ管理</button>
+                    </div>
+                </div>
+                <div id="chatSessionList" class="flex flex-col space-y-1 mt-4 -mx-2 h-[calc(100vh-380px)] overflow-y-auto pr-2"> 
+                </div>
+            </div>
+        </div>
+
+        <div id="chatArea" class="flex flex-col flex-auto h-full p-6 hidden">
+            <div class="flex flex-col flex-auto flex-shrink-0 rounded-2xl bg-white h-full p-4 shadow-md relative">
+                <div class="flex items-center mb-2">
+                    <input id="chatSearch" type="text" placeholder="チャット内検索" class="flex-grow p-1 border rounded-md text-xs hidden" />
+                    <button id="cloneSessionBtn" class="ml-2 bg-sky-400 hover:bg-sky-500 text-white px-2 py-1 rounded text-xs hidden" title="チャット内容を次のチャットに引き継ぐ">引き継ぎ</button>
+                </div>
+                <div id="chatMessagesContainer" class="flex flex-col h-full overflow-y-auto mb-4">
+                </div>
+
+                <div id="loadingIndicator" class="hidden absolute inset-0 bg-white bg-opacity-70 flex flex-col items-center justify-center">
+                    <div class="loader"></div>
+                    <p class="text-teal-700 text-sm mt-2">思考中...</p>
+                </div>
+
+                <div id="videoModeContainer" class="hidden flex flex-col p-3 border rounded bg-gray-100 mb-2 space-y-2">
+                    <textarea id="videoDescription" rows="3" class="w-full p-1 border rounded text-sm" placeholder="動画にしたい内容/ストーリー/シーン分割"></textarea>
+                    <div class="flex flex-wrap items-center gap-2 text-xs">
+                        <label>長さ <input id="videoDuration" type="number" value="10" min="1" max="300" class="p-1 border rounded w-20"></label>
+                        <label>解像度 <select id="videoResolution" class="p-1 border rounded">
+                            <option value="512x512">512p</option>
+                            <option value="1280x720">720p</option>
+                            <option value="1920x1080">1080p</option>
+                            <option value="3840x2160">4K</option>
+                        </select></label>
+                        <label class="flex items-center"><input type="checkbox" id="videoBgm" class="mr-1" checked> BGM</label>
+                        <input id="videoBgmMood" type="text" placeholder="BGMムード" class="p-1 border rounded w-24">
+                        <label class="flex items-center"><input type="checkbox" id="videoNarration" class="mr-1" checked> ナレーション</label>
+                        <select id="videoNarrationLang" class="p-1 border rounded">
+                            <option value="JA" selected>日本語</option>
+                            <option value="EN">English</option>
+                        </select>
+                        <label class="flex items-center"><input type="checkbox" id="videoSubtitles" class="mr-1" checked> 字幕</label>
+                    </div>
+                    <div>
+                        <button id="videoGenerateBtn" class="bg-teal-500 hover:bg-teal-600 text-white px-4 py-2 rounded text-sm">動画生成</button>
+                    </div>
+                    <div id="videoProgress" class="w-full bg-gray-200 rounded h-2 hidden">
+                        <div id="videoProgressBar" class="bg-teal-500 h-2 rounded" style="width:0%"></div>
+                    </div>
+                    <video id="videoPreview" class="hidden mt-2 max-w-full" controls></video>
+                    <a id="videoDownloadLink" class="hidden text-teal-600 underline text-xs mt-1" download>ダウンロード</a>
+                </div>
+
+                <div id="talkModeContainer" class="hidden flex flex-col p-3 border rounded bg-gray-100 mb-2 space-y-2">
+                    <div class="flex flex-wrap items-center gap-2 text-xs mb-1">
+                        <label>入力
+                            <select id="talkInputLang" class="p-1 border rounded"></select>
+                        </label>
+                        <label>出力
+                            <select id="talkOutputLang" class="p-1 border rounded"></select>
+                        </label>
+                        <label class="flex items-center"><input type="radio" name="talkInputMode" value="text" checked class="mr-1">テキスト</label>
+                        <label class="flex items-center"><input type="radio" name="talkInputMode" value="mic" class="mr-1">マイク</label>
+                    </div>
+                    <textarea id="talkInputText" rows="2" class="w-full p-1 border rounded text-sm" placeholder="話す内容を入力..."></textarea>
+                    <button id="talkRecordBtn" class="hidden bg-teal-500 hover:bg-teal-600 text-white px-2 py-1 rounded text-sm">録音</button>
+                    <div>
+                        <button id="talkSendBtn" class="bg-teal-500 hover:bg-teal-600 text-white px-4 py-2 rounded text-sm">トーク送信</button>
+                    </div>
+                    <video id="talkVideo" class="hidden mt-2 max-w-full" controls></video>
+                    <div id="talkSubtitle" class="text-sm mt-1"></div>
+                </div>
+
+                <div id="chatInputRow" class="flex flex-row items-center h-16 rounded-xl bg-gray-50 w-full px-4 shadow-inner">
+                    <div class="mr-3">
+                        <select id="aiMode" class="p-2 border-gray-300 rounded-lg shadow-sm focus:ring-teal-500 focus:border-teal-500 text-sm bg-white">
+                            <option value="balance" selected>バランス</option>
+                            <option value="search3">検索(3段階)</option>
+                            <option value="search6">超検索(6段階)</option>
+                            <option value="code">コード</option>
+                            <option value="writing">執筆</option>
+                            <option value="longwriting">超長文執筆</option>
+                            <option value="fastchat">高速&チャット特化</option>
+                            <option value="imagegen">画像生成</option>
+                            <option value="videogen">動画生成</option>
+                        </select>
+                    </div>
+                    <div class="mr-3 flex items-center space-x-2">
+                        <label class="text-xs flex items-center"><input type="checkbox" id="languageMode" class="mr-1">語学</label>
+                        <label class="text-xs flex items-center"><input type="checkbox" id="autoTranslate" class="mr-1">自動翻訳</label>
+                    </div>
+                    <div class="mr-3 flex items-center">
+                        <input id="charCount" type="number" value="1000" class="p-2 border-gray-300 rounded-lg shadow-sm focus:ring-teal-500 focus:border-teal-500 text-sm w-24 hidden" placeholder="文字数" />
+                        <span id="charCountLabel" class="ml-1 text-sm text-gray-600 hidden">文字以上</span>
+                    </div>
+                    <div id="imageCountWrapper" class="mr-3 hidden">
+                        <select id="imageCount" class="p-2 border-gray-300 rounded-lg shadow-sm focus:ring-teal-500 focus:border-teal-500 text-sm">
+                            <option value="1">1 枚</option>
+                            <option value="2">2 枚</option>
+                            <option value="3">3 枚</option>
+                            <option value="4">4 枚</option>
+                            <option value="5">5 枚</option>
+                            <option value="6">6 枚</option>
+                            <option value="7">7 枚</option>
+                            <option value="8">8 枚</option>
+                            <option value="9">9 枚</option>
+                            <option value="10">10 枚</option>
+                        </select>
+                    </div>
+                    <div class="flex-grow">
+                        <textarea id="prompt" rows="1" class="w-full border rounded-xl focus:outline-none focus:border-teal-500 pl-4 h-10 py-2 resize-none text-sm" placeholder="メッセージを入力..."></textarea>
+                    </div>
+                    <div class="ml-2">
+                        <button id="bulkSendBtn" class="bg-teal-400 hover:bg-teal-500 text-white px-2 py-2 rounded-xl text-xs hidden">一括送信</button>
+                    </div>
+                    <div class="ml-2">
+                        <button id="templateBtn" class="bg-teal-400 hover:bg-teal-500 text-white px-2 py-2 rounded-xl text-xs">テンプレ</button>
+                    </div>
+                    <div class="ml-2">
+                        <button id="submitBtn" class="flex items-center justify-center bg-teal-500 hover:bg-teal-600 rounded-xl text-white px-4 py-2 flex-shrink-0 text-sm">
+                            <span>送信</span>
+                            <span class="ml-2">
+                                <svg class="w-4 h-4 transform rotate-45 -mt-px" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                                </svg>
+                            </span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="bulkSendModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
+        <div class="bg-white rounded-lg p-4 w-80 max-h-[80vh] overflow-y-auto">
+            <h3 class="text-sm font-semibold mb-2">一括送信先を選択</h3>
+            <div id="bulkSendSessionList" class="mb-2 max-h-40 overflow-y-auto text-sm"></div>
+            <div class="mb-2">
+                <label class="text-sm">新規チャット数</label>
+                <select id="bulkNewChatCount" class="p-1 border rounded text-sm ml-2">
+                    <option value="0" selected>0</option>
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                    <option value="5">5</option>
+                </select>
+            </div>
+            <div id="bulkNewChatOptions" class="space-y-1"></div>
+            <div class="flex justify-end space-x-2 mt-3">
+                <button id="bulkSendCancel" class="px-2 py-1 bg-gray-300 hover:bg-gray-400 rounded text-sm">キャンセル</button>
+                <button id="bulkSendExecute" class="px-2 py-1 bg-teal-500 hover:bg-teal-600 text-white rounded text-sm">送信</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="memoryModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
+        <div class="bg-white rounded-lg p-4 w-80 max-h-[80vh] overflow-y-auto">
+            <h3 class="text-sm font-semibold mb-2">メモリ管理</h3>
+            <div id="memoryList" class="mb-2 text-sm max-h-40 overflow-y-auto"></div>
+            <div class="mb-2">
+                <input id="memoryTitle" type="text" placeholder="タイトル" class="w-full p-1 border rounded text-sm mb-1" />
+                <textarea id="memoryContent" rows="3" placeholder="内容" class="w-full p-1 border rounded text-sm"></textarea>
+                <button id="addMemoryBtn" class="mt-1 px-2 py-1 bg-teal-500 hover:bg-teal-600 text-white rounded text-sm">追加</button>
+            </div>
+            <div class="flex justify-end mt-2">
+                <button id="memoryClose" class="px-2 py-1 bg-gray-300 hover:bg-gray-400 rounded text-sm">閉じる</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="templateModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
+        <div class="bg-white rounded-lg p-4 w-80 max-h-[80vh] overflow-y-auto">
+            <h3 class="text-sm font-semibold mb-2">テンプレート一覧</h3>
+            <div id="templateList" class="mb-2 text-sm max-h-40 overflow-y-auto"></div>
+            <div class="mb-2">
+                <input id="templateTitle" type="text" placeholder="タイトル" class="w-full p-1 border rounded text-sm mb-1" />
+                <textarea id="templateContent" rows="3" placeholder="内容" class="w-full p-1 border rounded text-sm"></textarea>
+                <input id="templateCategory" type="text" placeholder="カテゴリ" class="w-full p-1 border rounded text-sm mt-1" />
+                <button id="addTemplateBtn" class="mt-1 px-2 py-1 bg-teal-500 hover:bg-teal-600 text-white rounded text-sm">追加</button>
+            </div>
+            <div class="flex justify-end mt-2">
+                <button id="templateClose" class="px-2 py-1 bg-gray-300 hover:bg-gray-400 rounded text-sm">閉じる</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- talk mode removed -->
+</body>
+
+<script>
+    // --- DOM要素の取得 ---
+    const promptTextarea = document.getElementById('prompt');
+    const submitBtn = document.getElementById('submitBtn');
+    const aiModeSelect = document.getElementById('aiMode');
+    const charCountInput = document.getElementById('charCount');
+    const charCountLabel = document.getElementById('charCountLabel');
+    const imageCountWrapper = document.getElementById('imageCountWrapper');
+    const imageCountSelect = document.getElementById('imageCount');
+    const loadingIndicator = document.getElementById('loadingIndicator');
+    const chatMessagesContainer = document.getElementById('chatMessagesContainer');
+    const chatSearchInput = document.getElementById('chatSearch');
+    const chatSessionListDiv = document.getElementById('chatSessionList'); // ここで chatSessionListDiv を定義
+
+    const loginFormArea = document.getElementById('loginFormArea');
+    const registerFormArea = document.getElementById('registerFormArea');
+    const userInfoArea = document.getElementById('userInfoArea');
+    const loginEmailInput = document.getElementById('loginEmail');
+    const loginPasswordInput = document.getElementById('loginPassword');
+    const loginButton = document.getElementById('loginButton');
+    const registerUsernameInput = document.getElementById('registerUsername');
+    const registerEmailInput = document.getElementById('registerEmail');
+    const registerPasswordInput = document.getElementById('registerPassword');
+    const genderInputs = document.getElementsByName('gender');
+    const color1Input = document.getElementById('color1');
+    const color2Input = document.getElementById('color2');
+    const registerButton = document.getElementById('registerButton');
+    const registerProgress = document.getElementById('registerProgress');
+    const registerSuccess = document.getElementById('registerSuccess');
+    const registerSuccessImage = document.getElementById('registerSuccessImage');
+    const registerSuccessLogin = document.getElementById('registerSuccessLogin');
+    const userNameDisplay = document.getElementById('userNameDisplay');
+    const userAvatar = document.getElementById('userAvatar');
+    const logoutButton = document.getElementById('logoutButton');
+    const showRegisterLink = document.getElementById('showRegisterLink');
+    const showLoginLink = document.getElementById('showLoginLink');
+    const newChatButton = document.getElementById('newChatButton');
+    const newFolderButton = document.getElementById('newFolderButton');
+    const folderListDiv = document.getElementById('folderList');
+    const globalSearchWrapper = document.getElementById('globalSearchWrapper');
+    const globalSearchInput = document.getElementById('globalSearch');
+    const globalSearchResults = document.getElementById('globalSearchResults');
+    const bulkSendBtn = document.getElementById('bulkSendBtn');
+    const cloneSessionBtn = document.getElementById('cloneSessionBtn');
+    const bulkSendModal = document.getElementById('bulkSendModal');
+    const bulkSendSessionList = document.getElementById('bulkSendSessionList');
+    const bulkNewChatCount = document.getElementById('bulkNewChatCount');
+    const bulkNewChatOptions = document.getElementById('bulkNewChatOptions');
+    const bulkSendCancel = document.getElementById('bulkSendCancel');
+    const bulkSendExecute = document.getElementById('bulkSendExecute');
+    const folderSection = document.getElementById('folderSection');
+    const sessionSection = document.getElementById('sessionSection');
+    const chatArea = document.getElementById('chatArea');
+    const memoryManageButton = document.getElementById('memoryManageButton');
+    const memoryModal = document.getElementById('memoryModal');
+    const memoryList = document.getElementById('memoryList');
+    const memoryClose = document.getElementById('memoryClose');
+    const memoryTitleInput = document.getElementById('memoryTitle');
+    const memoryContentInput = document.getElementById('memoryContent');
+    const addMemoryBtn = document.getElementById('addMemoryBtn');
+    const templateBtn = document.getElementById('templateBtn');
+    const templateModal = document.getElementById('templateModal');
+    const templateList = document.getElementById('templateList');
+    const templateClose = document.getElementById('templateClose');
+    const templateTitleInput = document.getElementById('templateTitle');
+    const templateContentInput = document.getElementById('templateContent');
+    const templateCategoryInput = document.getElementById('templateCategory');
+    const addTemplateBtn = document.getElementById('addTemplateBtn');
+    const autoTranslateCheckbox = document.getElementById('autoTranslate');
+    const languageModeCheckbox = document.getElementById('languageMode');
+    const videoModeContainer = document.getElementById('videoModeContainer');
+    const chatInputRow = document.getElementById('chatInputRow');
+    const videoGenerateBtn = document.getElementById('videoGenerateBtn');
+    const videoDescription = document.getElementById('videoDescription');
+    const videoDuration = document.getElementById('videoDuration');
+    const videoResolution = document.getElementById('videoResolution');
+    const videoBgm = document.getElementById('videoBgm');
+    const videoBgmMood = document.getElementById('videoBgmMood');
+    const videoNarration = document.getElementById('videoNarration');
+    const videoNarrationLang = document.getElementById('videoNarrationLang');
+    const videoSubtitles = document.getElementById('videoSubtitles');
+    const videoProgress = document.getElementById('videoProgress');
+    const videoProgressBar = document.getElementById('videoProgressBar');
+    const videoPreview = document.getElementById('videoPreview');
+    const videoDownloadLink = document.getElementById('videoDownloadLink');
+    const talkModeContainer = document.getElementById('talkModeContainer');
+    const talkInputLang = document.getElementById('talkInputLang');
+    const talkOutputLang = document.getElementById('talkOutputLang');
+    const talkInputText = document.getElementById('talkInputText');
+    const talkRecordBtn = document.getElementById('talkRecordBtn');
+    const talkSendBtn = document.getElementById('talkSendBtn');
+    const talkVideo = document.getElementById('talkVideo');
+    const talkSubtitle = document.getElementById('talkSubtitle');
+    const talkInputModeRadios = document.getElementsByName('talkInputMode');
+    const talkStartModal = document.getElementById('talkStartModal');
+    const talkStartInputLang = document.getElementById('talkStartInputLang');
+    const talkStartOutputLang = document.getElementById('talkStartOutputLang');
+    const talkStartYes = document.getElementById('talkStartYes');
+    const talkStartNo = document.getElementById('talkStartNo');
+    const talkStartInputModeRadios = document.getElementsByName('talkStartInputMode');
+
+    function populateLangSelect(select) {
+        select.innerHTML = '';
+        TALK_LANGS.forEach(lang => {
+            const opt = document.createElement('option');
+            opt.value = lang;
+            opt.textContent = lang;
+            select.appendChild(opt);
+        });
+        if (select.id === 'talkInputLang' || select.id === 'talkStartInputLang') {
+            select.value = 'JA';
+        }
+        if (select.id === 'talkOutputLang' || select.id === 'talkStartOutputLang') {
+            select.value = 'JA';
+        }
+    }
+
+    function updateTalkInputMode() {
+        const mode = Array.from(talkInputModeRadios).find(r => r.checked)?.value;
+        if (mode === 'mic') {
+            talkInputText.classList.add('hidden');
+            if (talkRecordBtn) talkRecordBtn.classList.remove('hidden');
+        } else {
+            talkInputText.classList.remove('hidden');
+            if (talkRecordBtn) talkRecordBtn.classList.add('hidden');
+        }
+    }
+
+    function toggleCharCountBox() {
+        if (aiModeSelect.value === 'longwriting') {
+            charCountInput.classList.remove('hidden');
+            if (charCountLabel) charCountLabel.classList.remove('hidden');
+        } else {
+            charCountInput.classList.add('hidden');
+            if (charCountLabel) charCountLabel.classList.add('hidden');
+        }
+        if (aiModeSelect.value === 'imagegen') {
+            imageCountWrapper.classList.remove('hidden');
+        } else {
+            imageCountWrapper.classList.add('hidden');
+        }
+        if (aiModeSelect.value === 'videogen') {
+            videoModeContainer.classList.remove('hidden');
+            talkModeContainer.classList.add('hidden');
+        } else if (aiModeSelect.value === 'talk') {
+            talkModeContainer.classList.remove('hidden');
+            videoModeContainer.classList.add('hidden');
+        } else {
+            videoModeContainer.classList.add('hidden');
+            talkModeContainer.classList.add('hidden');
+        }
+    }
+    function handleAiModeChange() {
+        const mode = aiModeSelect.value;
+        if (mode === 'talk' && !talkModeConfirmed) {
+            aiModeSelect.value = previousAiMode;
+            if (talkStartModal) talkStartModal.classList.remove('hidden');
+            return;
+        }
+        previousAiMode = mode;
+        talkModeConfirmed = false;
+        toggleCharCountBox();
+    }
+    aiModeSelect.addEventListener('change', handleAiModeChange);
+    talkInputModeRadios.forEach(r => r.addEventListener('change', updateTalkInputMode));
+    if (talkRecordBtn) {
+        talkRecordBtn.addEventListener('click', async () => {
+            if (!mediaRecorder) {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    mediaRecorder.ondataavailable = e => recordedChunks.push(e.data);
+                    mediaRecorder.onstop = () => { talkRecordBtn.textContent = '録音'; };
+                } catch (e) {
+                    alert('マイクが使用できません');
+                    return;
+                }
+            }
+            if (mediaRecorder.state === 'inactive') {
+                recordedChunks = [];
+                mediaRecorder.start();
+                talkRecordBtn.textContent = '停止';
+            } else {
+                mediaRecorder.stop();
+                talkRecordBtn.textContent = '録音';
+            }
+        });
+    }
+
+    if (talkStartYes) {
+        talkStartYes.addEventListener('click', () => {
+            talkModeConfirmed = true;
+            populateLangSelect(talkInputLang);
+            populateLangSelect(talkOutputLang);
+            talkInputLang.value = talkStartInputLang.value;
+            talkOutputLang.value = talkStartOutputLang.value;
+            const sel = Array.from(talkStartInputModeRadios).find(r => r.checked)?.value || 'text';
+            talkInputModeRadios.forEach(r => { r.checked = (r.value === sel); });
+            updateTalkInputMode();
+            if (talkStartModal) talkStartModal.classList.add('hidden');
+            aiModeSelect.value = 'talk';
+            previousAiMode = 'talk';
+            toggleCharCountBox();
+        });
+    }
+    if (talkStartNo) {
+        talkStartNo.addEventListener('click', () => {
+            if (talkStartModal) talkStartModal.classList.add('hidden');
+            aiModeSelect.value = previousAiMode;
+            toggleCharCountBox();
+        });
+    }
+
+    // --- APIエンドポイント ---
+    const API_BASE_URL = 'http://127.0.0.1:8000'; // 環境に応じて変更
+    const API_ENDPOINT_COLLABORATIVE_ANSWER = `${API_BASE_URL}/collaborative_answer_v2`;
+    const API_ENDPOINT_REGISTER = `${API_BASE_URL}/auth/register`;
+    const API_ENDPOINT_LOGIN = `${API_BASE_URL}/auth/login`;
+    const API_ENDPOINT_USERS_ME = `${API_BASE_URL}/users/me`;
+    const API_ENDPOINT_CHAT_SESSIONS = `${API_BASE_URL}/chat/sessions`; // routers/chat.py の prefix を反映
+    const API_ENDPOINT_FOLDERS = `${API_BASE_URL}/folders`;
+    const API_ENDPOINT_MEMORY = `${API_BASE_URL}/memory`;
+    const API_ENDPOINT_TEMPLATES = `${API_BASE_URL}/templates`;
+    const API_ENDPOINT_TRANSLATE = `${API_BASE_URL}/translate`;
+    const API_ENDPOINT_IMAGE_GEN = `${API_BASE_URL}/images/generate`;
+    const API_ENDPOINT_VIDEO_GEN = `${API_BASE_URL}/video/generate`;
+    const API_ENDPOINT_TALK_GEN = `${API_BASE_URL}/talk/generate`;
+    const API_ENDPOINT_TALK_UPLOAD = `${API_BASE_URL}/talk/upload_audio`;
+
+    const TALK_LANGS = [
+        'JA','EN','ZH','KO','FR','DE','ES','IT','PT','TR',
+        'UK','AR','HI','CS','SV','RO','FI','EL','DA','HU',
+        'HR','SK','NO','TH','ID','VI','TL','SR','PL','NL'
+    ];
+
+    // --- 状態管理変数 ---
+    let currentSessionId = null;
+    let currentFolderId = 0; // 0: 全て, -1: 未分類, その他: folder id
+    const sessionLoading = {}; // セッションごとの処理中状態
+    let currentUserProfileImage = null;
+    let foldersCache = [];
+    let previousAiMode = aiModeSelect.value;
+    let talkModeConfirmed = false;
+    let mediaRecorder = null;
+    let recordedChunks = [];
+
+    // --- トークン管理 ---
+    function saveToken(token) { localStorage.setItem('paleio_token', token); }
+    function getToken() { return localStorage.getItem('paleio_token'); }
+    function removeToken() { localStorage.removeItem('paleio_token'); }
+
+    // --- 認証付きAPIリクエストヘルパー ---
+    async function makeAuthenticatedRequest(url, options = {}) {
+        const token = getToken();
+        const headers = { ...options.headers };
+        if (!(options.body instanceof FormData) && !headers['Content-Type']) {
+            headers['Content-Type'] = 'application/json';
+        }
+        if (!headers['accept']) {
+            headers['accept'] = 'application/json';
+        }
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+        if (options.body instanceof FormData) { // FormDataの場合はContent-Typeをブラウザに任せる
+            delete headers['Content-Type'];
+        }
+        try {
+            const response = await fetch(url, { ...options, headers });
+            if (response.status === 401) { // Unauthorized
+                console.warn('Unauthorized. Logging out.');
+                handleLogout();
+                alert('認証が切れています。再度ログインしてください。');
+                throw new Error('auth');
+            }
+            if (response.status >= 500) {
+                alert('サーバー内部でエラーが発生しました。時間を置いて再度お試しください。');
+            }
+            return response;
+        } catch (error) {
+            console.error(`API request to ${url} failed:`, error);
+            // ネットワークエラーなどの場合もここでキャッチ
+            throw error; // エラーを再スローして呼び出し元で処理できるようにする
+        }
+    }
+
+    // --- UI更新関数 ---
+    function updateUIAfterLogin(userData) {
+        if (loginFormArea) loginFormArea.classList.add('hidden');
+        if (registerFormArea) registerFormArea.classList.add('hidden');
+        if (userInfoArea) userInfoArea.classList.remove('hidden');
+        if (globalSearchInput) globalSearchWrapper.classList.remove('hidden');
+        if (bulkSendBtn) bulkSendBtn.classList.remove('hidden');
+        if (cloneSessionBtn) cloneSessionBtn.classList.remove('hidden');
+        if (folderSection) folderSection.classList.remove('hidden');
+        if (sessionSection) sessionSection.classList.remove('hidden');
+        if (chatArea) chatArea.classList.remove('hidden');
+        if (chatSearchInput) chatSearchInput.classList.remove('hidden');
+        if (userNameDisplay && userData && userData.username) {
+            userNameDisplay.textContent = userData.username;
+            currentUserProfileImage = userData.profile_image_url || null;
+            if (currentUserProfileImage && currentUserProfileImage.startsWith('/')) {
+                currentUserProfileImage = API_BASE_URL + currentUserProfileImage;
+            }
+            if (currentUserProfileImage) {
+                userAvatar.innerHTML = `<img src="${currentUserProfileImage}" class="w-full h-full object-cover rounded-full"/>`;
+            } else {
+                userAvatar.textContent = userData.username.substring(0, 1).toUpperCase();
+            }
+        }
+        loadFolders();
+        loadChatSessions(); // ログイン後にチャットセッションを読み込む
+    }
+
+    function updateUIAfterLogout() {
+        if (loginFormArea) loginFormArea.classList.remove('hidden');
+        if (registerFormArea) registerFormArea.classList.add('hidden'); // 登録フォームも隠す
+        if (userInfoArea) userInfoArea.classList.add('hidden');
+        if (globalSearchInput) globalSearchWrapper.classList.add('hidden');
+        if (bulkSendBtn) bulkSendBtn.classList.add('hidden');
+        if (cloneSessionBtn) cloneSessionBtn.classList.add('hidden');
+        if (folderSection) folderSection.classList.add('hidden');
+        if (sessionSection) sessionSection.classList.add('hidden');
+        if (chatArea) chatArea.classList.add('hidden');
+        if (chatSearchInput) chatSearchInput.classList.add('hidden');
+        if (userNameDisplay) userNameDisplay.textContent = '未ログイン';
+        if (userAvatar) userAvatar.textContent = '?';
+        currentUserProfileImage = null;
+        currentSessionId = null;
+        if (chatMessagesContainer) chatMessagesContainer.innerHTML = '';
+        if (chatSessionListDiv) chatSessionListDiv.innerHTML = '<p class="text-xs text-gray-500 px-2">ログインすると会話履歴が表示されます。</p>';
+        if (folderListDiv) folderListDiv.innerHTML = '<p class="text-xs text-gray-500 px-2">ログインしてください</p>';
+    }
+
+    function toggleForms(showRegister) {
+        if (showRegister) {
+            if (loginFormArea) loginFormArea.classList.add('hidden');
+            if (registerFormArea) registerFormArea.classList.remove('hidden');
+        } else {
+            if (loginFormArea) loginFormArea.classList.remove('hidden');
+            if (registerFormArea) registerFormArea.classList.add('hidden');
+        }
+    }
+
+    // --- メッセージ表示関数 ---
+    function displayMessage(content, role, aiModelName = null, messageId = null) {
+        if (!chatMessagesContainer) return;
+        const messageWrapper = document.createElement('div');
+        messageWrapper.classList.add('qa-container'); // 簡略化
+        if (messageId) messageWrapper.setAttribute('data-message-id', messageId);
+
+        const characterArea = document.createElement('div');
+        characterArea.classList.add('character-area');
+        const characterImage = document.createElement('img');
+        characterImage.classList.add('character-image');
+
+        const speechBubbleCard = document.createElement('div');
+        speechBubbleCard.classList.add('speech-bubble-card');
+
+        if (role === 'user') {
+            messageWrapper.classList.add('justify-end', 'flex-row-reverse'); // 右寄せ
+            characterImage.src = currentUserProfileImage || 'Pic/デフォルト.png';
+            characterImage.alt = 'User';
+            speechBubbleCard.classList.add('user-bubble');
+        } else if (role === 'ai') {
+            messageWrapper.classList.add('justify-start', 'flex-row'); // 左寄せ
+            characterImage.src = (aiModelName && aiModelName.toLowerCase().includes('error')) ? 'Pic/思考.png' : 'Pic/回答.png'; // 適切なAI画像パス
+            characterImage.alt = aiModelName || 'AI';
+            speechBubbleCard.classList.add('ai-bubble');
+        } else { // system message
+            const simpleMessageDiv = document.createElement('div');
+            simpleMessageDiv.classList.add('text-xs', 'text-gray-500', 'italic', 'text-center', 'my-2', 'w-full', 'py-1', 'px-3', 'bg-gray-100', 'rounded');
+            simpleMessageDiv.innerHTML = marked.parse(content); // marked.jsでパース
+            chatMessagesContainer.appendChild(simpleMessageDiv);
+            chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
+            return;
+        }
+
+        const contentDiv = document.createElement('div');
+        contentDiv.classList.add('prose', 'prose-sm', 'max-w-none'); // proseクラスでマークダウン表示
+        contentDiv.innerHTML = marked.parse(content); // marked.jsでパース
+
+        if (role === 'ai') {
+            const transBtn = document.createElement('button');
+            transBtn.className = 'text-xs text-blue-600 underline mt-2';
+            transBtn.textContent = 'この返答をDeepLで翻訳';
+            const transDiv = document.createElement('div');
+            transDiv.className = 'text-xs text-gray-600 mt-1';
+            transBtn.addEventListener('click', async () => {
+                transDiv.textContent = '翻訳中...';
+                try {
+                    const res = await makeAuthenticatedRequest(API_ENDPOINT_TRANSLATE, {
+                        method: 'POST',
+                        body: JSON.stringify({ text: contentDiv.textContent, target_lang: 'JA' })
+                    });
+                    if (res.ok) { const data = await res.json(); transDiv.textContent = data.translated_text; } else { transDiv.textContent = '翻訳失敗'; }
+                } catch (e) { transDiv.textContent = '翻訳エラー'; }
+            });
+            speechBubbleCard.appendChild(transBtn);
+            speechBubbleCard.appendChild(transDiv);
+            if (autoTranslateCheckbox && autoTranslateCheckbox.checked) transBtn.click();
+        }
+        if (role === 'user' && autoTranslateCheckbox && autoTranslateCheckbox.checked) {
+            const userTransDiv = document.createElement('div');
+            userTransDiv.className = 'text-xs text-gray-600 mt-1';
+            speechBubbleCard.appendChild(userTransDiv);
+            (async () => {
+                userTransDiv.textContent = '翻訳中...';
+                try {
+                    const r = await makeAuthenticatedRequest(API_ENDPOINT_TRANSLATE, {
+                        method: 'POST',
+                        body: JSON.stringify({ text: contentDiv.textContent, target_lang: 'JA' })
+                    });
+                    if (r.ok) { const d = await r.json(); userTransDiv.textContent = d.translated_text; } else { userTransDiv.textContent = '翻訳失敗'; }
+                } catch (e) { userTransDiv.textContent = '翻訳エラー'; }
+            })();
+        }
+
+        speechBubbleCard.appendChild(contentDiv);
+        characterArea.appendChild(characterImage);
+        messageWrapper.appendChild(characterArea);
+        messageWrapper.appendChild(speechBubbleCard);
+        chatMessagesContainer.appendChild(messageWrapper);
+        chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight; // 自動スクロール
+    }
+
+
+    // --- フォルダ一覧表示関連 ---
+    async function loadFolders() {
+        if (!getToken()) {
+            if (folderListDiv) folderListDiv.innerHTML = '<p class="text-xs text-gray-500 px-2">ログインしてください</p>';
+            return;
+        }
+        if (!folderListDiv) return;
+        folderListDiv.innerHTML = '<p class="text-xs text-gray-500 px-2">読込中...</p>';
+        try {
+            const res = await makeAuthenticatedRequest(API_ENDPOINT_FOLDERS, { method: 'GET' });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({ detail: 'フォルダ一覧の取得失敗' }));
+                throw new Error(err.detail);
+            }
+            const folders = await res.json();
+            foldersCache = folders;
+            folderListDiv.innerHTML = '';
+            const allDiv = document.createElement('div');
+            allDiv.className = 'folder-element flex items-center w-full hover:bg-teal-50 rounded-md group';
+            allDiv.addEventListener('dragover', (e) => { e.preventDefault(); allDiv.classList.add('drop-target'); });
+            allDiv.addEventListener('dragleave', () => { allDiv.classList.remove('drop-target'); });
+            allDiv.addEventListener('drop', (e) => {
+                e.preventDefault();
+                allDiv.classList.remove('drop-target');
+                const sid = e.dataTransfer.getData('text/plain');
+                if (sid) moveSessionToFolder(sid, 0);
+            });
+            const allBtn = document.createElement('button');
+            allBtn.className = 'flex-grow px-3 py-1 text-sm text-left text-gray-700 focus:outline-none';
+            allBtn.textContent = 'すべて';
+            allBtn.addEventListener('click', () => handleFolderSelection(0));
+            allDiv.appendChild(allBtn);
+            folderListDiv.appendChild(allDiv);
+
+            const unassignedDiv = document.createElement('div');
+            unassignedDiv.className = 'folder-element flex items-center w-full hover:bg-teal-50 rounded-md group';
+            unassignedDiv.addEventListener('dragover', (e) => { e.preventDefault(); unassignedDiv.classList.add('drop-target'); });
+            unassignedDiv.addEventListener('dragleave', () => { unassignedDiv.classList.remove('drop-target'); });
+            unassignedDiv.addEventListener('drop', (e) => {
+                e.preventDefault();
+                unassignedDiv.classList.remove('drop-target');
+                const sid = e.dataTransfer.getData('text/plain');
+                if (sid) moveSessionToFolder(sid, 0);
+            });
+            const noneBtn = document.createElement('button');
+            noneBtn.className = 'flex-grow px-3 py-1 text-sm text-left text-gray-700 focus:outline-none';
+            noneBtn.textContent = '未分類';
+            noneBtn.addEventListener('click', () => handleFolderSelection(-1));
+            unassignedDiv.appendChild(noneBtn);
+            folderListDiv.appendChild(unassignedDiv);
+
+            folders.forEach(folder => {
+                const container = document.createElement('div');
+                container.className = 'folder-element flex items-center w-full hover:bg-teal-50 rounded-md group';
+                container.dataset.folderId = folder.id;
+                container.addEventListener('dragover', (e) => { e.preventDefault(); container.classList.add('drop-target'); });
+                container.addEventListener('dragleave', () => { container.classList.remove('drop-target'); });
+                container.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    container.classList.remove('drop-target');
+                    const sid = e.dataTransfer.getData('text/plain');
+                    if (sid) moveSessionToFolder(sid, folder.id);
+                });
+                const btn = document.createElement('button');
+                btn.className = 'flex-grow px-3 py-1 text-sm text-left text-gray-700 focus:outline-none';
+                btn.textContent = folder.name;
+                btn.addEventListener('click', () => handleFolderSelection(folder.id));
+                const actions = document.createElement('div');
+                actions.className = 'folder-button-actions flex items-center pr-2';
+                const editBtn = document.createElement('button');
+                editBtn.className = 'edit-folder-btn action-button text-gray-500 hover:text-blue-600';
+                editBtn.textContent = '✏';
+                editBtn.title = '名称変更';
+                editBtn.addEventListener('click', (e) => { e.stopPropagation(); handleEditFolder(folder.id, folder.name); });
+                const delBtn = document.createElement('button');
+                delBtn.className = 'delete-folder-btn action-button text-gray-500 hover:text-red-600 delete';
+                delBtn.textContent = '🗑';
+                delBtn.title = '削除';
+                delBtn.addEventListener('click', (e) => { e.stopPropagation(); handleDeleteFolder(folder.id, folder.name); });
+                actions.appendChild(editBtn);
+                actions.appendChild(delBtn);
+                container.appendChild(btn);
+                container.appendChild(actions);
+                folderListDiv.appendChild(container);
+            });
+        } catch (error) {
+            console.error('フォルダ一覧読込エラー:', error);
+            if (error.message !== 'auth') {
+                folderListDiv.innerHTML = `<p class="text-xs text-red-500 px-2">読み込み失敗</p>`;
+            }
+        }
+    }
+
+    async function handleEditFolder(folderId, currentName) {
+        const newName = prompt('新しいフォルダ名を入力してください:', currentName);
+        if (newName && newName.trim() !== '' && newName !== currentName) {
+            try {
+                const res = await makeAuthenticatedRequest(`${API_ENDPOINT_FOLDERS}/${folderId}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ name: newName.trim() })
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({ detail: '更新失敗' }));
+                    throw new Error(err.detail);
+                }
+                await loadFolders();
+            } catch (error) {
+                if (error.message !== 'auth') {
+                    alert(`フォルダ更新エラー: ${error.message}`);
+                }
+            }
+        }
+    }
+
+    async function handleDeleteFolder(folderId, folderName) {
+        if (confirm(`フォルダ「${folderName}」を削除しますか？`)) {
+            try {
+                const res = await makeAuthenticatedRequest(`${API_ENDPOINT_FOLDERS}/${folderId}`, { method: 'DELETE' });
+                if (res.status === 204 || res.ok) {
+                    await loadFolders();
+                    await loadChatSessions();
+                } else {
+                    const err = await res.json().catch(() => ({ detail: '削除失敗' }));
+                    throw new Error(err.detail);
+                }
+            } catch (error) {
+                if (error.message !== 'auth') {
+                    alert(`フォルダ削除エラー: ${error.message}`);
+                }
+            }
+        }
+    }
+
+    function handleFolderSelection(folderId) {
+        currentFolderId = folderId;
+        loadChatSessions();
+    }
+
+    if (globalSearchInput) {
+        globalSearchInput.addEventListener('input', async () => {
+            const q = globalSearchInput.value.trim();
+            if (q.length < 2) { if(globalSearchResults) globalSearchResults.innerHTML=''; return; }
+            try {
+                const res = await makeAuthenticatedRequest(`${API_BASE_URL}/chat/search?q=${encodeURIComponent(q)}`, { method: 'GET' });
+                if (!res.ok) throw new Error('検索失敗');
+                const results = await res.json();
+                if (globalSearchResults) {
+                    globalSearchResults.innerHTML = '';
+                    results.forEach(r => {
+                        const item = document.createElement('div');
+                        item.className = 'p-1 hover:bg-teal-50 cursor-pointer';
+                        item.textContent = `${r.content.slice(0,40)}...`;
+                        item.addEventListener('click', () => {
+                            handleSessionSelection(r.session_id).then(() => highlightMessage(r.message_id));
+                            globalSearchResults.innerHTML='';
+                        });
+                        globalSearchResults.appendChild(item);
+                    });
+                }
+            } catch (e) {
+                console.error('検索エラー', e);
+            }
+        });
+    }
+
+    if (bulkSendBtn) {
+        bulkSendBtn.addEventListener('click', async () => {
+            const promptValue = promptTextarea.value.trim();
+            if (!promptValue) { alert('プロンプトを入力してください。'); return; }
+            if (!getToken()) { alert('この機能を利用するにはログインが必要です。'); return; }
+            await openBulkSendModal(promptValue);
+        });
+    }
+
+    let bulkPromptValue = '';
+    async function populateBulkSendSessions() {
+        if (!bulkSendSessionList) return;
+        bulkSendSessionList.innerHTML = '<p class="text-xs text-gray-500">読込中...</p>';
+        try {
+            const res = await makeAuthenticatedRequest(API_ENDPOINT_CHAT_SESSIONS, { method: 'GET' });
+            if (!res.ok) throw new Error('取得失敗');
+            const sessions = await res.json();
+            bulkSendSessionList.innerHTML = '';
+            sessions.forEach(s => {
+                const label = document.createElement('label');
+                label.className = 'flex items-center space-x-1 mb-1';
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.value = s.id;
+                const span = document.createElement('span');
+                span.textContent = s.title || `セッション ${s.id}`;
+                label.appendChild(cb);
+                label.appendChild(span);
+                bulkSendSessionList.appendChild(label);
+            });
+        } catch (e) {
+            console.error(e);
+            bulkSendSessionList.innerHTML = '<p class="text-xs text-red-500">取得失敗</p>';
+        }
+    }
+
+    function updateBulkNewChatOptions() {
+        if (!bulkNewChatOptions) return;
+        const count = parseInt(bulkNewChatCount.value || '0');
+        bulkNewChatOptions.innerHTML = '';
+        for (let i = 0; i < count; i++) {
+            const row = document.createElement('div');
+            row.className = 'flex items-center space-x-1';
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.placeholder = `タイトル${i + 1}`;
+            input.className = 'flex-grow p-1 border rounded text-xs';
+            const select = document.createElement('select');
+            select.className = 'p-1 border rounded text-xs';
+            select.innerHTML = '<option value="">未分類</option>';
+            foldersCache.forEach(f => {
+                const opt = document.createElement('option');
+                opt.value = f.id;
+                opt.textContent = f.name;
+                select.appendChild(opt);
+            });
+            row.appendChild(input);
+            row.appendChild(select);
+            bulkNewChatOptions.appendChild(row);
+        }
+    }
+
+    async function openBulkSendModal(promptValue) {
+        bulkPromptValue = promptValue;
+        await populateBulkSendSessions();
+        if (bulkNewChatCount) bulkNewChatCount.value = '0';
+        updateBulkNewChatOptions();
+        if (bulkSendModal) bulkSendModal.classList.remove('hidden');
+    }
+
+    if (bulkNewChatCount) bulkNewChatCount.addEventListener('change', updateBulkNewChatOptions);
+    if (bulkSendCancel) bulkSendCancel.addEventListener('click', () => { if(bulkSendModal) bulkSendModal.classList.add('hidden'); });
+    if (bulkSendExecute) bulkSendExecute.addEventListener('click', async () => {
+        const selectedIds = Array.from(bulkSendSessionList.querySelectorAll('input[type="checkbox"]:checked')).map(cb => parseInt(cb.value));
+        for (const sid of selectedIds) {
+            try {
+                const bodyData = { prompt: bulkPromptValue, mode: aiModeSelect.value, session_id: sid };
+                if (aiModeSelect.value === 'longwriting') {
+                    bodyData.char_count = parseInt(charCountInput.value || '0');
+                }
+                await makeAuthenticatedRequest(API_ENDPOINT_COLLABORATIVE_ANSWER, {
+                    method: 'POST',
+                    body: JSON.stringify(bodyData)
+                });
+            } catch (e) { console.error('一括送信エラー', e); }
+        }
+        const count = parseInt(bulkNewChatCount.value || '0');
+        const inputs = bulkNewChatOptions.querySelectorAll('input');
+        const selects = bulkNewChatOptions.querySelectorAll('select');
+        for (let i = 0; i < count; i++) {
+            let newId = null;
+            const title = inputs[i].value || `新規チャット${i + 1}`;
+            try {
+                const res = await makeAuthenticatedRequest(API_ENDPOINT_CHAT_SESSIONS, {
+                    method: 'POST',
+                    body: JSON.stringify({ title })
+                });
+                if (res.ok) { const data = await res.json(); newId = data.id; }
+            } catch (e) { console.error('新規チャット作成エラー', e); }
+            const fid = selects[i].value;
+            if (newId && fid) await moveSessionToFolder(newId, parseInt(fid));
+            if (newId) {
+                try {
+                    const bodyDataNew = { prompt: bulkPromptValue, mode: aiModeSelect.value, session_id: newId };
+                    if (aiModeSelect.value === 'longwriting') {
+                        bodyDataNew.char_count = parseInt(charCountInput.value || '0');
+                    }
+                    await makeAuthenticatedRequest(API_ENDPOINT_COLLABORATIVE_ANSWER, {
+                        method: 'POST',
+                        body: JSON.stringify(bodyDataNew)
+                    });
+                } catch (e) { console.error('一括送信エラー', e); }
+            }
+        }
+        if (bulkSendModal) bulkSendModal.classList.add('hidden');
+        alert('送信しました');
+        await loadChatSessions();
+    });
+
+    if (cloneSessionBtn) {
+        cloneSessionBtn.addEventListener('click', async () => {
+            if (!currentSessionId) { alert('複製するチャットを選択してください'); return; }
+            const title = prompt('新しいチャットタイトル', '');
+            const folderId = prompt('フォルダID (空で未分類)', '');
+            try {
+                const res = await makeAuthenticatedRequest(`${API_BASE_URL}/chat/sessions/${currentSessionId}/clone`, {
+                    method: 'POST',
+                    body: JSON.stringify({ title: title || null, folder_id: folderId ? parseInt(folderId) : null })
+                });
+                if (res.ok) { await loadChatSessions(); alert('引き継ぎました'); }
+            } catch (e) { console.error('引き継ぎエラー', e); }
+        });
+    }
+
+    if (chatSearchInput) {
+        chatSearchInput.addEventListener('input', () => {
+            const q = chatSearchInput.value.trim();
+            const msgs = chatMessagesContainer.querySelectorAll('.qa-container');
+            msgs.forEach(m => m.classList.remove('bg-yellow-100'));
+            if (!q) return;
+            for (const m of msgs) {
+                if (m.textContent.includes(q)) {
+                    m.classList.add('bg-yellow-100');
+                    m.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    break;
+                }
+            }
+        });
+    }
+
+    if (newFolderButton) {
+        newFolderButton.addEventListener('click', async () => {
+            const name = prompt('新しいフォルダ名を入力してください:');
+            if (name && name.trim() !== '') {
+                try {
+                    const res = await makeAuthenticatedRequest(API_ENDPOINT_FOLDERS, {
+                        method: 'POST',
+                        body: JSON.stringify({ name: name.trim() })
+                    });
+                    if (!res.ok) {
+                        const err = await res.json().catch(() => ({ detail: 'フォルダ作成失敗' }));
+                        throw new Error(err.detail);
+                    }
+                    await loadFolders();
+                } catch (error) {
+                    if (error.message !== 'auth') {
+                        alert(`フォルダ作成エラー: ${error.message}`);
+                    }
+                }
+            }
+        });
+    }
+
+
+    // --- チャットセッション一覧表示関連 ---
+    async function loadChatSessions() {
+        if (!getToken()) {
+            if (chatSessionListDiv) chatSessionListDiv.innerHTML = '<p class="text-xs text-gray-500 px-2">ログインしてください</p>';
+            return;
+        }
+        if (!chatSessionListDiv) return;
+        chatSessionListDiv.innerHTML = '<p class="text-xs text-gray-500 px-2">履歴読込中...</p>'; // 読込中メッセージ
+
+        try {
+            const response = await makeAuthenticatedRequest(API_ENDPOINT_CHAT_SESSIONS, { method: 'GET' });
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({ detail: 'セッション一覧の取得失敗' }));
+                throw new Error(err.detail);
+            }
+            let sessions = await response.json();
+            chatSessionListDiv.innerHTML = '';
+
+            if (currentFolderId === -1) {
+                sessions = sessions.filter(s => !s.folder_id);
+            } else if (currentFolderId > 0) {
+                sessions = sessions.filter(s => s.folder_id === currentFolderId);
+            }
+
+            if (sessions && sessions.length > 0) {
+                sessions.sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at));
+
+                sessions.forEach(session => {
+                    const sessionElementContainer = document.createElement('div'); // ★★★ 各セッションのコンテナ ★★★
+                    sessionElementContainer.className = 'session-element flex items-center w-full hover:bg-teal-50 rounded-md group';
+                    sessionElementContainer.setAttribute('data-session-id', session.id);
+
+                    sessionElementContainer.draggable = true;
+                    sessionElementContainer.addEventListener('dragstart', (e) => {
+                        e.dataTransfer.setData('text/plain', session.id);
+                        sessionElementContainer.classList.add('dragging');
+                    });
+                    sessionElementContainer.addEventListener('dragend', () => {
+                        sessionElementContainer.classList.remove('dragging');
+                    });
+
+                    const sessionButton = document.createElement('button');
+                    sessionButton.className = 'flex items-center flex-grow px-3 py-2 text-sm text-left text-gray-700 focus:outline-none transition-colors duration-150 ease-in-out';
+                    if (session.id === currentSessionId) {
+                        sessionButton.classList.add('session-button-active');
+                    }
+
+                    const iconSvg = `<svg class="w-4 h-4 mr-2 flex-shrink-0 text-gray-400 group-hover:text-teal-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z"></path></svg>`;
+                    const titleText = session.title ? (session.title.length > 15 ? session.title.substring(0, 12) + '...' : session.title) : `セッション ${session.id}`;
+                    const updatedAt = new Date(session.updated_at || session.created_at); // updated_at がなければ created_at
+                    const formattedDate = `${updatedAt.toLocaleDateString('ja-JP', { month: '2-digit', day: '2-digit' })} ${updatedAt.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`;
+
+                    sessionButton.innerHTML = `
+                        ${iconSvg}
+                        <span class="session-title-text flex-grow truncate" title="${session.title || ''}">${titleText}</span>
+                        <span class="text-xs text-gray-400 flex-shrink-0 ml-1">${formattedDate}</span>
+                    `;
+                    sessionButton.addEventListener('click', () => handleSessionSelection(session.id));
+
+                    // アクションボタンコンテナ
+                    const actionsDiv = document.createElement('div');
+                    actionsDiv.className = 'session-button-actions flex items-center pr-2'; // 通常は非表示、ホバーで表示はCSSで
+
+                    // 編集ボタン
+                    const editBtn = document.createElement('button');
+                    editBtn.className = 'edit-session-title-btn action-button text-gray-500 hover:text-blue-600';
+                    editBtn.innerHTML = '✏️';
+                    editBtn.title = "タイトル編集";
+                    editBtn.dataset.sessionId = session.id;
+                    editBtn.addEventListener('click', (e) => {
+                        e.stopPropagation(); // 親のセッション選択イベントを発火させない
+                        handleEditTitle(session.id, session.title);
+                    });
+
+                    // 削除ボタン
+                    const deleteBtn = document.createElement("button");
+                    deleteBtn.className = "delete-session-btn action-button text-gray-500 hover:text-red-600 delete";
+                    deleteBtn.innerHTML = "🗑";
+                    deleteBtn.title = "削除";
+                    deleteBtn.dataset.sessionId = session.id;
+                    deleteBtn.addEventListener("click", (e) => {
+                        e.stopPropagation();
+                        handleDeleteSession(session.id, session.title);
+                    });
+
+                    const moveBtn = document.createElement("button");
+                    moveBtn.className = "move-session-btn action-button text-gray-500 hover:text-teal-600";
+                    moveBtn.innerHTML = "📂";
+                    moveBtn.title = "フォルダ移動";
+                    moveBtn.addEventListener("click", (e) => {
+                        e.stopPropagation();
+                        handleMoveSession(session.id, session.folder_id);
+                    });
+
+                    const starBtn = document.createElement('button');
+                    starBtn.className = 'star-session-btn action-button text-gray-500 hover:text-yellow-500';
+                    starBtn.innerHTML = session.starred ? '★' : '☆';
+                    starBtn.title = 'スター';
+                    starBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        handleToggleStar(session.id, !session.starred);
+                    });
+
+                    const tagBtn = document.createElement('button');
+                    tagBtn.className = 'tag-session-btn action-button text-gray-500 hover:text-green-600';
+                    tagBtn.innerHTML = '🏷';
+                    tagBtn.title = 'タグ';
+                    tagBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        handleEditTags(session.id, session.tags || '');
+                    });
+
+                    actionsDiv.appendChild(editBtn);
+                    actionsDiv.appendChild(deleteBtn);
+                    actionsDiv.appendChild(moveBtn);
+                    actionsDiv.appendChild(starBtn);
+                    actionsDiv.appendChild(tagBtn);
+
+                    sessionElementContainer.appendChild(sessionButton);
+                    sessionElementContainer.appendChild(actionsDiv);
+                    chatSessionListDiv.appendChild(sessionElementContainer);
+                });
+            } else {
+                chatSessionListDiv.innerHTML = '<p class="text-xs text-gray-500 px-2">会話履歴はありません。</p>';
+            }
+        } catch (error) {
+            console.error("セッション一覧読込エラー:", error);
+            if (error.message !== 'auth' && chatSessionListDiv) {
+                chatSessionListDiv.innerHTML = `<p class="text-xs text-red-500 px-2">履歴の読み込みに失敗しました。</p>`;
+            }
+        }
+    }
+
+    async function handleEditTitle(sessionId, currentTitle) {
+        const newTitle = prompt("新しいチャットタイトルを入力してください:", currentTitle);
+        if (newTitle && newTitle.trim() !== "" && newTitle !== currentTitle) {
+            try {
+                const response = await makeAuthenticatedRequest(`${API_ENDPOINT_CHAT_SESSIONS}/${sessionId}/title`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ title: newTitle.trim() })
+                });
+                if (!response.ok) {
+                    const err = await response.json().catch(() => ({ detail: 'タイトル更新失敗' }));
+                    throw new Error(err.detail);
+                }
+                await loadChatSessions(); // リストを再描画して更新を反映
+                alert('タイトルを更新しました。');
+            } catch (error) {
+                console.error('タイトル更新エラー:', error);
+                if (error.message !== 'auth') {
+                    alert(`タイトル更新エラー: ${error.message}`);
+                }
+            }
+        }
+    }
+
+    async function handleDeleteSession(sessionId, sessionTitle) {
+        if (confirm(`セッション「${sessionTitle || sessionId}」を削除しますか？この操作は元に戻せません。`)) {
+            try {
+                const response = await makeAuthenticatedRequest(`${API_ENDPOINT_CHAT_SESSIONS}/${sessionId}`, {
+                    method: 'DELETE'
+                });
+                // DELETEは204 No Contentを返すことが多い
+                if (response.status === 204 || response.ok) {
+                    if (currentSessionId === sessionId) { // 削除したのが現在のセッションならクリア
+                        currentSessionId = null;
+                        if (chatMessagesContainer) chatMessagesContainer.innerHTML = '';
+                        displayMessage('チャットセッションが削除されました。', 'system');
+                    }
+                    await loadChatSessions(); // リストを再描画
+                    alert('セッションを削除しました。');
+                } else {
+                    const err = await response.json().catch(() => ({ detail: 'セッション削除失敗' }));
+                    throw new Error(err.detail);
+                }
+            } catch (error) {
+                console.error('セッション削除エラー:', error);
+                if (error.message !== 'auth') {
+                    alert(`セッション削除エラー: ${error.message}`);
+                }
+            }
+        }
+    }
+
+async function handleMoveSession(sessionId, currentFolder) {
+        try {
+            const res = await makeAuthenticatedRequest(API_ENDPOINT_FOLDERS, { method: 'GET' });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({ detail: 'フォルダ一覧取得失敗' }));
+                throw new Error(err.detail);
+}
+
+async function handleToggleStar(sessionId, value) {
+    try {
+        const res = await makeAuthenticatedRequest(`${API_ENDPOINT_CHAT_SESSIONS}/${sessionId}/star`, {
+            method: 'PUT',
+            body: JSON.stringify({ starred: value })
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({ detail: 'スター更新失敗' }));
+            throw new Error(err.detail);
+        }
+        await loadChatSessions();
+    } catch (error) {
+        if (error.message !== 'auth') {
+            alert(`スター更新エラー: ${error.message}`);
+        }
+    }
+}
+
+async function handleEditTags(sessionId, currentTags) {
+    const newTags = prompt('タグをカンマ区切りで入力してください:', currentTags);
+    if (newTags === null) return;
+    try {
+        const res = await makeAuthenticatedRequest(`${API_ENDPOINT_CHAT_SESSIONS}/${sessionId}/tags`, {
+            method: 'PUT',
+            body: JSON.stringify({ tags: newTags })
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({ detail: 'タグ更新失敗' }));
+            throw new Error(err.detail);
+        }
+        await loadChatSessions();
+    } catch (error) {
+        if (error.message !== 'auth') {
+            alert(`タグ更新エラー: ${error.message}`);
+        }
+    }
+}
+            const folders = await res.json();
+            let promptMsg = '移動先フォルダIDを入力:\n0: すべて\n-1: 未分類\n';
+            folders.forEach(f => { promptMsg += `${f.id}: ${f.name}\n`; });
+            const input = prompt(promptMsg, currentFolder !== null ? currentFolder : -1);
+            if (input === null) return;
+            const target = parseInt(input);
+            if (isNaN(target)) { alert('無効な入力です'); return; }
+            const moveRes = await makeAuthenticatedRequest(`${API_ENDPOINT_FOLDERS}/${target}/sessions/${sessionId}`, { method: 'PUT' });
+            if (!moveRes.ok) {
+                const err2 = await moveRes.json().catch(() => ({ detail: '移動失敗' }));
+                throw new Error(err2.detail);
+            }
+            await loadChatSessions();
+        } catch (error) {
+            if (error.message !== 'auth') {
+                alert(`フォルダ移動エラー: ${error.message}`);
+            }
+        }
+    }
+
+    async function moveSessionToFolder(sessionId, folderId) {
+        try {
+            const moveRes = await makeAuthenticatedRequest(`${API_ENDPOINT_FOLDERS}/${folderId}/sessions/${sessionId}`, { method: 'PUT' });
+            if (!moveRes.ok) {
+                const err2 = await moveRes.json().catch(() => ({ detail: '移動失敗' }));
+                throw new Error(err2.detail);
+            }
+            await loadChatSessions();
+        } catch (error) {
+            if (error.message !== 'auth') {
+                alert(`フォルダ移動エラー: ${error.message}`);
+            }
+        }
+    }
+
+async function handleSessionSelection(sessionId) {
+        // セッションIDが数値でない場合は処理中断 (予期せぬ動作を防ぐ)
+        if (isNaN(parseInt(sessionId))) {
+            console.warn("無効なセッションIDが選択されました:", sessionId);
+            return;
+        }
+        sessionId = parseInt(sessionId); // 数値に変換
+
+        // 既に選択されているセッションで、かつメッセージが表示されていれば何もしない
+        if (currentSessionId === sessionId && chatMessagesContainer.childElementCount > 1 && !chatMessagesContainer.innerHTML.includes('読込中...')) {
+            return;
+        }
+
+        const allSessionElements = chatSessionListDiv.querySelectorAll('.session-element > button');
+        allSessionElements.forEach(btn => btn.classList.remove('session-button-active'));
+
+        const newlySelectedButton = chatSessionListDiv.querySelector(`.session-element[data-session-id="${sessionId}"] > button`);
+        if (newlySelectedButton) {
+            newlySelectedButton.classList.add('session-button-active');
+        }
+
+
+        currentSessionId = sessionId;
+        if (chatMessagesContainer) chatMessagesContainer.innerHTML = ''; // メッセージ表示エリアをクリア
+        displayMessage(`セッション ${sessionId} のメッセージを読込中...`, 'system');
+
+        try {
+            // routers/chat.py の get_chat_session_messages を呼び出す
+            const response = await makeAuthenticatedRequest(`${API_ENDPOINT_CHAT_SESSIONS}/${sessionId}/messages`, { method: 'GET' });
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({ detail: `メッセージの取得に失敗しました (セッションID: ${sessionId})` }));
+                throw new Error(err.detail);
+            }
+            const messages = await response.json();
+            if (chatMessagesContainer) chatMessagesContainer.innerHTML = ''; // 再度クリア
+
+            if (messages && messages.length > 0) {
+                messages.forEach(msg => displayMessage(msg.content, msg.role, msg.ai_model, msg.id));
+            } else {
+                displayMessage(`この会話にはまだメッセージがありません。`, 'system');
+            }
+        } catch (error) {
+            console.error(`メッセージ読込エラー (SessionID: ${sessionId}):`, error);
+            if (chatMessagesContainer) chatMessagesContainer.innerHTML = ''; // エラー時もクリア
+            if (error.message !== 'auth') {
+                displayMessage(`メッセージの読み込みに失敗しました: ${error.message}`, 'system');
+            }
+        }
+    }
+
+    function highlightMessage(messageId) {
+        const target = document.querySelector(`[data-message-id="${messageId}"]`);
+        if (target) {
+            target.classList.add('bg-yellow-100');
+            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            setTimeout(() => target.classList.remove('bg-yellow-100'), 2000);
+        }
+    }
+
+
+    // --- イベントリスナーと関連処理 (ログイン、登録、ログアウトなど) ---
+    if (loginButton) {
+        loginButton.addEventListener('click', async () => {
+            const email = loginEmailInput.value; const password = loginPasswordInput.value;
+            if (!email || !password) { alert('メールアドレスまたはユーザー名とパスワードを入力してください。'); return; }
+            try {
+                const formData = new FormData(); // FastAPIのOAuth2PasswordRequestFormはFormDataを期待
+                formData.append('username', email); // FastAPIのOAuth2PasswordRequestFormは'username'キーを期待
+                formData.append('password', password);
+                // Content-Type は fetch が FormData の場合自動設定するので不要
+                const response = await fetch(API_ENDPOINT_LOGIN, { method: 'POST', body: formData });
+                if (!response.ok) {
+                    const err = await response.json().catch(()=>({detail:'ログインに失敗しました。メールアドレスまたはパスワードを確認してください。'}));
+                    throw new Error(err.detail);
+                }
+                const tokenData = await response.json();
+                saveToken(tokenData.access_token);
+                await fetchCurrentUserAndSetupUI(); // ログイン成功後にUI更新とセッション読み込み
+            } catch (error) {
+                console.error('ログインエラー:', error);
+                alert(error.message);
+            }
+        });
+    }
+    if (registerButton) {
+        registerButton.addEventListener('click', () => {
+            const username = registerUsernameInput.value;
+            const email = registerEmailInput.value;
+            const password = registerPasswordInput.value;
+            const gender = Array.from(genderInputs).find(r => r.checked)?.value;
+            const color1 = color1Input.value;
+            const color2 = color2Input.value;
+            if (!username || username.length < 4 || username.length > 20) { alert('ユーザー名は4〜20文字で入力してください'); return; }
+            if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { alert('正しいメールアドレスを入力してください'); return; }
+            if (!password || password.length < 8) { alert('パスワードは8文字以上で入力してください'); return; }
+            if (!gender) { alert('性別を選択してください'); return; }
+            sessionStorage.setItem('pendingRegistration', JSON.stringify({ username, email, password, gender, color1, color2 }));
+            window.location.href = 'register_progress.html';
+        });
+    }
+
+    if (logoutButton) { logoutButton.addEventListener('click', handleLogout); }
+    function handleLogout() { removeToken(); updateUIAfterLogout(); }
+
+    if (showRegisterLink) { showRegisterLink.addEventListener('click', (e) => { e.preventDefault(); toggleForms(true); }); }
+    if (showLoginLink) { showLoginLink.addEventListener('click', (e) => { e.preventDefault(); toggleForms(false); }); }
+
+    async function fetchCurrentUserAndSetupUI() {
+        const token = getToken();
+        if (!token) {
+            updateUIAfterLogout();
+            return;
+        }
+        try {
+            const response = await makeAuthenticatedRequest(API_ENDPOINT_USERS_ME, { method: 'GET' });
+            if (!response.ok) { // makeAuthenticatedRequest内で401は処理されるが、念のため
+                throw new Error('ユーザー情報の取得に失敗しました。');
+            }
+            const userData = await response.json();
+            updateUIAfterLogin(userData);
+        } catch (error) {
+            console.warn(error.message); // トークン切れなどの場合
+            handleLogout(); // ユーザー情報取得失敗時はログアウト扱い
+        }
+    }
+    
+    // --- プロンプト送信処理 ---
+    if (submitBtn) {
+        submitBtn.addEventListener('click', async () => {
+            const promptValue = promptTextarea.value.trim();
+            let sendPrompt = promptValue;
+            if (languageModeCheckbox && languageModeCheckbox.checked) {
+                try {
+                    const trRes = await makeAuthenticatedRequest(API_ENDPOINT_TRANSLATE, {
+                        method: 'POST',
+                        body: JSON.stringify({ text: promptValue, target_lang: 'EN' })
+                    });
+                    if (trRes.ok) { const d = await trRes.json(); sendPrompt = d.translated_text; }
+                } catch (e) { console.error('翻訳失敗', e); }
+            }
+            if (!promptValue) { alert('プロンプトを入力してください。'); return; }
+            if (!getToken()) { alert('チャット機能を利用するにはログインが必要です。'); return; }
+
+            const selectedMode = aiModeSelect.value;
+            displayMessage(promptValue, 'user'); // ユーザーのメッセージを先に表示
+            promptTextarea.value = ''; // 入力欄をクリア
+
+            const requestSessionId = currentSessionId;
+            const targetKey = requestSessionId !== null ? String(requestSessionId) : 'new';
+            if (sessionLoading[targetKey]) { alert('このチャットは応答待ちです。'); return; }
+            sessionLoading[targetKey] = true;
+            const container = document.querySelector(`.session-element[data-session-id="${requestSessionId}"]`);
+            let spinnerEl = null;
+            if (container) {
+                spinnerEl = document.createElement('span');
+                spinnerEl.className = 'session-loading-spinner';
+                container.appendChild(spinnerEl);
+            }
+            if (currentSessionId === requestSessionId && requestSessionId !== null) {
+                loadingIndicator.classList.remove('hidden');
+            }
+
+            try {
+                let response;
+                if (selectedMode === 'imagegen') {
+                    const count = parseInt(imageCountSelect.value || '1');
+                    response = await makeAuthenticatedRequest(API_ENDPOINT_IMAGE_GEN, {
+                        method: 'POST',
+                        body: JSON.stringify({ prompt: sendPrompt, count })
+                    });
+                } else {
+                    const requestBody = {
+                        prompt: sendPrompt,
+                        mode: selectedMode,
+                        session_id: currentSessionId
+                    };
+                    if (selectedMode === 'longwriting') {
+                        requestBody.char_count = parseInt(charCountInput.value || '0');
+                    }
+                    response = await makeAuthenticatedRequest(API_ENDPOINT_COLLABORATIVE_ANSWER, {
+                        method: 'POST',
+                        body: JSON.stringify(requestBody)
+                    });
+                }
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ detail: `サーバーエラーが発生しました (${response.status})` }));
+                    throw new Error(errorData.detail || `サーバーエラー (${response.status})`);
+                }
+                const data = await response.json();
+                if (selectedMode === 'imagegen') {
+                    console.log('image data:', data);
+                    if (data.urls && data.urls.length > 0) {
+                        const imgs = data.urls.map(u => `<img src="${u}" class="max-w-xs mr-2 mb-2">`).join('');
+                        displayMessage(imgs, 'ai', 'Image');
+                    } else {
+                        displayMessage(data.error || '画像生成に失敗しました', 'ai', 'AIError');
+                    }
+                } else {
+                    console.log("サーバーからの応答 (/collaborative_answer_v2):", data); // デバッグ用
+
+                    if (data.overall_error) {
+                        displayMessage(`全体エラー: ${data.overall_error}`, 'ai', 'SystemError');
+                    } else if (data.search_mode_details && data.search_mode_details.length > 0) {
+                        data.search_mode_details.forEach((item) => {
+                            let header = `<strong>${item.source}</strong>`;
+                        if (item.query) header += `<br>クエリ: ${item.query}`;
+                        if (item.intent) header += `<br>観点: ${item.intent}`;
+                        if (item.response) {
+                            let body = `${header}<br>${item.response}`;
+                            if (item.links && item.links.length > 0) {
+                                const linksHtml = item.links.map(l => `<a href="${l}" target="_blank" class="text-blue-600 underline break-all">${l}</a>`).join('<br>');
+                                body += `<br><div class="mt-2 p-2 bg-gray-50 rounded">${linksHtml}</div>`;
+                            }
+                            displayMessage(body, 'ai', item.source);
+                        } else if (item.error) {
+                            displayMessage(`エラー (${item.source}): ${item.error}`, 'ai', 'AIError');
+                        }
+                    });
+                } else if (data.step7_final_answer_v2_openai && data.step7_final_answer_v2_openai.response) {
+                    displayMessage(data.step7_final_answer_v2_openai.response, 'ai', data.step7_final_answer_v2_openai.source || 'AI');
+                } else if (data.step7_final_answer_v2_openai && data.step7_final_answer_v2_openai.error) {
+                    displayMessage(`エラー (${data.step7_final_answer_v2_openai.source || 'AI'}): ${data.step7_final_answer_v2_openai.error}`, 'ai', 'AIError');
+                } else {
+                    displayMessage('AIから有効な応答がありませんでした。レスポンスデータを確認してください。', 'ai', 'System');
+                }
+                    // セッションIDの更新とリスト再読み込み
+                    if (data.processed_session_id && currentSessionId !== data.processed_session_id) {
+                        currentSessionId = data.processed_session_id;
+                        console.log("新しいチャットセッションIDが設定されました:", currentSessionId);
+                        await loadChatSessions();
+                        const allSessionElements = chatSessionListDiv.querySelectorAll('.session-element > button');
+                        allSessionElements.forEach(btn => btn.classList.remove('session-button-active'));
+                        const newlyActiveButton = chatSessionListDiv.querySelector(`.session-element[data-session-id="${currentSessionId}"] > button`);
+                        if (newlyActiveButton) newlyActiveButton.classList.add('session-button-active');
+                    } else if (currentSessionId) {
+                        await loadChatSessions();
+                    } else if (!currentSessionId && data.processed_session_id) {
+                        currentSessionId = data.processed_session_id;
+                        await loadChatSessions();
+                    }
+                }
+
+
+            } catch (error) {
+                console.error('リクエストエラー:', error);
+                displayMessage(`リクエスト処理中にエラーが発生しました: ${error.message}`, 'ai', 'SystemError');
+            } finally {
+                sessionLoading[targetKey] = false;
+                if (spinnerEl && spinnerEl.parentNode) spinnerEl.remove();
+                if (requestSessionId !== null && currentSessionId === requestSessionId) {
+                    loadingIndicator.classList.add('hidden');
+                }
+            }
+        });
+    }
+
+    if (videoGenerateBtn) {
+        videoGenerateBtn.addEventListener('click', async () => {
+            const desc = videoDescription.value.trim();
+            if (!desc) { alert('テキスト説明を入力してください。'); return; }
+            if (!getToken()) { alert('この機能を利用するにはログインが必要です。'); return; }
+            videoProgressBar.style.width = '0%';
+            videoProgress.classList.remove('hidden');
+            loadingIndicator.classList.remove('hidden');
+            try {
+                videoProgressBar.style.width = '30%';
+                const body = {
+                    prompt: desc,
+                    duration: parseInt(videoDuration.value || '10'),
+                    resolution: videoResolution.value,
+                    bgm: videoBgm.checked,
+                    narration_lang: videoNarration.checked ? videoNarrationLang.value : '',
+                    subtitles: videoSubtitles.checked
+                };
+                const res = await makeAuthenticatedRequest(API_ENDPOINT_VIDEO_GEN, {
+                    method: 'POST',
+                    body: JSON.stringify(body)
+                });
+                if (!res.ok) throw new Error('生成に失敗しました');
+                videoProgressBar.style.width = '70%';
+                const data = await res.json();
+                if (data.video_url) {
+                    videoPreview.src = data.video_url;
+                    videoPreview.classList.remove('hidden');
+                    videoDownloadLink.href = data.video_url;
+                    videoDownloadLink.classList.remove('hidden');
+                }
+                videoProgressBar.style.width = '100%';
+            } catch (e) {
+                console.error('video generation error', e);
+                videoProgressBar.style.width = '100%';
+            } finally {
+                loadingIndicator.classList.add('hidden');
+            }
+        });
+    }
+
+    if (talkSendBtn) {
+        talkSendBtn.addEventListener('click', async () => {
+            const mode = Array.from(talkInputModeRadios).find(r => r.checked)?.value || 'text';
+            let text = talkInputText.value.trim();
+            let audioUrl = null;
+            if (mode === 'mic') {
+                if (recordedChunks.length === 0) { alert('録音がありません'); return; }
+                const blob = new Blob(recordedChunks, { type: 'audio/webm' });
+                const fd = new FormData();
+                fd.append('file', blob, 'recording.webm');
+                const upRes = await makeAuthenticatedRequest(API_ENDPOINT_TALK_UPLOAD, { method: 'POST', body: fd });
+                if (!upRes.ok) { alert('音声アップロード失敗'); return; }
+                const upData = await upRes.json();
+                audioUrl = upData.url;
+                text = '';
+                recordedChunks = [];
+            }
+            if (!text && !audioUrl) { alert('テキストを入力してください。'); return; }
+            if (!getToken()) { alert('この機能を利用するにはログインが必要です。'); return; }
+            if (text) displayMessage(text, 'user');
+            talkInputText.value = '';
+            loadingIndicator.classList.remove('hidden');
+            try {
+                const body = {
+                    text,
+                    audio_url: audioUrl,
+                    input_lang: talkInputLang.value,
+                    target_lang: talkOutputLang.value,
+                    session_id: currentSessionId
+                };
+                const res = await makeAuthenticatedRequest(API_ENDPOINT_TALK_GEN, {
+                    method: 'POST',
+                    body: JSON.stringify(body)
+                });
+                if (!res.ok) throw new Error('生成に失敗しました');
+                const data = await res.json();
+                if (data.video_url) {
+                    talkVideo.src = data.video_url;
+                    talkVideo.classList.remove('hidden');
+                }
+                if (data.subtitle) {
+                    talkSubtitle.textContent = data.subtitle;
+                }
+                let aiHtml = '';
+                if (data.video_url) aiHtml += `<video src="${data.video_url}" class="max-w-xs" controls></video>`;
+                if (data.subtitle) aiHtml += `<div class="mt-1 text-sm">${data.subtitle}</div>`;
+                displayMessage(aiHtml || '応答なし', 'ai', 'Talk');
+                if (data.session_id && currentSessionId !== data.session_id) {
+                    currentSessionId = data.session_id;
+                    await loadChatSessions();
+                } else if (currentSessionId) {
+                    await loadChatSessions();
+                }
+            } catch (e) {
+                console.error('talk mode error', e);
+                displayMessage('トーク生成に失敗しました', 'ai', 'AIError');
+            } finally {
+                loadingIndicator.classList.add('hidden');
+            }
+        });
+    }
+
+    // --- 初期化処理 ---
+    document.addEventListener('DOMContentLoaded', () => {
+        const prefill = sessionStorage.getItem('prefillEmail');
+        if (prefill && loginEmailInput) {
+            loginEmailInput.value = prefill;
+            sessionStorage.removeItem('prefillEmail');
+        }
+        fetchCurrentUserAndSetupUI(); // ページ読み込み時にユーザー情報を確認・UIセットアップ
+        loadFolders();
+        populateLangSelect(talkInputLang);
+        populateLangSelect(talkOutputLang);
+        populateLangSelect(talkStartInputLang);
+        populateLangSelect(talkStartOutputLang);
+        updateTalkInputMode();
+        toggleCharCountBox();
+
+        if (newChatButton) {
+            newChatButton.addEventListener('click', async () => {
+                if (!getToken()) { alert('この機能を利用するにはログインが必要です。'); return; }
+                currentSessionId = null; // 新規チャットなので現在のセッションIDをクリア
+                if (chatMessagesContainer) chatMessagesContainer.innerHTML = ''; // メッセージ表示エリアをクリア
+                displayMessage('新しいチャットが開始されました。メッセージをどうぞ。', 'system');
+
+                // チャットリストのアクティブ表示を解除
+                const activeSessionButton = chatSessionListDiv.querySelector('.session-button-active');
+                if (activeSessionButton) activeSessionButton.classList.remove('session-button-active');
+
+                // 新規チャットセッションをバックエンドに作成するリクエスト (タイトルは空で良い)
+                // (この部分は、最初のプロンプト送信時に /collaborative_answer_v2 で
+                //  session_id=null として送ればバックエンドで新規作成されるので、
+                //  ここでは必ずしもAPIを叩く必要はないかもしれない。
+                //  ただし、明示的に空のセッションを作りたい場合は以下のようにする)
+                /*
+                try {
+                    const response = await makeAuthenticatedRequest(API_ENDPOINT_CHAT_SESSIONS, {
+                        method: 'POST',
+                        body: JSON.stringify({ title: "新しいチャット" }) // 初期タイトル
+                    });
+                    if (!response.ok) throw new Error('新規チャットの作成に失敗しました。');
+                    const newSession = await response.json();
+                    currentSessionId = newSession.id;
+                    await loadChatSessions(); // リストを更新して新しいセッションを表示
+                    handleSessionSelection(newSession.id); // 新しいセッションを選択状態にする
+                } catch (error) {
+                    console.error("新規チャット作成エラー:", error);
+                    alert(error.message);
+                }
+                */
+            });
+        }
+        // Enterキーでの送信
+        if(promptTextarea) {
+            promptTextarea.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault(); // デフォルトの改行動作をキャンセル
+                    submitBtn.click();    // 送信ボタンのクリックイベントを発火
+                }
+            });
+        }
+
+        async function loadMemory() {
+            if (!getToken()) { memoryList.innerHTML = '<p class="text-xs text-gray-500">ログインしてください</p>'; return; }
+            memoryList.innerHTML = '<p class="text-xs text-gray-500">読込中...</p>';
+            try {
+                const res = await makeAuthenticatedRequest(API_ENDPOINT_MEMORY, { method: 'GET' });
+                if (!res.ok) throw new Error('取得失敗');
+                const data = await res.json();
+                memoryList.innerHTML = '';
+                data.forEach(m => {
+                    const div = document.createElement('div');
+                    div.className = 'flex justify-between items-center border-b py-1';
+                    const span = document.createElement('span');
+                    span.textContent = m.title;
+                    const del = document.createElement('button');
+                    del.className = 'text-red-500 text-xs';
+                    del.textContent = '削除';
+                    del.addEventListener('click', async () => {
+                        await makeAuthenticatedRequest(`${API_ENDPOINT_MEMORY}/${m.id}`, { method: 'DELETE' });
+                        loadMemory();
+                    });
+                    div.appendChild(span);
+                    div.appendChild(del);
+                    memoryList.appendChild(div);
+                });
+            } catch (e) { memoryList.innerHTML = '<p class="text-xs text-red-500">読み込み失敗</p>'; }
+        }
+
+        if(memoryManageButton){
+            memoryManageButton.addEventListener('click', () => { if(memoryModal) memoryModal.classList.remove('hidden'); loadMemory(); });
+        }
+        if(memoryClose){
+            memoryClose.addEventListener('click', () => { if(memoryModal) memoryModal.classList.add('hidden'); });
+        }
+        if(addMemoryBtn){
+            addMemoryBtn.addEventListener('click', async () => {
+                const title = memoryTitleInput.value.trim();
+                const content = memoryContentInput.value.trim();
+                if(!title || !content) return;
+                await makeAuthenticatedRequest(API_ENDPOINT_MEMORY, { method:'POST', body: JSON.stringify({ title, content }) });
+                memoryTitleInput.value = '';
+                memoryContentInput.value = '';
+                loadMemory();
+            });
+        }
+
+        async function loadTemplates() {
+            if (!getToken()) { templateList.innerHTML = '<p class="text-xs text-gray-500">ログインしてください</p>'; return; }
+            templateList.innerHTML = '<p class="text-xs text-gray-500">読込中...</p>';
+            try {
+                const res = await makeAuthenticatedRequest(API_ENDPOINT_TEMPLATES, { method: 'GET' });
+                if (!res.ok) throw new Error('取得失敗');
+                const data = await res.json();
+                templateList.innerHTML = '';
+                data.forEach(t => {
+                    const div = document.createElement('div');
+                    div.className = 'flex justify-between items-center border-b py-1';
+                    const span = document.createElement('span');
+                    span.textContent = t.title;
+                    const actions = document.createElement('div');
+                    const adopt = document.createElement('button');
+                    adopt.className = 'text-teal-500 text-xs mr-1';
+                    adopt.textContent = '採用';
+                    adopt.addEventListener('click', () => {
+                        if(promptTextarea) promptTextarea.value = t.content;
+                        if(templateModal) templateModal.classList.add('hidden');
+                        if(promptTextarea) promptTextarea.focus();
+                    });
+                    const del = document.createElement('button');
+                    del.className = 'text-red-500 text-xs';
+                    del.textContent = '削除';
+                    del.addEventListener('click', async () => {
+                        await makeAuthenticatedRequest(`${API_ENDPOINT_TEMPLATES}/${t.id}`, { method: 'DELETE' });
+                        loadTemplates();
+                    });
+                    actions.appendChild(adopt);
+                    actions.appendChild(del);
+                    div.appendChild(span);
+                    div.appendChild(actions);
+                    templateList.appendChild(div);
+                });
+            } catch (e) { templateList.innerHTML = '<p class="text-xs text-red-500">読み込み失敗</p>'; }
+        }
+
+        if(templateBtn){
+            templateBtn.addEventListener('click', () => { if(templateModal) templateModal.classList.remove('hidden'); loadTemplates(); });
+        }
+        if(templateClose){
+            templateClose.addEventListener('click', () => { if(templateModal) templateModal.classList.add('hidden'); });
+        }
+        if(addTemplateBtn){
+            addTemplateBtn.addEventListener('click', async () => {
+                const title = templateTitleInput.value.trim();
+                const content = templateContentInput.value.trim();
+                const category = templateCategoryInput.value.trim();
+                if(!title || !content) return;
+                await makeAuthenticatedRequest(API_ENDPOINT_TEMPLATES, { method:'POST', body: JSON.stringify({ title, content, category }) });
+                templateTitleInput.value = '';
+                templateContentInput.value = '';
+                templateCategoryInput.value = '';
+                loadTemplates();
+            });
+        }
+    });
+</script>
+</html>
