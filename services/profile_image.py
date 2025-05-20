@@ -30,7 +30,8 @@ logger = logging.getLogger(__name__)
 
 
 async def _gen_with_dalle(prompt: str) -> bytes:
-    print("DALL·E prompt:", prompt)
+    # Log the actual prompt used for this API call
+    print("実際に使ったプロンプト:", prompt)
     params = {
         "model": "dall-e-3",
         "prompt": prompt,
@@ -40,13 +41,37 @@ async def _gen_with_dalle(prompt: str) -> bytes:
         "style": "vivid",
     }
     print("DALL·E request params:", params)
-    resp = await openai_client.images.generate(**params)
-    print("DALL·E raw response:", resp)
-    url = resp.data[0].url
-    print("DALL·E image URL:", url)
-    async with httpx.AsyncClient() as cx:
-        content = (await cx.get(url)).content
-    return content
+    try:
+        resp = await openai_client.images.generate(**params)
+        print("APIレスポンスやエラー:", resp)
+        print("DALL·E raw response:", resp)
+        url = resp.data[0].url
+        print("DALL·E image URL:", url)
+        async with httpx.AsyncClient() as cx:
+            content = (await cx.get(url)).content
+        return content
+    except Exception as e:
+        # Log the error before re-raising so retries can inspect it
+        print("APIレスポンスやエラー:", e)
+        raise
+
+
+async def _gen_with_dalle_retry(prompts: list[str]) -> bytes:
+    """Try multiple prompts in order, softening the wording on invalid request errors."""
+    last_error: Exception | None = None
+    for i, p in enumerate(prompts):
+        try:
+            return await _gen_with_dalle(p)
+        except Exception as e:
+            last_error = e
+            code = getattr(e, "code", "")
+            status = getattr(e, "status_code", None)
+            if i < len(prompts) - 1 and (
+                code == "invalid_request_error" or status == 400
+            ):
+                # Soften the prompt and try again
+                continue
+            raise
 
 
 async def _gen_with_sdxl(prompt: str, neg: str) -> bytes:
@@ -77,26 +102,34 @@ async def generate_and_save(c1_hex: str, c2_hex: str, gender: str, user_id: int)
     c1_name = _hex_to_color_name(c1_hex)
     c2_name = _hex_to_color_name(c2_hex)
     gender_desc = (
-        "Strong and bold impression." if gender == "男性" else
-        "Soft and gentle impression." if gender == "女性" else
-        "Neutral impression."
+        "With a strong and confident expression." if gender == "男性" else
+        "With a gentle and friendly expression." if gender == "女性" else
+        "With a neutral and approachable expression."
     )
 
-    prompt = (
-        "A front-facing cyborg monkey mascot, transparent background. "
-        f"Color palette: vivid {c1_name} and vivid {c2_name}. "
-        "Cartoon style, simple, clean line art. "
-        f"{gender_desc}"
-    )
+    def _build_prompt(subject: str) -> str:
+        return (
+            f"A front-facing {subject} as a profile icon, digital illustration, transparent background. "
+            f"Color palette: vivid {c1_name} and vivid {c2_name}. "
+            f"{gender_desc} "
+            "Simple, clean line art, no text, no watermark, modern and friendly look."
+        )
+
+    prompt_variants = [
+        _build_prompt("cyborg monkey mascot"),
+        _build_prompt("monkey mascot"),
+        _build_prompt("monkey character"),
+        _build_prompt("animal character"),
+    ]
     neg = "more than 2 colors, gradients, photo, text"
 
     try:
-        img_bytes = await _gen_with_dalle(prompt)
+        img_bytes = await _gen_with_dalle_retry(prompt_variants)
     except Exception as e:
         logger.warning(f"DALL·E failed, fallback to SDXL: {e}")
         print("DALL·E error:", e)
         try:
-            img_bytes = await _gen_with_sdxl(prompt, neg)
+            img_bytes = await _gen_with_sdxl(prompt_variants[0], neg)
         except Exception as e2:
             logger.error(f"SDXL also failed: {e2}")
             print("SDXL error:", e2)
