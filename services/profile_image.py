@@ -7,6 +7,25 @@ import asyncio
 from utils.openai_client import openai_client
 from utils.sd_client import sd_client, MODEL_ID
 
+# Mapping of common hex color codes to English color names
+_COLOR_MAP = {
+    "#ff0000": "red",
+    "#0000ff": "blue",
+    "#00ff00": "green",
+    "#ffff00": "yellow",
+    "#ff00ff": "magenta",
+    "#00ffff": "cyan",
+    "#000000": "black",
+    "#ffffff": "white",
+    "#ffa500": "orange",
+    "#800080": "purple",
+}
+
+
+def _hex_to_color_name(hex_code: str) -> str:
+    """Return a simple English color name for a hex code."""
+    return _COLOR_MAP.get(hex_code.lower(), "a custom color")
+
 logger = logging.getLogger(__name__)
 
 
@@ -54,10 +73,19 @@ async def _gen_with_sdxl(prompt: str, neg: str) -> bytes:
 async def generate_and_save(c1_hex: str, c2_hex: str, gender: str, user_id: int) -> None:
     """Generate a profile image via DALL·E 3 with SDXL fallback and save it."""
 
+    c1_name = _hex_to_color_name(c1_hex)
+    c2_name = _hex_to_color_name(c2_hex)
+    gender_desc = (
+        "Strong and bold impression." if gender == "男性" else
+        "Soft and gentle impression." if gender == "女性" else
+        "Neutral impression."
+    )
+
     prompt = (
-        f"Front-facing cyborg monkey avatar, transparent background. "
-        f"Use ONLY these two hex colors {c1_hex} and {c2_hex}. "
-        + ("Strong and bold." if gender == 'male' else "Soft and gentle." if gender == 'female' else "Neutral.")
+        "A front-facing cyborg monkey mascot, transparent background. "
+        f"Color palette: vivid {c1_name} and vivid {c2_name}. "
+        "Cartoon style, simple, clean line art. "
+        f"{gender_desc}"
     )
     neg = "more than 2 colors, gradients, photo, text"
 
