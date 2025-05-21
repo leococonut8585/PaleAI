@@ -551,12 +551,15 @@
     const talkStartNo = document.getElementById('talkStartNo');
     const talkStartInputModeRadios = document.getElementsByName('talkStartInputMode');
 
+    // Videos to display while the AI is "thinking"
     const THINKING_VIDEOS = ['/static/movie/ThinkMovie1.mp4', '/static/movie/ThinkMovie2.mp4'];
 
     function showThinkingVideo() {
         if (!thinkingVideo) return;
         const src = THINKING_VIDEOS[Math.floor(Math.random() * THINKING_VIDEOS.length)];
         thinkingVideo.src = src;
+        thinkingVideo.loop = true;
+        thinkingVideo.muted = true;
         thinkingVideo.classList.remove('hidden');
         thinkingVideo.play();
     }
