@@ -518,6 +518,34 @@
     const addTemplateBtn = document.getElementById('addTemplateBtn');
     const autoTranslateCheckbox = document.getElementById('autoTranslate');
     const languageModeCheckbox = document.getElementById('languageMode');
+
+    const thinkingVideos = ['/static/movie/ThinkMovie1.mp4', '/static/movie/ThinkMovie2.mp4'];
+
+    function showThinkingVideo() {
+        if (!loadingIndicator) return;
+        let video = loadingIndicator.querySelector('video.thinking-video');
+        if (!video) {
+            video = document.createElement('video');
+            video.className = 'thinking-video mt-2';
+            video.style.maxWidth = '180px';
+            video.style.display = 'block';
+            video.style.margin = '0 auto';
+            video.autoplay = true;
+            video.loop = true;
+            video.muted = true;
+            video.playsInline = true;
+            loadingIndicator.appendChild(video);
+        }
+        const src = thinkingVideos[Math.floor(Math.random() * thinkingVideos.length)];
+        video.src = src;
+        video.classList.remove('hidden');
+    }
+
+    function hideThinkingVideo() {
+        if (!loadingIndicator) return;
+        const video = loadingIndicator.querySelector('video.thinking-video');
+        if (video) video.remove();
+    }
     const videoModeContainer = document.getElementById('videoModeContainer');
     const chatInputRow = document.getElementById('chatInputRow');
     const videoGenerateBtn = document.getElementById('videoGenerateBtn');
@@ -1678,6 +1706,7 @@ function highlightMessage(messageId) {
             const container = document.querySelector(`.session-element[data-session-id="${requestSessionId}"]`);
             if (currentSessionId === requestSessionId && requestSessionId !== null) {
                 loadingIndicator.classList.remove('hidden');
+                showThinkingVideo();
             }
 
             try {
@@ -1768,6 +1797,7 @@ function highlightMessage(messageId) {
             } finally {
                 sessionLoading[targetKey] = false;
                 if (requestSessionId !== null && currentSessionId === requestSessionId) {
+                    hideThinkingVideo();
                     loadingIndicator.classList.add('hidden');
                 }
             }
@@ -1782,6 +1812,7 @@ function highlightMessage(messageId) {
             videoProgressBar.style.width = '0%';
             videoProgress.classList.remove('hidden');
             loadingIndicator.classList.remove('hidden');
+            showThinkingVideo();
             try {
                 videoProgressBar.style.width = '30%';
                 const body = {
@@ -1810,6 +1841,7 @@ function highlightMessage(messageId) {
                 console.error('video generation error', e);
                 videoProgressBar.style.width = '100%';
             } finally {
+                hideThinkingVideo();
                 loadingIndicator.classList.add('hidden');
             }
         });
@@ -1837,6 +1869,7 @@ function highlightMessage(messageId) {
             if (text) displayMessage(text, 'user');
             talkInputText.value = '';
             loadingIndicator.classList.remove('hidden');
+            showThinkingVideo();
             try {
                 const body = {
                     text,
@@ -1872,6 +1905,7 @@ function highlightMessage(messageId) {
                 console.error('talk mode error', e);
                 displayMessage('トーク生成に失敗しました', 'ai', 'AIError');
             } finally {
+                hideThinkingVideo();
                 loadingIndicator.classList.add('hidden');
             }
         });
