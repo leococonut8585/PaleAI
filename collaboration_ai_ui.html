@@ -1867,6 +1867,7 @@ function highlightMessage(messageId) {
                 if (!getToken()) { alert('この機能を利用するにはログインが必要です。'); return; }
 
                 const tempId = -Date.now();
+                if (chatArea) chatArea.classList.remove('hidden');
                 currentSessionId = tempId;
                 if (chatMessagesContainer) chatMessagesContainer.innerHTML = '';
                 displayMessage('新しいチャットが開始されました。メッセージをどうぞ。', 'system');
