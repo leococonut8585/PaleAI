@@ -155,6 +155,9 @@
         }
         #chatSessionList {
             scrollbar-width: thin;
+            max-height: calc(100vh - 380px);
+            overflow-y: auto;
+            box-sizing: border-box;
         }
         .sidebar-label {
             white-space: nowrap;
@@ -182,7 +185,7 @@
 <body class="flex h-screen antialiased text-gray-800 bg-slate-100">
     <div class="flex flex-row h-full w-full overflow-x-hidden">
 
-        <div class="flex flex-col py-8 pl-6 pr-2 w-80 bg-white flex-shrink-0 shadow-lg">
+        <div class="flex flex-col py-8 pl-6 pr-2 w-80 bg-white flex-shrink-0 shadow-lg h-full">
             <div class="flex flex-row items-center justify-center h-12 w-full" id="sidebarTop">
                 <img src="/static/pic/Default.png" alt="Pale AI" class="h-10 w-auto mr-2">
                 <div class="font-bold text-2xl text-teal-700">Pale AI</div>
@@ -247,7 +250,7 @@
                 <div id="folderList" class="flex flex-col space-y-1 mt-2 -mx-2"></div>
             </div>
 
-            <div id="sessionSection" class="flex flex-col mt-8 hidden">
+            <div id="sessionSection" class="flex flex-col mt-8 hidden flex-1 min-h-0">
                 <div id="sessionHeader" class="flex flex-row items-center justify-between text-xs flex-nowrap">
                     <span class="font-bold text-gray-600 sidebar-label">チャット一覧</span>
                     <div class="flex items-center space-x-1">
@@ -258,7 +261,7 @@
                         <button id="memoryManageButton" class="ml-2 text-teal-600 underline text-xs sidebar-label">メモリ管理</button>
                     </div>
                 </div>
-                <div id="chatSessionList" class="flex flex-col space-y-1 mt-4 -mx-2 overflow-y-auto pr-2 h-[calc(100vh-380px)] max-h-[350px]">
+                <div id="chatSessionList" class="flex flex-col space-y-1 mt-4 -mx-2 pr-2 flex-1 min-h-0 overflow-y-auto">
                 </div>
             </div>
         </div>
@@ -516,7 +519,6 @@
     const addTemplateBtn = document.getElementById('addTemplateBtn');
     const autoTranslateCheckbox = document.getElementById('autoTranslate');
     const languageModeCheckbox = document.getElementById('languageMode');
-
 
     const videoModeContainer = document.getElementById('videoModeContainer');
     const chatInputRow = document.getElementById('chatInputRow');
