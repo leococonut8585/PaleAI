@@ -149,6 +149,24 @@
             overflow: hidden;
             text-overflow: ellipsis;
         }
+        /* Markdown table styling */
+        .markdown-body table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .markdown-body th, .markdown-body td {
+            border: 1px solid #ccc;
+            padding: 0.4rem;
+        }
+        .markdown-body tr:nth-child(even) {
+            background-color: #f9fafb;
+        }
+        @media (max-width: 640px) {
+            .markdown-body table {
+                display: block;
+                overflow-x: auto;
+            }
+        }
     </style>
 </head>
 <body class="flex h-screen antialiased text-gray-800 bg-slate-100">
@@ -816,7 +834,7 @@
         }
 
         const contentDiv = document.createElement('div');
-        contentDiv.classList.add('prose', 'prose-sm', 'max-w-none'); // proseクラスでマークダウン表示
+        contentDiv.classList.add('prose', 'prose-sm', 'max-w-none', 'markdown-body'); // proseクラスでマークダウン表示
         contentDiv.innerHTML = marked.parse(content); // marked.jsでパース
 
         if (role === 'ai') {
