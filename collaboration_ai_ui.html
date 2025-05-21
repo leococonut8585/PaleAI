@@ -149,6 +149,16 @@
             overflow: hidden;
             text-overflow: ellipsis;
         }
+        #sessionHeader span,
+        #sessionHeader button {
+            white-space: nowrap;
+        }
+        #chatSessionList {
+            scrollbar-width: thin;
+        }
+        .sidebar-label {
+            white-space: nowrap;
+        }
         /* Markdown table styling */
         .markdown-body table {
             width: 100%;
@@ -242,17 +252,17 @@
             </div>
 
             <div id="sessionSection" class="flex flex-col mt-8 hidden">
-                <div class="flex flex-row items-center justify-between text-xs">
-                    <span class="font-bold text-gray-600">チャット一覧</span>
+                <div id="sessionHeader" class="flex flex-row items-center justify-between text-xs flex-nowrap">
+                    <span class="font-bold text-gray-600 sidebar-label">チャット一覧</span>
                     <div class="flex items-center space-x-1">
                         <button id="newChatButton" class="flex items-center justify-center bg-teal-400 hover:bg-teal-500 text-white h-6 w-6 rounded-full" title="新しいチャットを開始">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
                         </button>
-                        <span class="text-teal-600 hidden sm:inline">新しく会話を始める</span>
-                        <button id="memoryManageButton" class="ml-2 text-teal-600 underline text-xs">メモリ管理</button>
+                        <span class="text-teal-600 sidebar-label">新しく会話を始める</span>
+                        <button id="memoryManageButton" class="ml-2 text-teal-600 underline text-xs sidebar-label">メモリ管理</button>
                     </div>
                 </div>
-                <div id="chatSessionList" class="flex flex-col space-y-1 mt-4 -mx-2 h-[calc(100vh-380px)] overflow-y-auto pr-2"> 
+                <div id="chatSessionList" class="flex flex-col space-y-1 mt-4 -mx-2 overflow-y-auto pr-2 h-[calc(100vh-380px)] max-h-[350px]">
                 </div>
             </div>
         </div>
