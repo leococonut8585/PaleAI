@@ -760,6 +760,18 @@
         }
     }
 
+    // --- 空のチャット画面表示用関数 ---
+    function resetChatUI() {
+        currentSessionId = null;
+        if (chatMessagesContainer) chatMessagesContainer.innerHTML = '';
+        if (chatArea) chatArea.classList.remove('hidden');
+        if (chatSessionListDiv) {
+            const activeBtns = chatSessionListDiv.querySelectorAll('.session-button-active');
+            activeBtns.forEach(btn => btn.classList.remove('session-button-active'));
+        }
+        displayMessage('新しいチャットが開始されました。メッセージをどうぞ。', 'system');
+    }
+
     // --- メッセージ表示関数 ---
     function displayMessage(content, role, aiModelName = null, messageId = null) {
         if (!chatMessagesContainer) return;
@@ -1857,64 +1869,16 @@ function highlightMessage(messageId) {
         if (sidebarTopLink) {
             sidebarTopLink.addEventListener('click', (e) => {
                 e.preventDefault();
+                resetChatUI();
                 chatSessionListDiv.scrollTo({ top: 0, behavior: 'smooth' });
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             });
         }
 
         if (newChatButton) {
-            newChatButton.addEventListener('click', async () => {
+            newChatButton.addEventListener('click', () => {
                 if (!getToken()) { alert('この機能を利用するにはログインが必要です。'); return; }
-
-                const tempId = -Date.now();
-                if (chatArea) chatArea.classList.remove('hidden');
-                currentSessionId = tempId;
-                if (chatMessagesContainer) chatMessagesContainer.innerHTML = '';
-
-                const activeSessionButton = chatSessionListDiv.querySelector('.session-button-active');
-                if (activeSessionButton) activeSessionButton.classList.remove('session-button-active');
-
-                const sessionElementContainer = document.createElement('div');
-                sessionElementContainer.className = 'session-element flex items-center w-full hover:bg-teal-50 rounded-md group';
-                sessionElementContainer.setAttribute('data-session-id', tempId);
-                sessionElementContainer.setAttribute('data-status', 'creating');
-
-                const sessionButton = document.createElement('button');
-                sessionButton.className = 'flex items-center flex-grow px-3 py-2 text-sm text-left text-gray-700 focus:outline-none transition-colors duration-150 ease-in-out session-button-active';
-                sessionButton.innerHTML = `<svg class="w-4 h-4 mr-2 flex-shrink-0 text-gray-400 group-hover:text-teal-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z"></path></svg><span class="scroll-top-btn mx-1 text-gray-400 hover:text-teal-600" title="Topに戻る">⬆</span><span class="session-title-text flex-grow truncate" title="新しいチャット">新しいチャット</span><span class="text-xs text-gray-400 flex-shrink-0 ml-1">--:--</span><span class="session-loading-spinner"></span>`;
-                const topBtn2 = sessionButton.querySelector('.scroll-top-btn');
-                if (topBtn2) {
-                    topBtn2.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        chatSessionListDiv.scrollTo({ top: 0, behavior: 'smooth' });
-                    });
-                }
-                sessionButton.addEventListener('click', () => handleSessionSelection(tempId));
-                sessionElementContainer.appendChild(sessionButton);
-                chatSessionListDiv.prepend(sessionElementContainer);
-
-                pendingSessionPromises[tempId] = (async () => {
-                    try {
-                        const response = await makeAuthenticatedRequest(API_ENDPOINT_CHAT_SESSIONS, {
-                            method: 'POST',
-                            body: JSON.stringify({ title: '新しいチャット' })
-                        });
-                        if (!response.ok) throw new Error('新規チャットの作成に失敗しました。');
-                        const newSession = await response.json();
-                        if (currentSessionId === tempId) currentSessionId = newSession.id;
-                        await loadChatSessions();
-                        handleSessionSelection(newSession.id, true);
-                        return newSession.id;
-                    } catch (error) {
-                        console.error('新規チャット作成エラー', error);
-                        if (currentSessionId === tempId) currentSessionId = null;
-                        if (sessionElementContainer.parentElement) sessionElementContainer.remove();
-                        displayMessage('チャット作成に失敗しました', 'system');
-                        return null;
-                    } finally {
-                        delete pendingSessionPromises[tempId];
-                    }
-                })();
+                resetChatUI();
             });
         }
         // Enterキーでの送信
