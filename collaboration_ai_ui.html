@@ -1437,7 +1437,7 @@ async function handleEditTags(sessionId, currentTags) {
         }
     }
 
-async function handleSessionSelection(sessionId) {
+async function handleSessionSelection(sessionId, suppressMessages = false) {
         // セッションIDが数値でない場合は処理中断 (予期せぬ動作を防ぐ)
         if (isNaN(parseInt(sessionId))) {
             console.warn("無効なセッションIDが選択されました:", sessionId);
@@ -1448,7 +1448,6 @@ async function handleSessionSelection(sessionId) {
         if (sessionId < 0) { // 仮セッションはサーバー問い合わせを行わない
             currentSessionId = sessionId;
             if (chatMessagesContainer) chatMessagesContainer.innerHTML = '';
-            displayMessage('新しいチャットが開始されました。メッセージをどうぞ。', 'system');
             const allSessionElements = chatSessionListDiv.querySelectorAll('.session-element > button');
             allSessionElements.forEach(btn => btn.classList.remove('session-button-active'));
             const newlySelectedButton = chatSessionListDiv.querySelector(`.session-element[data-session-id="${sessionId}"] > button`);
@@ -1470,7 +1469,7 @@ async function handleSessionSelection(sessionId) {
         }
 
         const statusContainer = chatSessionListDiv.querySelector(`.session-element[data-session-id="${sessionId}"]`);
-        if (statusContainer && statusContainer.dataset.status && statusContainer.dataset.status !== 'complete') {
+        if (!suppressMessages && statusContainer && statusContainer.dataset.status && statusContainer.dataset.status !== 'complete') {
             if (chatMessagesContainer) chatMessagesContainer.innerHTML = '';
             displayMessage('回答生成中...', 'system');
         }
@@ -1478,7 +1477,7 @@ async function handleSessionSelection(sessionId) {
 
         currentSessionId = sessionId;
         if (chatMessagesContainer) chatMessagesContainer.innerHTML = ''; // メッセージ表示エリアをクリア
-        displayMessage(`セッション ${sessionId} のメッセージを読込中...`, 'system');
+        if (!suppressMessages) displayMessage(`セッション ${sessionId} のメッセージを読込中...`, 'system');
 
         try {
             // routers/chat.py の get_chat_session_messages を呼び出す
@@ -1492,7 +1491,7 @@ async function handleSessionSelection(sessionId) {
 
             if (messages && messages.length > 0) {
                 messages.forEach(msg => displayMessage(msg.content, msg.role, msg.ai_model, msg.id));
-            } else {
+            } else if (!suppressMessages) {
                 displayMessage(`この会話にはまだメッセージがありません。`, 'system');
             }
         } catch (error) {
@@ -1859,7 +1858,6 @@ function highlightMessage(messageId) {
                 if (chatArea) chatArea.classList.remove('hidden');
                 currentSessionId = tempId;
                 if (chatMessagesContainer) chatMessagesContainer.innerHTML = '';
-                displayMessage('新しいチャットが開始されました。メッセージをどうぞ。', 'system');
 
                 const activeSessionButton = chatSessionListDiv.querySelector('.session-button-active');
                 if (activeSessionButton) activeSessionButton.classList.remove('session-button-active');
@@ -1893,7 +1891,7 @@ function highlightMessage(messageId) {
                         const newSession = await response.json();
                         if (currentSessionId === tempId) currentSessionId = newSession.id;
                         await loadChatSessions();
-                        handleSessionSelection(newSession.id);
+                        handleSessionSelection(newSession.id, true);
                         return newSession.id;
                     } catch (error) {
                         console.error('新規チャット作成エラー', error);
