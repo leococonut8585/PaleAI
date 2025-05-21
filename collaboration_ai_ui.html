@@ -517,6 +517,7 @@
     const talkStartInputModeRadios = document.getElementsByName('talkStartInputMode');
 
     function populateLangSelect(select) {
+        if (!select) return;
         select.innerHTML = '';
         TALK_LANGS.forEach(lang => {
             const opt = document.createElement('option');
@@ -535,36 +536,36 @@
     function updateTalkInputMode() {
         const mode = Array.from(talkInputModeRadios).find(r => r.checked)?.value;
         if (mode === 'mic') {
-            talkInputText.classList.add('hidden');
+            if (talkInputText) talkInputText.classList.add('hidden');
             if (talkRecordBtn) talkRecordBtn.classList.remove('hidden');
         } else {
-            talkInputText.classList.remove('hidden');
+            if (talkInputText) talkInputText.classList.remove('hidden');
             if (talkRecordBtn) talkRecordBtn.classList.add('hidden');
         }
     }
 
     function toggleCharCountBox() {
         if (aiModeSelect.value === 'longwriting') {
-            charCountInput.classList.remove('hidden');
+            if (charCountInput) charCountInput.classList.remove('hidden');
             if (charCountLabel) charCountLabel.classList.remove('hidden');
         } else {
-            charCountInput.classList.add('hidden');
+            if (charCountInput) charCountInput.classList.add('hidden');
             if (charCountLabel) charCountLabel.classList.add('hidden');
         }
         if (aiModeSelect.value === 'imagegen') {
-            imageCountWrapper.classList.remove('hidden');
+            if (imageCountWrapper) imageCountWrapper.classList.remove('hidden');
         } else {
-            imageCountWrapper.classList.add('hidden');
+            if (imageCountWrapper) imageCountWrapper.classList.add('hidden');
         }
         if (aiModeSelect.value === 'videogen') {
-            videoModeContainer.classList.remove('hidden');
-            talkModeContainer.classList.add('hidden');
+            if (videoModeContainer) videoModeContainer.classList.remove('hidden');
+            if (talkModeContainer) talkModeContainer.classList.add('hidden');
         } else if (aiModeSelect.value === 'talk') {
-            talkModeContainer.classList.remove('hidden');
-            videoModeContainer.classList.add('hidden');
+            if (talkModeContainer) talkModeContainer.classList.remove('hidden');
+            if (videoModeContainer) videoModeContainer.classList.add('hidden');
         } else {
-            videoModeContainer.classList.add('hidden');
-            talkModeContainer.classList.add('hidden');
+            if (videoModeContainer) videoModeContainer.classList.add('hidden');
+            if (talkModeContainer) talkModeContainer.classList.add('hidden');
         }
     }
     function handleAiModeChange() {
@@ -720,10 +721,12 @@
             if (currentUserProfileImage && currentUserProfileImage.startsWith('/')) {
                 currentUserProfileImage = API_BASE_URL + currentUserProfileImage;
             }
-            if (currentUserProfileImage) {
-                userAvatar.innerHTML = `<img src="${currentUserProfileImage}" class="w-full h-full object-cover rounded-full"/>`;
-            } else {
-                userAvatar.textContent = userData.username.substring(0, 1).toUpperCase();
+            if (userAvatar) {
+                if (currentUserProfileImage) {
+                    userAvatar.innerHTML = `<img src="${currentUserProfileImage}" class="w-full h-full object-cover rounded-full"/>`;
+                } else {
+                    userAvatar.textContent = userData.username.substring(0, 1).toUpperCase();
+                }
             }
         }
         loadFolders();
@@ -762,25 +765,15 @@
 
     // --- 空のチャット画面表示用関数 ---
     function resetChatUI() {
-        console.log('resetChatUI開始');
-        if (!chatArea) console.warn('chatArea not found');
-        if (!chatMessagesContainer) console.warn('chatMessagesContainer not found');
+        if (!chatArea || !chatMessagesContainer) return;
         currentSessionId = null;
-        if (chatMessagesContainer) chatMessagesContainer.innerHTML = '';
-        if (chatArea) {
-            chatArea.classList.remove('hidden');
-            console.log('chatArea hidden解除: ', chatArea.className);
-        }
+        chatMessagesContainer.innerHTML = '';
+        chatArea.classList.remove('hidden');
         if (chatSessionListDiv) {
             const activeBtns = chatSessionListDiv.querySelectorAll('.session-button-active');
             activeBtns.forEach(btn => btn.classList.remove('session-button-active'));
         }
         displayMessage('新しいチャットが開始されました。メッセージをどうぞ。', 'system');
-        console.log('resetChatUI終了', {
-            currentSessionId,
-            chatAreaClass: chatArea ? chatArea.className : null,
-            messagesLen: chatMessagesContainer ? chatMessagesContainer.childElementCount : 0
-        });
     }
 
     // --- メッセージ表示関数 ---
