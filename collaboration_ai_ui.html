@@ -187,7 +187,7 @@
 
         <div class="flex flex-col py-8 pl-6 pr-2 w-80 bg-white flex-shrink-0 shadow-lg h-full">
             <div class="flex flex-row items-center justify-center h-12 w-full" id="sidebarTop">
-                <img src="/static/pic/Default.png" alt="Pale AI" class="h-10 w-auto mr-2">
+                <img src="/static/pic/Default.png" alt="Pale AI Logo" class="h-10 w-auto mr-2" onerror="this.style.display='none';">
                 <div class="font-bold text-2xl text-teal-700">Pale AI</div>
             </div>
             <div class="text-center mt-2">
@@ -851,7 +851,7 @@
             speechBubbleCard.classList.add('user-bubble');
         } else if (role === 'ai') {
             messageWrapper.classList.add('justify-start', 'flex-row'); // 左寄せ
-            characterImage.src = (aiModelName && aiModelName.toLowerCase().includes('error')) ? '/static/pic/Thinking.png' : '/static/pic/Answer.png'; // 適切なAI画像パス
+            characterImage.src = '/static/pic/Answer.png';
             characterImage.alt = aiModelName || 'AI';
             speechBubbleCard.classList.add('ai-bubble');
         } else { // system message
