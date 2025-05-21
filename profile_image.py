@@ -4,7 +4,7 @@ from PIL import Image, ImageDraw, ImageColor
 def generate_monkey_icon(color1: str, color2: str, gender: str) -> Image.Image:
     """Generate a simple two-color monkey avatar.
 
-    The design roughly follows the sample images under ``Pic`` (デフォルト.png, 回答.png, 思考.png).
+    The design roughly follows the sample images under ``static/pic`` (Default.png, Answer.png, Thinking.png).
     Only ``color1`` and ``color2`` are used for all strokes and fills.
     Gender controls minor features like eyelashes for a feminine style.
     """

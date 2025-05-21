@@ -131,7 +131,7 @@ async def generate_and_save(c1_hex: str, c2_hex: str, gender: str, user_id: int)
             logger.error(f"SDXL also failed: {e2}")
             print("SDXL error:", e2)
             Path("static/profile").mkdir(exist_ok=True, parents=True)
-            shutil.copy("Pic/デフォルト.png", f"static/profile/{user_id}.png")
+            shutil.copy("static/pic/Default.png", f"static/profile/{user_id}.png")
             return
 
     Path("static/profile").mkdir(exist_ok=True, parents=True)
