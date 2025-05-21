@@ -19,7 +19,7 @@ class DummyAsyncClient:
         class Resp:
             def __init__(self, content):
                 self.content = content
-        return Resp(Path("Pic/デフォルト.png").read_bytes())
+        return Resp(Path("static/pic/Default.png").read_bytes())
 
 
 @pytest.mark.asyncio

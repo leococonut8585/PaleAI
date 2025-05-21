@@ -184,12 +184,8 @@
 
         <div class="flex flex-col py-8 pl-6 pr-2 w-80 bg-white flex-shrink-0 shadow-lg">
             <div class="flex flex-row items-center justify-center h-12 w-full" id="sidebarTop">
-                <div class="flex items-center justify-center rounded-2xl text-teal-700 bg-teal-100 h-10 w-10">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>
-                    </svg>
-                </div>
-                <div class="ml-2 font-bold text-2xl text-teal-700">Pale AI</div>
+                <img src="/static/pic/Default.png" alt="Pale AI" class="h-10 w-auto mr-2">
+                <div class="font-bold text-2xl text-teal-700">Pale AI</div>
             </div>
             <div class="text-center mt-2">
                 <a href="#" id="sidebarTopLink" class="text-teal-600 underline text-sm">Topに戻る</a>
@@ -334,7 +330,7 @@
                 <div id="chatInputRow" class="flex flex-row items-center h-16 rounded-xl bg-gray-50 w-full px-4 shadow-inner">
                     <div class="mr-3">
                         <select id="aiMode" class="p-2 border-gray-300 rounded-lg shadow-sm focus:ring-teal-500 focus:border-teal-500 text-sm bg-white">
-                            <option value="balance" selected>ペイルの愛 (ハイクオリティモード)</option>
+                            <option value="balance" selected>ペイルの声 (ハイクオリティモード)</option>
                             <option value="search3">ペイルの知恵(検索特化モード)</option>
                             <option value="search6">ペイルの叡智(超検索特化モード)</option>
                             <option value="code">ペイルの創造(コード生成特化モード)</option>
@@ -521,33 +517,7 @@
     const autoTranslateCheckbox = document.getElementById('autoTranslate');
     const languageModeCheckbox = document.getElementById('languageMode');
 
-    const thinkingVideos = ['/static/movie/ThinkMovie1.mp4', '/static/movie/ThinkMovie2.mp4'];
 
-    function showThinkingVideo() {
-        if (!loadingIndicator) return;
-        let video = loadingIndicator.querySelector('video.thinking-video');
-        if (!video) {
-            video = document.createElement('video');
-            video.className = 'thinking-video mt-2';
-            video.style.maxWidth = '180px';
-            video.style.display = 'block';
-            video.style.margin = '0 auto';
-            video.autoplay = true;
-            video.loop = true;
-            video.muted = true;
-            video.playsInline = true;
-            loadingIndicator.appendChild(video);
-        }
-        const src = thinkingVideos[Math.floor(Math.random() * thinkingVideos.length)];
-        video.src = src;
-        video.classList.remove('hidden');
-    }
-
-    function hideThinkingVideo() {
-        if (!loadingIndicator) return;
-        const video = loadingIndicator.querySelector('video.thinking-video');
-        if (video) video.remove();
-    }
     const videoModeContainer = document.getElementById('videoModeContainer');
     const chatInputRow = document.getElementById('chatInputRow');
     const videoGenerateBtn = document.getElementById('videoGenerateBtn');
@@ -579,7 +549,7 @@
     const talkStartNo = document.getElementById('talkStartNo');
     const talkStartInputModeRadios = document.getElementsByName('talkStartInputMode');
 
-    const THINKING_VIDEOS = ['/static/movie/思考Movie1.mp4', '/static/movie/思考Movie2.mp4'];
+    const THINKING_VIDEOS = ['/static/movie/ThinkMovie1.mp4', '/static/movie/ThinkMovie2.mp4'];
 
     function showThinkingVideo() {
         if (!thinkingVideo) return;
@@ -874,12 +844,12 @@
 
         if (role === 'user') {
             messageWrapper.classList.add('justify-end', 'flex-row-reverse'); // 右寄せ
-            characterImage.src = currentUserProfileImage || 'Pic/デフォルト.png';
+            characterImage.src = currentUserProfileImage || '/static/pic/Default.png';
             characterImage.alt = 'User';
             speechBubbleCard.classList.add('user-bubble');
         } else if (role === 'ai') {
             messageWrapper.classList.add('justify-start', 'flex-row'); // 左寄せ
-            characterImage.src = (aiModelName && aiModelName.toLowerCase().includes('error')) ? 'Pic/思考.png' : 'Pic/回答.png'; // 適切なAI画像パス
+            characterImage.src = (aiModelName && aiModelName.toLowerCase().includes('error')) ? '/static/pic/Thinking.png' : '/static/pic/Answer.png'; // 適切なAI画像パス
             characterImage.alt = aiModelName || 'AI';
             speechBubbleCard.classList.add('ai-bubble');
         } else { // system message
@@ -1819,7 +1789,6 @@ function highlightMessage(messageId) {
                 if (requestSessionId !== null && currentSessionId === requestSessionId) {
                     hideThinkingVideo();
                     loadingIndicator.classList.add('hidden');
-                    hideThinkingVideo();
                 }
             }
         });
@@ -1864,7 +1833,6 @@ function highlightMessage(messageId) {
             } finally {
                 hideThinkingVideo();
                 loadingIndicator.classList.add('hidden');
-                hideThinkingVideo();
             }
         });
     }
@@ -1929,7 +1897,6 @@ function highlightMessage(messageId) {
             } finally {
                 hideThinkingVideo();
                 loadingIndicator.classList.add('hidden');
-                hideThinkingVideo();
             }
         });
     }

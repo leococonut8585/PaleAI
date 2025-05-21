@@ -14,7 +14,7 @@ def test_register_progress_page_loads():
 
 def test_generated_profile_image_display_size():
     html_path = os.path.abspath("profile_generated.html")
-    img_path = os.path.abspath("Pic/デフォルト.png")
+    img_path = os.path.abspath("static/pic/Default.png")
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page()
