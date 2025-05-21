@@ -182,7 +182,7 @@
 <body class="flex h-screen antialiased text-gray-800 bg-slate-100">
     <div class="flex flex-row h-full w-full overflow-x-hidden">
 
-        <div class="flex flex-col py-8 pl-6 pr-2 w-72 bg-white flex-shrink-0 shadow-lg"> 
+        <div class="flex flex-col py-8 pl-6 pr-2 w-80 bg-white flex-shrink-0 shadow-lg">
             <div class="flex flex-row items-center justify-center h-12 w-full" id="sidebarTop">
                 <div class="flex items-center justify-center rounded-2xl text-teal-700 bg-teal-100 h-10 w-10">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -279,6 +279,7 @@
                 <div id="loadingIndicator" class="hidden absolute inset-0 bg-white bg-opacity-70 flex flex-col items-center justify-center">
                     <div class="loader"></div>
                     <p class="text-teal-700 text-sm mt-2">思考中...</p>
+                    <video id="thinkingVideo" class="hidden mt-2 mx-auto" style="max-width:180px;" autoplay loop muted playsinline></video>
                 </div>
 
                 <div id="videoModeContainer" class="hidden flex flex-col p-3 border rounded bg-gray-100 mb-2 space-y-2">
@@ -457,6 +458,7 @@
     const imageCountWrapper = document.getElementById('imageCountWrapper');
     const imageCountSelect = document.getElementById('imageCount');
     const loadingIndicator = document.getElementById('loadingIndicator');
+    const thinkingVideo = document.getElementById('thinkingVideo');
     const chatMessagesContainer = document.getElementById('chatMessagesContainer');
     const chatSearchInput = document.getElementById('chatSearch');
     const chatSessionListDiv = document.getElementById('chatSessionList'); // ここで chatSessionListDiv を定義
@@ -576,6 +578,24 @@
     const talkStartYes = document.getElementById('talkStartYes');
     const talkStartNo = document.getElementById('talkStartNo');
     const talkStartInputModeRadios = document.getElementsByName('talkStartInputMode');
+
+    const THINKING_VIDEOS = ['/static/movie/思考Movie1.mp4', '/static/movie/思考Movie2.mp4'];
+
+    function showThinkingVideo() {
+        if (!thinkingVideo) return;
+        const src = THINKING_VIDEOS[Math.floor(Math.random() * THINKING_VIDEOS.length)];
+        thinkingVideo.src = src;
+        thinkingVideo.classList.remove('hidden');
+        thinkingVideo.play();
+    }
+
+    function hideThinkingVideo() {
+        if (!thinkingVideo) return;
+        thinkingVideo.pause();
+        thinkingVideo.removeAttribute('src');
+        thinkingVideo.load();
+        thinkingVideo.classList.add('hidden');
+    }
 
     function populateLangSelect(select) {
         if (!select) return;
@@ -1799,6 +1819,7 @@ function highlightMessage(messageId) {
                 if (requestSessionId !== null && currentSessionId === requestSessionId) {
                     hideThinkingVideo();
                     loadingIndicator.classList.add('hidden');
+                    hideThinkingVideo();
                 }
             }
         });
@@ -1843,6 +1864,7 @@ function highlightMessage(messageId) {
             } finally {
                 hideThinkingVideo();
                 loadingIndicator.classList.add('hidden');
+                hideThinkingVideo();
             }
         });
     }
@@ -1907,6 +1929,7 @@ function highlightMessage(messageId) {
             } finally {
                 hideThinkingVideo();
                 loadingIndicator.classList.add('hidden');
+                hideThinkingVideo();
             }
         });
     }
