@@ -28,6 +28,7 @@ load_dotenv()
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+
 models.Base.metadata.create_all(bind=engine)
 # --- CORSミDLEWAREの設定 ---
 origins = [
@@ -42,7 +43,7 @@ origins = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
