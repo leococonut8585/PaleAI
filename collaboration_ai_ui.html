@@ -144,6 +144,11 @@
             animation: spin 1s linear infinite;
             margin-left: 4px;
         }
+        .session-title-text {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
     </style>
 </head>
 <body class="flex h-screen antialiased text-gray-800 bg-slate-100">
@@ -1241,33 +1246,23 @@
                     });
 
                     const sessionButton = document.createElement('button');
-                    sessionButton.className = 'flex items-center flex-grow px-3 py-2 text-sm text-left text-gray-700 focus:outline-none transition-colors duration-150 ease-in-out';
+                    sessionButton.className = 'flex items-center flex-grow px-3 py-2 text-xs text-left text-gray-700 focus:outline-none transition-colors duration-150 ease-in-out';
                     if (session.id === currentSessionId) {
                         sessionButton.classList.add('session-button-active');
                     }
 
-                    const iconSvg = `<svg class="w-4 h-4 mr-2 flex-shrink-0 text-gray-400 group-hover:text-teal-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z"></path></svg>`;
                     const titleText = session.title ? (session.title.length > 15 ? session.title.substring(0, 12) + '...' : session.title) : `セッション ${session.id}`;
                     const updatedAt = new Date(session.updated_at || session.created_at); // updated_at がなければ created_at
                     const formattedDate = `${updatedAt.toLocaleDateString('ja-JP', { month: '2-digit', day: '2-digit' })} ${updatedAt.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`;
 
                     sessionButton.innerHTML = `
-                        ${iconSvg}
-                        <span class="scroll-top-btn mx-1 text-gray-400 hover:text-teal-600" title="Topに戻る">⬆</span>
-                        <span class="session-title-text flex-grow truncate" title="${session.title || ''}">${titleText}</span>
+                        <span class="session-title-text flex-grow" title="${session.title || ''}">${titleText}</span>
                         <span class="text-xs text-gray-400 flex-shrink-0 ml-1">${formattedDate}</span>
                     `;
                     if (session.status && session.status !== 'complete') {
                         const sp = document.createElement('span');
                         sp.className = 'session-loading-spinner';
                         sessionButton.appendChild(sp);
-                    }
-                    const topBtn = sessionButton.querySelector('.scroll-top-btn');
-                    if (topBtn) {
-                        topBtn.addEventListener('click', (e) => {
-                            e.stopPropagation();
-                            chatSessionListDiv.scrollTo({ top: 0, behavior: 'smooth' });
-                        });
                     }
                     sessionButton.addEventListener('click', () => handleSessionSelection(session.id));
 
