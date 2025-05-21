@@ -762,14 +762,25 @@
 
     // --- 空のチャット画面表示用関数 ---
     function resetChatUI() {
+        console.log('resetChatUI開始');
+        if (!chatArea) console.warn('chatArea not found');
+        if (!chatMessagesContainer) console.warn('chatMessagesContainer not found');
         currentSessionId = null;
         if (chatMessagesContainer) chatMessagesContainer.innerHTML = '';
-        if (chatArea) chatArea.classList.remove('hidden');
+        if (chatArea) {
+            chatArea.classList.remove('hidden');
+            console.log('chatArea hidden解除: ', chatArea.className);
+        }
         if (chatSessionListDiv) {
             const activeBtns = chatSessionListDiv.querySelectorAll('.session-button-active');
             activeBtns.forEach(btn => btn.classList.remove('session-button-active'));
         }
         displayMessage('新しいチャットが開始されました。メッセージをどうぞ。', 'system');
+        console.log('resetChatUI終了', {
+            currentSessionId,
+            chatAreaClass: chatArea ? chatArea.className : null,
+            messagesLen: chatMessagesContainer ? chatMessagesContainer.childElementCount : 0
+        });
     }
 
     // --- メッセージ表示関数 ---
@@ -1868,6 +1879,7 @@ function highlightMessage(messageId) {
 
         if (sidebarTopLink) {
             sidebarTopLink.addEventListener('click', (e) => {
+                console.log('Topに戻るが押された');
                 e.preventDefault();
                 resetChatUI();
                 chatSessionListDiv.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1877,6 +1889,7 @@ function highlightMessage(messageId) {
 
         if (newChatButton) {
             newChatButton.addEventListener('click', () => {
+                console.log('新しい会話ボタンが押された');
                 if (!getToken()) { alert('この機能を利用するにはログインが必要です。'); return; }
                 resetChatUI();
             });
