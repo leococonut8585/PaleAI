@@ -2026,7 +2026,10 @@ async def run_writing_mode_flow(
             elif "物語調で" in lower_finalized_reqs or "小説のように" in lower_finalized_reqs:
                 user_specified_tone = "物語を語るような、引き込まれる口調"
 
-        w5_system_instruction_parts = ["あなたは最高の編集長兼最終ライターです。与えられた執筆物（第2稿）を、以下の指示に従って完璧な最終版に仕上げてください。"]
+        w5_system_instruction_parts = [
+            "あなたは最高の編集長兼最終ライターです。与えられた執筆物（第2稿）を、以下の指示に従って完璧な最終版に仕上げてください。",
+            "最終出力は小説・物語本文のみとし、章立て案や解説、ストーリー案内、コメントなど本文以外の要素は一切含めないでください。出力が途中で止まった場合は、続きの物語本文のみを書き足してください。"
+        ]
         if user_specified_tone:
             w5_system_instruction_parts.append(f"**最重要指示：ユーザーは「{user_specified_tone}」という口調・文体を希望しています。このコンテンツ全体を、この指定された口調・文体で統一してください。**")
         else:
@@ -2039,10 +2042,9 @@ async def run_writing_mode_flow(
         w5_final_system_instruction = "\n\n".join(w5_system_instruction_parts)
         
         w5_user_prompt = (
-            f"以下の執筆物（第2稿）を、上記のシステム指示に従って最終校正し、指定された口調（もしあれば）で最高の形に仕上げてください。\n\n"
-            # ... (W5のユーザープロンプトの残りは変更なし) ...
+            f"以下の執筆物（第2稿）を、上記のシステム指示に従って最終校正し、指定された口調（もしあれば）で最高の形に仕上げてください。\n"
+            "出力は物語本文のみとし、案内文やコメント、章立て解説を一切含めないでください。続きが必要な場合は本文だけを書き足してください。\n\n"
             f"--- 推敲・リライトされた執筆物（第2稿） ---\n{revised_draft_content}\n--- 第2稿ここまで ---\n\n"
-            # ...
         )
         w5_res = await get_gemini_response(
             prompt_text=w5_user_prompt,
@@ -2107,19 +2109,19 @@ async def run_ultra_writing_mode_flow(
         for ch in chapters:
             chapter_res = await get_openai_response(
                 prompt_text=f"{ch} を詳細に執筆してください。",
-                system_role_description="Chapter Writer",
+                system_role_description="Chapter Writer: 本文のみを出力し、章タイトルや案内文は含めないでください。",
                 chat_history=chat_history_for_ai,
                 initial_user_prompt=initial_user_prompt_for_session
             )
             steps_executed.append(chapter_res)
             if chapter_res.response:
-                final_text += f"\n## {ch}\n{chapter_res.response}\n"
+                final_text += f"\n{chapter_res.response}\n"
 
         if desired_char_count:
             while len(final_text) < desired_char_count:
                 add_res = await get_openai_response(
                     prompt_text=f"以下の文章を続けて詳しく書いてください。残り{desired_char_count - len(final_text)}文字以上必要です。",
-                    system_role_description="Expansion Writer",
+                    system_role_description="Expansion Writer: 本文のみを続けて出力してください。コメントや案内は禁止です。",
                     chat_history=chat_history_for_ai,
                     initial_user_prompt=initial_user_prompt_for_session
                 )
