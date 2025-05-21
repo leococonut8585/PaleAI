@@ -114,6 +114,7 @@ FRIENDLY_TONE_SYSTEM_PROMPT = (
     "文末は『〜なんだ』『〜だよ』『〜かもね』のように言い切り型で統一し、敬語やですます調は使わない。"
     "以下の文体変換ルールを意識してフランクにまとめてくれ: ではない→じゃない、できる・なる→できるんだ・なるんだ、○○や○○→○○とか○○、っている→てる、かもしれない→かもね、など。"
     "情報はたっぷり、具体例も交えて、読者を包み込むように説明してくれ。"
+    "表やリスト、図解を提示するときはMarkdownやHTMLの表を使い、罫線や背景色、幅を調整して見やすく整えてくれ。PCとスマホどちらでも崩れにくいレスポンシブなレイアウトを意識するんだ。"
 )
 
 # --- 各AIへの問い合わせヘルパー関数 ---
@@ -124,7 +125,7 @@ FRIENDLY_TONE_SYSTEM_PROMPT = (
 # --- 各AIへの問い合わせヘルパー関数 ---
 async def get_openai_response(
     prompt_text: str,
-    system_role_description: Optional[str] = "あなたは役立つAIアシスタントです。",
+    system_role_description: Optional[str] = None,
     model: str = "gpt-4o",
     chat_history: Optional[List[Dict[str, str]]] = None,
     initial_user_prompt: Optional[str] = None
@@ -134,7 +135,9 @@ async def get_openai_response(
 
     messages_for_api: List[Dict[str, str]] = []
 
-    final_system_message_content = system_role_description if system_role_description else ""
+    final_system_message_content = FRIENDLY_TONE_SYSTEM_PROMPT
+    if system_role_description:
+        final_system_message_content += f"\n\n{system_role_description}"
     if initial_user_prompt:
         prefix = "\n\n" if final_system_message_content.strip() else ""
         final_system_message_content += f"{prefix}[重要] この会話全体の主要な目的は次の通りです: 「{initial_user_prompt}」\nこの目的を常に意識して回答してください。"
@@ -225,7 +228,9 @@ async def get_claude_response(
         print("警告: Claude APIのメッセージリストがassistantから始まっています。先頭にダミーのユーザーメッセージを挿入します。")
         messages_for_api.insert(0, {"role": "user", "content":"(会話の文脈を開始します)"})
 
-    final_system_prompt_for_claude = system_instruction if system_instruction else ""
+    final_system_prompt_for_claude = FRIENDLY_TONE_SYSTEM_PROMPT
+    if system_instruction:
+        final_system_prompt_for_claude += f"\n\n{system_instruction}"
     if initial_user_prompt:
         prefix = "\n\n" if final_system_prompt_for_claude.strip() else ""
         final_system_prompt_for_claude += f"{prefix}[重要] この会話全体の主要な目的は次の通りです: 「{initial_user_prompt}」\nこの目的を常に意識して回答してください。"
@@ -260,7 +265,7 @@ async def get_claude_response(
         return schemas.IndividualAIResponse(source=f"Claude ({model})", error=f"API呼び出し中にエラー: {str(e)}")
 
 async def get_cohere_response(
-    prompt_text: str, 
+    prompt_text: str,
     preamble: Optional[str] = None,
     model: str = "command-r-plus",
     chat_history: Optional[List[Dict[str, str]]] = None,
@@ -269,7 +274,9 @@ async def get_cohere_response(
     if not cohere_aclient:
         return schemas.IndividualAIResponse(source=f"Cohere ({model})", error="Cohereクライアントが初期化されていません。")
 
-    final_preamble_for_cohere = preamble if preamble else ""
+    final_preamble_for_cohere = FRIENDLY_TONE_SYSTEM_PROMPT
+    if preamble:
+        final_preamble_for_cohere += f"\n\n{preamble}"
     if initial_user_prompt:
         prefix = "\n\n" if final_preamble_for_cohere.strip() else ""
         final_preamble_for_cohere += f"{prefix}[重要] この会話全体の主要な目的は次の通りです: 「{initial_user_prompt}」\nこの目的を常に意識して回答を生成してください。"
@@ -412,7 +419,9 @@ async def get_gemini_response(
          return schemas.IndividualAIResponse(source=source_name, error="Geminiモデルの取得に重大なエラーが発生しました（初期化後）。")
 
     contents_for_api: List[Dict[str, Any]] = []
-    effective_initial_instructions = system_instruction if system_instruction else ""
+    effective_initial_instructions = FRIENDLY_TONE_SYSTEM_PROMPT
+    if system_instruction:
+        effective_initial_instructions += f"\n\n{system_instruction}"
     if initial_user_prompt:
         prefix = "\n\n" if effective_initial_instructions.strip() else ""
         effective_initial_instructions += f"{prefix}[重要] この会話全体の主要な目的は次の通りです: 「{initial_user_prompt}」です。"
