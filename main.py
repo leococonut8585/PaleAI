@@ -887,142 +887,12 @@ async def run_super_search_mode_flow(
     chat_history_for_ai: List[Dict[str, str]],
     initial_user_prompt_for_session: Optional[str]
 ) -> schemas.CollaborativeResponseV2:
-
-    # 6段階の自動穴埋め検索フローを実行
-    return await run_iterative_search_flow(original_prompt, response_shell, 6)
-
-
-    try:
-        # --- 5. AI連携フローの実行 ---
-        if mode == "balance":
-            response_data = await run_balance_mode_flow(original_prompt, response_shell, chat_history_for_ai)
-        elif mode == "search":
-            response_data = await run_search_mode_flow(original_prompt, response_shell, chat_history_for_ai)
-        elif mode == "code":
-            response_data = await run_code_mode_flow(original_prompt, response_shell, chat_history_for_ai)
-        elif mode == "writing":
-            response_data = await run_writing_mode_flow(original_prompt, response_shell, chat_history_for_ai)
-        elif mode == "longwriting":
-            response_data = await run_ultra_writing_mode_flow(original_prompt, response_shell, chat_history_for_ai, desired_char_count=desired_char_count)
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail=f"無効なモード「{mode}」が指定されました。"
-            )
-
-        # --- 6. AIの応答をDBに保存 ---
-        # response_data は各モードフローの結果 (CollaborativeResponseV2 インスタンスのはず)
-        if response_data and hasattr(response_data, 'step7_final_answer_v2_openai'):
-            ai_final_response_obj = response_data.step7_final_answer_v2_openai
-            if ai_final_response_obj and isinstance(ai_final_response_obj, schemas.IndividualAIResponse) and ai_final_response_obj.response:
-                final_ai_response_content = ai_final_response_obj.response
-                final_ai_source = ai_final_response_obj.source or "Final AI Step"
-
-                if active_session and active_session.id: # active_session.id があることを確認
-                    ai_message_db = models.ChatMessage(
-                        chat_session_id=active_session.id,
-                        role="ai",
-                        content=final_ai_response_content,
-                        ai_model=final_ai_source
-                        # user_id はAIのメッセージなのでNULL (DBのデフォルト)
-                    )
-                    db.add(ai_message_db)
-                    active_session.updated_at = func.now()
-                    active_session.status = 'complete'
-                    db.commit()
-                    db.refresh(ai_message_db)
-                    db.refresh(active_session)
-                    print(f"AIレスポンス保存成功: MsgID={ai_message_db.id}, SessionID={active_session.id}")
-            elif response_data.overall_error: # response_data に overall_error がある場合
-                print(f"AI処理でエラー発生のためDBへのAI応答保存をスキップ: {response_data.overall_error}")
-            else:
-                print(f"AIからの最終応答が見つからないか、内容が空のためDBへのAI応答保存をスキップ: Mode={mode}")
-        else:
-            print(f"response_data が不正か、step7_final_answer_v2_openai が存在しません。DBへのAI応答保存をスキップ。response_data: {response_data}")
-
-        # デバッグプリント (正常系)
-        print(f"DEBUG: collaborative_answer_mode_endpoint (normal path) is about to return response_data.")
-        print(f"DEBUG: Type of response_data in endpoint (normal): {type(response_data)}")
-        print(f"DEBUG: Content of response_data in endpoint (normal): {response_data.model_dump_json(indent=2) if response_data else 'None'}")
-        return response_data # エラーが出ていると報告された586行目がここだと仮定
-
-    except ValueError as ve:
-        error_message = f"モード「{mode}」の処理中にエラーが発生しました: {str(ve)}"
-        print(error_message)
-        response_shell.overall_error = error_message # response_shell を更新
-        if not response_shell.step7_final_answer_v2_openai or \
-            (response_shell.step7_final_answer_v2_openai.error == "未実行" and not response_shell.step7_final_answer_v2_openai.response):
-                response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse( # <<< schemas.
-                    source="Balance Mode Error Step",
-                    # ...
-            )
-        # デバッグプリント (ValueError時)
-        print(f"DEBUG: collaborative_answer_mode_endpoint (ValueError path) is about to return response_shell.")
-        print(f"DEBUG: Type of response_shell in endpoint (ValueError): {type(response_shell)}")
-        print(f"DEBUG: Content of response_shell in endpoint (ValueError): {response_shell.model_dump_json(indent=2) if response_shell else 'None'}")
-        return response_shell
-
-    except HTTPException as he:
-        # FastAPIが投げるHTTPExceptionはそのままクライアントに返す
-        # ここでデバッグプリントを追加しても良いが、通常はFastAPIが適切に処理する
-        print(f"DEBUG: collaborative_answer_mode_endpoint re-raising HTTPException: {he.detail}")
-        raise he
-
-    except Exception as e:
-        unexpected_error_message = f"予期せぬ全体エラーが発生しました (モード: {mode}): {str(e)}"
-        print(unexpected_error_message)
-        import traceback
-        traceback.print_exc() # 詳細なスタックトレースを出力
-        response_shell.overall_error = unexpected_error_message # response_shell を更新
-    if not response_shell.step7_final_answer_v2_openai:
-        response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse( # <<< schemas.
-            source="Search Mode Error Step",
-            # ...
-        )
-        # デバッグプリント (その他Exception時)
-        print(f"DEBUG: collaborative_answer_mode_endpoint (Exception path) is about to return response_shell.")
-        print(f"DEBUG: Type of response_shell in endpoint (Exception): {type(response_shell)}")
-        print(f"DEBUG: Content of response_shell in endpoint (Exception): {response_shell.model_dump_json(indent=2) if response_shell else 'None'}")
-        return response_shell
-    # ↓↓↓ ★★★ ここから追加・修正 ★★★ ↓↓↓
-        # --- 3. 現在のユーザープロンプトをAI用履歴に追加 ---
-        # この `chat_history_for_ai` が、この後のAI呼び出しヘルパー関数に渡される
-        chat_history_for_ai.append({"role": "user", "content": original_prompt})
-        print(f"AI送信用履歴に現在のプロンプト追加: 計{len(chat_history_for_ai)}件")
-
-        # --- 4. ユーザーメッセージをDBに保存 ---
-        if active_session: # active_sessionオブジェクトは必ず存在するはず (ステップ4で作成または取得)
-            if not active_session.id: # 新規セッションでまだコミットされていなかった場合
-                # セッションオブジェクトをDBに追加してコミットすることで、IDが発行される
-                db.add(active_session) # これはステップ4で既に行っているが、コミット前なら再度addしても問題ない
-                db.commit()
-                db.refresh(active_session) # DBから最新の状態（IDなど）をactive_sessionオブジェクトに反映
-                print(f"新規チャットセッションをDBに保存しID確定: ID={active_session.id}")
-        # セッションIDが確定している場合に、レスポンスに含める
-            if active_session and active_session.id:
-                response_shell.processed_session_id = active_session.id
-                    # ユーザーの現在のメッセージをDBに保存
-            user_message_db = models.ChatMessage(
-                chat_session_id=active_session.id, # 確定したセッションIDを使用
-                role="user",
-                content=original_prompt
-            )
-            db.add(user_message_db)
-            active_session.updated_at = func.now() # ChatSessionの最終更新日時を現在時刻に設定
-            # active_session オブジェクトの変更 (updated_at) も次のコミットでDBに反映される
-            # db.add(active_session) # SQLAlchemyはオブジェクトの変更を追跡するので、通常は再度addする必要はない
-            db.commit() # ユーザーメッセージとセッションの更新をコミット
-            db.refresh(user_message_db) # 保存したメッセージオブジェクトをリフレッシュ (IDなどが付与される)
-            db.refresh(active_session) # active_sessionもリフレッシュして最新の状態にする
-            print(f"ユーザーメッセージ保存成功: MsgID={user_message_db.id}, SessionID={active_session.id}")
-        else:
-            # この状況は通常発生しないはずですが、念のためログを残します。
-            # active_session が何らかの理由でNoneになるようなロジック上の問題があれば、ここで検知できます。
-            print("警告: active_session が存在しないため、ユーザーメッセージをデータベースに保存できませんでした。")
-            # この場合、エラーを発生させるか、処理を続行するかは要件によります。
-            # チャット履歴が必須であれば、ここでHTTPExceptionを発生させることも考えられます。
-            # raise HTTPException(status_code=500, detail="チャットセッションの処理に失敗しました。")
-    # ↑↑↑ /collaborative_answer_v2 エンドポイントの改修ここまで ↑↑↑
+    """Run the super deepsearch flow for advanced search mode."""
+    return await run_super_deepsearch_mode_flow(
+        original_prompt,
+        response_shell,
+        initial_user_prompt_for_session=initial_user_prompt_for_session,
+    )
 
 
 # --- 各モード実行フロー関数 ---
@@ -1361,14 +1231,169 @@ async def run_iterative_search_flow(
     return response_shell
 
 
+async def run_deepsearch_mode_flow(
+    original_prompt: str,
+    response_shell: schemas.CollaborativeResponseV2,
+    max_additional_queries: int = 5,
+    initial_user_prompt_for_session: Optional[str] = None,
+) -> schemas.CollaborativeResponseV2:
+    """Deep search flow using an initial search then exploring missing aspects."""
+    print("\n--- Deepsearchモード開始 ---")
+    steps: List[schemas.IndividualAIResponse] = []
+
+    # 1. initial search with Perplexity
+    first_res = await get_perplexity_response(original_prompt, model="sonar-pro")
+    steps.append(
+        schemas.IndividualAIResponse(
+            source="Perplexity初回検索",
+            query=original_prompt,
+            intent="主要観点",
+            response=first_res.response,
+            links=first_res.links,
+            error=first_res.error,
+        )
+    )
+
+    # 2. ask GPT-4 for missing aspects
+    merged = first_res.response or first_res.error or ""
+    missing_prompt = (
+        "以下は検索結果です。欠けている観点やより深掘りすべきキーワードを"
+        "3〜5件、日本語で1行ずつ列挙してください。説明は不要です。\n\n"
+        f"ユーザー質問: {original_prompt}\n\n検索結果:\n{merged}"
+    )
+    miss_res = await get_openai_response(
+        prompt_text=missing_prompt,
+        system_role_description="検索クエリ分析AI。出力はキーワードリストのみ。",
+        model="gpt-4o",
+        initial_user_prompt=initial_user_prompt_for_session,
+    )
+
+    additional_queries: List[str] = []
+    if miss_res.response:
+        for line in miss_res.response.splitlines():
+            q = line.strip().lstrip("-・0123456789.")
+            if q:
+                additional_queries.append(q)
+            if len(additional_queries) >= max_additional_queries:
+                break
+    steps.append(
+        schemas.IndividualAIResponse(
+            source="GPT-4 追加観点抽出",
+            response=miss_res.response,
+            error=miss_res.error,
+        )
+    )
+
+    # 3. search each additional query
+    for idx, q in enumerate(additional_queries, start=1):
+        r = await get_perplexity_response(q, model="sonar-pro")
+        steps.append(
+            schemas.IndividualAIResponse(
+                source=f"Perplexity追加検索{idx}",
+                query=q,
+                intent="追加観点",
+                response=r.response,
+                links=r.links,
+                error=r.error,
+            )
+        )
+
+    # 4. group everything with Gemini
+    summary = await synthesize_search_results_with_gemini(steps, original_prompt)
+    steps.append(summary)
+    response_shell.search_mode_details = steps
+    print("--- Deepsearchモード終了 ---")
+    return response_shell
+
+
+async def run_super_deepsearch_mode_flow(
+    original_prompt: str,
+    response_shell: schemas.CollaborativeResponseV2,
+    initial_user_prompt_for_session: Optional[str] = None,
+    max_rounds: int = 2,
+) -> schemas.CollaborativeResponseV2:
+    """Super search mode utilizing multiple AIs and iterative refinement."""
+    print("\n--- Super Deepsearchモード開始 ---")
+    steps: List[schemas.IndividualAIResponse] = []
+
+    queue: List[str] = [original_prompt]
+    round_no = 0
+    while queue and round_no < max_rounds:
+        q = queue.pop(0)
+
+        p_res = await get_perplexity_response(q, model="sonar-pro")
+        steps.append(
+            schemas.IndividualAIResponse(
+                source="Perplexity検索",
+                query=q,
+                intent=f"ラウンド{round_no+1}",
+                response=p_res.response,
+                links=p_res.links,
+                error=p_res.error,
+            )
+        )
+
+        g_res = await get_gemini_response(
+            prompt_text=f"{q} に関する最新ニュースやウェブ情報をできるだけ列挙してください。省略禁止。",
+            system_instruction="Web/News検索AI",
+        )
+        steps.append(
+            schemas.IndividualAIResponse(
+                source="Gemini Web検索",
+                query=q,
+                intent=f"ラウンド{round_no+1}",
+                response=g_res.response,
+                links=g_res.links,
+                error=g_res.error,
+            )
+        )
+
+        analysis_text = "\n\n".join(
+            f"[{i+1}] {s.response or s.error or ''}" for i, s in enumerate(steps)
+        )
+        analysis_prompt = (
+            f"ユーザー質問: {original_prompt}\nこれまでの検索結果:\n{analysis_text}\n\n"
+            "不足している論点や矛盾点、信頼性の低い情報があれば指摘し、再検索すべきキーワードを3件以内で列挙してください。説明不要。"
+        )
+        a_res = await get_openai_response(
+            prompt_text=analysis_prompt,
+            system_role_description="検索結果レビューAI。箇条書きでキーワードのみ返す。",
+            model="gpt-4o",
+            initial_user_prompt=initial_user_prompt_for_session,
+        )
+        steps.append(
+            schemas.IndividualAIResponse(
+                source="GPT-4 観点分析",
+                response=a_res.response,
+                error=a_res.error,
+            )
+        )
+        if a_res.response:
+            for line in a_res.response.splitlines():
+                nq = line.strip().lstrip("-・0123456789.")
+                if nq:
+                    queue.append(nq)
+        round_no += 1
+
+    summary = await synthesize_search_results_with_gemini(steps, original_prompt)
+    steps.append(summary)
+    response_shell.search_mode_details = steps
+    print("--- Super Deepsearchモード終了 ---")
+    return response_shell
+
+
 async def run_search_mode_flow(
     original_prompt: str,
     response_shell: schemas.CollaborativeResponseV2,
     chat_history_for_ai: List[Dict[str, str]],
     initial_user_prompt_for_session: Optional[str]
 ) -> schemas.CollaborativeResponseV2:
-    """Compatibility wrapper for 3-step search mode."""
-    return await run_iterative_search_flow(original_prompt, response_shell, 3)
+    """Run the Deepsearch flow for standard search mode."""
+    return await run_deepsearch_mode_flow(
+        original_prompt,
+        response_shell,
+        initial_user_prompt_for_session=initial_user_prompt_for_session,
+    )
 
 # main.py の run_balance_mode_flow 関数の修正
 

@@ -1872,7 +1872,7 @@ function highlightMessage(messageId) {
                             });
                         }
                         if (summaryItem) {
-                            if (currentSessionId === requestSessionId) displayMessage('<h3>サマリー</h3>', 'system');
+                            if (currentSessionId === requestSessionId) displayMessage('<h3>まとめ</h3>', 'system');
                             let header = `<strong>${summaryItem.source}</strong>`;
                             if (summaryItem.query) header += `<br>クエリ: ${summaryItem.query}`;
                             if (summaryItem.intent) header += `<br>観点: ${summaryItem.intent}`;
