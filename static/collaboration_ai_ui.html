@@ -501,6 +501,13 @@
                             <option value="10">10 枚</option>
                         </select>
                     </div>
+                    <div id="imageApiSelectWrapper" class="mr-3 hidden">
+                        <select id="imageApiSelect" class="p-2 border-gray-300 rounded-lg shadow-sm focus:ring-teal-500 focus:border-teal-500 text-sm">
+                            <option value="openai" selected>OpenAI (DALL·E)</option>
+                            <option value="stable">Stable Diffusion</option>
+                            <option value="both">両方 (OpenAI + Stable)</option>
+                        </select>
+                    </div>
                     <div class="flex-grow">
                         <textarea id="prompt" rows="1" class="w-full border rounded-xl focus:outline-none focus:border-teal-500 pl-4 h-10 py-2 resize-none text-sm" placeholder="メッセージを入力..."></textarea>
                     </div>
@@ -591,6 +598,8 @@
     const charCountLabel = document.getElementById('charCountLabel');
     const imageCountWrapper = document.getElementById('imageCountWrapper');
     const imageCountSelect = document.getElementById('imageCount');
+    const imageApiSelectWrapper = document.getElementById('imageApiSelectWrapper'); // 追加
+    const imageApiSelect = document.getElementById('imageApiSelect'); // 追加
     const loadingIndicator = document.getElementById('loadingIndicator');
     const thinkingVideo = document.getElementById('thinkingVideo');
     const chatMessagesContainer = document.getElementById('chatMessagesContainer');
@@ -761,8 +770,10 @@
         }
         if (aiModeSelect.value === 'imagegen') {
             if (imageCountWrapper) imageCountWrapper.classList.remove('hidden');
+            if (imageApiSelectWrapper) imageApiSelectWrapper.classList.remove('hidden'); // 追加
         } else {
             if (imageCountWrapper) imageCountWrapper.classList.add('hidden');
+            if (imageApiSelectWrapper) imageApiSelectWrapper.classList.add('hidden'); // 追加
         }
         if (aiModeSelect.value === 'videogen') {
             if (videoModeContainer) videoModeContainer.classList.remove('hidden');
@@ -2005,9 +2016,10 @@ function highlightMessage(messageId) {
                 let response;
                 if (selectedMode === 'imagegen') {
                     const count = parseInt(imageCountSelect.value || '1');
+                    const selectedImageApi = imageApiSelect.value; // 追加
                     response = await makeAuthenticatedRequest(API_ENDPOINT_IMAGE_GEN, {
                         method: 'POST',
-                        body: JSON.stringify({ prompt: sendPrompt, count })
+                        body: JSON.stringify({ prompt: sendPrompt, count: count, api: selectedImageApi }) // api パラメータを追加
                     });
                 } else {
                     const requestBody = {

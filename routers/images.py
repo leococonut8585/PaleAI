@@ -75,81 +75,136 @@ async def generate_images(req: ImageGenerationRequest, current_user: models.User
     if not req.allow_text:
         english += " no letters, watermark, text"
     optimized = await optimize_prompt(english)
-    urls: List[str] = []
+    all_generated_urls: List[str] = []
+    errors_occurred: List[str] = []
+
     import random
     base_seed = random.randint(0, 2**32 - 1)
     cfg_scale = 5 + req.deference
 
-    async def dalle_try() -> List[str]:
+    async def dalle_try(internal_req_count: int) -> List[str]:
         from utils.openai_client import openai_client
         if not openai_client:
             raise Exception("OpenAI is not configured")
         out: List[str] = []
-        for i in range(req.count):
-            seed = base_seed if req.deference == 1 else base_seed + i
+        for i in range(internal_req_count):
+            current_seed = base_seed + i
             params = {
                 "model": "dall-e-3",
                 "prompt": optimized,
                 "n": 1,
                 "size": "1024x1024",
-                # OpenAI DALL·E 3 API does not support a seed parameter
-                # "seed": seed,
             }
             print("DALL·E request params:", params)
-            res = await openai_client.images.generate(**params)
-            print("DALL·E raw response:", res)
-            url = res.data[0].url
-            print("DALL·E image URL:", url)
-            out.append(url)
+            try:
+                res = await openai_client.images.generate(**params)
+                print("DALL·E raw response:", res)
+                if res.data and res.data[0].url:
+                    url = res.data[0].url
+                    print("DALL·E image URL:", url)
+                    out.append(url)
+                else:
+                    print("DALL·E response does not contain a valid URL.")
+            except Exception as e_dalle:
+                print(f"DALL·E individual generation failed: {e_dalle}")
         return out
 
-    async def stable_try() -> List[str]:
+    async def stable_try(internal_req_count: int) -> List[str]:
         try:
             from stability_sdk import client as stability_client
             import stability_sdk.interfaces.gooseai.generation.generation_pb2 as generation
         except Exception as e:
-            raise Exception(f"Stability SDK import error: {e}")
+            raise Exception(f"Stability SDK import error or critical setup issue: {e}")
+
         key = os.getenv("STABILITY_API_KEY")
         if not key:
-            raise Exception("Stability API key missing")
-        stability = stability_client.StabilityInference(key=key, verbose=False)
-        negative = None if req.allow_text else "text, watermark, letters, logo"
+            raise Exception("Stability API key missing. Cannot use Stable Diffusion.")
+
+        stability = stability_client.StabilityInference(key=key, verbose=False, engine="stable-diffusion-xl-1024-v1-0")
+        negative = None if req.allow_text else "text, watermark, letters, logo, words, typo, signature"
         out: List[str] = []
-        for i in range(req.count):
-            seed = base_seed if req.deference == 1 else base_seed + i
+
+        for i in range(internal_req_count):
+            current_seed = base_seed + req.count + i
             params = {
                 "prompt": optimized,
                 "steps": 30,
-                "seed": seed,
+                "seed": current_seed,
                 "cfg_scale": cfg_scale,
                 "negative_prompt": negative,
+                "samples": 1,
+                "width": 1024,
+                "height": 1024,
             }
             print("Stable Diffusion request params:", params)
-            answer = await run_in_threadpool(stability.generate, **params)
-            for resp in answer:
-                for art in resp.artifacts:
-                    if art.finish_reason == generation.FILTER:
-                        continue
-                    if art.type == generation.ARTIFACT_IMAGE:
-                        b64 = base64.b64encode(art.binary).decode()
-                        url = f"data:image/png;base64,{b64}"
-                        print("Stable Diffusion image URL:", url)
-                        out.append(url)
+            try:
+                answer = await run_in_threadpool(stability.generate, **params)
+                for resp in answer:
+                    for art in resp.artifacts:
+                        if art.finish_reason == generation.FILTER:
+                            print("Stable Diffusion image filtered.")
+                            continue
+                        if art.type == generation.ARTIFACT_IMAGE:
+                            b64 = base64.b64encode(art.binary).decode()
+                            url = f"data:image/png;base64,{b64}"
+                            out.append(url)
+            except Exception as e_stable_gen:
+                print(f"Stable Diffusion individual generation failed: {e_stable_gen}")
         return out
 
-    api_order = [req.api, "stable" if req.api == "openai" else "openai"] if req.api else ["openai", "stable"]
-    last_error = None
-    for api in api_order:
+    requested_api = req.api.lower() if req.api else "openai"
+    openai_count = 0
+    stable_count = 0
+
+    if requested_api == "openai":
+        openai_count = req.count
+    elif requested_api == "stable":
+        stable_count = req.count
+    elif requested_api == "both":
+        openai_count = (req.count + 1) // 2
+        stable_count = req.count // 2
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported API type: {req.api}")
+
+    if openai_count > 0:
         try:
-            urls = await (dalle_try() if api == "openai" else stable_try())
-            break
+            print(f"Attempting OpenAI generation for {openai_count} image(s)...")
+            openai_urls = await dalle_try(openai_count)
+            all_generated_urls.extend(openai_urls)
         except Exception as e:
-            print(f"{api} generation failed: {e}")
-            last_error = e
-            urls = []
-    if not urls:
-        raise HTTPException(status_code=500, detail=f"Image generation failed: {last_error}")
-    upscaled = []
-    for u in urls:
-        upscaled.append(await upscale_image(u))
-    return {"urls": upscaled}
+            print(f"OpenAI (DALL·E) generation failed entirely: {e}")
+            errors_occurred.append(f"OpenAI Error: {str(e)}")
+
+    if stable_count > 0:
+        try:
+            print(f"Attempting Stable Diffusion generation for {stable_count} image(s)...")
+            stable_urls = await stable_try(stable_count)
+            all_generated_urls.extend(stable_urls)
+        except Exception as e:
+            print(f"Stable Diffusion generation failed entirely: {e}")
+            errors_occurred.append(f"Stable Diffusion Error: {str(e)}")
+
+    if not all_generated_urls:
+        error_detail = "Image generation failed for all requested APIs."
+        if errors_occurred:
+            error_detail += " Errors: " + "; ".join(errors_occurred)
+        raise HTTPException(status_code=500, detail=error_detail)
+
+    upscaled_urls: List[str] = []
+    if all_generated_urls:
+        for u_idx, u_url in enumerate(all_generated_urls):
+            print(f"Upscaling image {u_idx+1}/{len(all_generated_urls)}: {u_url[:60]}...")
+            try:
+                upscaled_url = await upscale_image(u_url)
+                upscaled_urls.append(upscaled_url)
+            except Exception as e_upscale:
+                print(f"Failed to upscale image {u_url[:60]}... Error: {e_upscale}. Using original URL.")
+                upscaled_urls.append(u_url)
+
+    final_response_data = {"urls": upscaled_urls}
+    if errors_occurred and not upscaled_urls:
+        final_response_data["error"] = "; ".join(errors_occurred)
+    elif errors_occurred:
+        final_response_data["error"] = "Some image generations may have failed. Errors: " + "; ".join(errors_occurred)
+
+    return final_response_data
