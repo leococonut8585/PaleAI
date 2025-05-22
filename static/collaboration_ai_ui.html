@@ -174,6 +174,9 @@
         .markdown-body tr:nth-child(even) {
             background-color: #f9fafb;
         }
+        #loadingIndicator {
+            pointer-events: none;
+        }
         @media (max-width: 640px) {
             .markdown-body table {
                 display: block;
@@ -820,8 +823,10 @@
     }
 
     // --- 空のチャット画面表示用関数 ---
-    function resetChatUI() {
+function resetChatUI() {
         if (!chatArea || !chatMessagesContainer) return;
+        hideThinkingVideo();
+        if (loadingIndicator) loadingIndicator.classList.add('hidden');
         currentSessionId = null;
         chatMessagesContainer.innerHTML = '';
         chatArea.classList.remove('hidden');
@@ -1504,6 +1509,8 @@ async function handleEditTags(sessionId, currentTags) {
     }
 
 async function handleSessionSelection(sessionId, suppressMessages = false) {
+        hideThinkingVideo();
+        if (loadingIndicator) loadingIndicator.classList.add('hidden');
         // セッションIDが数値でない場合は処理中断 (予期せぬ動作を防ぐ)
         if (isNaN(parseInt(sessionId))) {
             console.warn("無効なセッションIDが選択されました:", sessionId);
@@ -1538,6 +1545,8 @@ async function handleSessionSelection(sessionId, suppressMessages = false) {
         if (!suppressMessages && statusContainer && statusContainer.dataset.status && statusContainer.dataset.status !== 'complete') {
             if (chatMessagesContainer) chatMessagesContainer.innerHTML = '';
             displayMessage('回答生成中...', 'system');
+            if (loadingIndicator) loadingIndicator.classList.remove('hidden');
+            showThinkingVideo();
         }
 
 
