@@ -188,6 +188,12 @@
         #sidebar.collapsed #sidebarLogoText {
             display: none;
         }
+        #sidebar.collapsed #sidebarLogoImage {
+            display: none;
+        }
+        #sidebar.collapsed #sidebarTopLink {
+            display: none;
+        }
         @media (max-width: 640px) {
             .markdown-body table {
                 display: block;
@@ -202,13 +208,16 @@
         <div id="sidebar" class="flex flex-col py-8 pl-6 pr-2 w-80 bg-white flex-shrink-0 shadow-lg h-full transition-all duration-300 overflow-x-hidden">
             <div class="flex flex-row items-center justify-between h-12 w-full" id="sidebarTop">
                 <div class="flex items-center">
-                    <img src="/static/pic/Default.png" alt="Pale AI Logo" class="h-10 w-auto mr-2" onerror="this.style.display='none';">
+                    <img id="sidebarLogoImage" src="/static/pic/Default.png" alt="Pale AI Logo" class="h-10 w-auto mr-2" onerror="this.style.display='none';">
                     <div id="sidebarLogoText" class="font-bold text-2xl text-teal-700">Pale AI</div>
                 </div>
-                <button id="sidebarToggle" class="text-teal-700 text-xl focus:outline-none">&#9664;</button>
+                <div id="sidebarToggleWrapper" class="flex flex-col items-center text-teal-700">
+                    <button id="sidebarToggle" class="text-xl focus:outline-none">&#9664;</button>
+                    <span id="sidebarToggleLabel" class="text-xs">Close</span>
+                </div>
             </div>
             <div class="text-center mt-2">
-                <a href="#" id="sidebarTopLink" class="text-teal-600 underline text-sm">Topに戻る</a>
+                <a href="#" id="sidebarTopLink" class="text-teal-600 underline text-sm">Top</a>
             </div>
             <div id="sidebarContent">
 
@@ -362,10 +371,6 @@
                             <option value="imagegen">ペイルの絵(画像生成モード)</option>
                             <option value="videogen">ペイルの像(動画生成モード)</option>
                         </select>
-                    </div>
-                    <div class="mr-3 flex items-center space-x-2">
-                        <label class="text-xs flex items-center"><input type="checkbox" id="languageMode" class="mr-1">語学</label>
-                        <label class="text-xs flex items-center"><input type="checkbox" id="autoTranslate" class="mr-1">自動翻訳</label>
                     </div>
                     <div class="mr-3 flex items-center">
                         <input id="charCount" type="number" value="1000" class="p-2 border-gray-300 rounded-lg shadow-sm focus:ring-teal-500 focus:border-teal-500 text-sm w-24 hidden" placeholder="文字数" />
@@ -1963,14 +1968,17 @@ function highlightMessage(messageId) {
 
         const sidebar = document.getElementById('sidebar');
         const sidebarToggle = document.getElementById('sidebarToggle');
+        const sidebarToggleLabel = document.getElementById('sidebarToggleLabel');
 
         function applySidebarState(collapsed) {
             if (collapsed) {
                 sidebar.classList.add('collapsed');
                 sidebarToggle.innerHTML = '&#9654;';
+                if (sidebarToggleLabel) sidebarToggleLabel.textContent = 'Open';
             } else {
                 sidebar.classList.remove('collapsed');
                 sidebarToggle.innerHTML = '&#9664;';
+                if (sidebarToggleLabel) sidebarToggleLabel.textContent = 'Close';
             }
         }
 
