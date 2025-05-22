@@ -21,3 +21,8 @@ Submitting the registration form now navigates to a dedicated progress page. The
 background task. Once the file appears the browser automatically redirects to
 `profile_generated.html?uid=<id>` where the resulting PNG is displayed fullscreen with a button to
 return to the login form.
+
+## Code Generation Mode
+
+For details on output in the `ペイルの創造` code mode, see
+[CODE_MODE_OUTPUT_GUIDELINES.md](CODE_MODE_OUTPUT_GUIDELINES.md).
