@@ -38,16 +38,40 @@ async def translate_prompt(text: str) -> str:
         print(f"DeepL error: {e}")
         return text
 
-async def optimize_prompt(text: str) -> str:
+async def optimize_prompt(english_prompt: str) -> str:
     from main import get_claude_response
+
+    optimization_system_prompt = """You are an expert image prompt engineer.
+Your task is to take the user-provided English prompt and refine it for optimal results with text-to-image generation APIs like DALL-E 3 or Stable Diffusion.
+Focus on clarity, vivid details, artistic style if implied, and overall coherence.
+Preserve the core intent of the original prompt.
+**You MUST return ONLY the optimized English prompt and nothing else. No conversational openers, no closers, no explanations, no apologies, no persona, no markdown formatting, no code blocks.**
+For example, if the input is "a cat", a good output might be "A photorealistic image of a fluffy ginger cat napping in a sunbeam, soft lighting, detailed fur."
+The prompt you are optimizing is in English. Ensure your output is also a single, clean English prompt string.
+"""
+
+    user_prompt_for_claude = f"Please optimize the following image generation prompt: \"{english_prompt}\""
+
     try:
-        res = await get_claude_response(text)
+        res = await get_claude_response(
+            prompt_text=user_prompt_for_claude,
+            system_instruction=optimization_system_prompt,
+            model="claude-3-haiku-20240307"
+        )
         if res and res.response:
-            return res.response
-        return text
+            optimized_text = res.response.strip()
+            if optimized_text.lower().startswith("optimized prompt:"):
+                optimized_text = optimized_text[len("optimized prompt:"):].strip()
+            print(f"Optimized prompt by Claude ({res.source}): {optimized_text}")
+            return optimized_text
+        else:
+            print(f"Claude prompt optimization returned no response. Using original English prompt: {english_prompt}")
+            if res and res.error:
+                print(f"Claude optimization error details: {res.error}")
+            return english_prompt
     except Exception as e:
-        print(f"Claude error: {e}")
-        return text
+        print(f"Claude prompt optimization exception: {e}")
+        return english_prompt
 
 
 @router.post("/generate", response_model=ImageGenerationResponse)
