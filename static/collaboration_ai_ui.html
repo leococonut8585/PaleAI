@@ -732,6 +732,13 @@
         thinkingVideo.classList.add('hidden');
     }
 
+    // ★ 追加: モードの表示名取得ヘルパー関数
+    function getModeDisplayName(modeValue) {
+        if (!aiModeSelect) return modeValue; // aiModeSelect が未定義の場合はそのまま返す
+        const optionElement = Array.from(aiModeSelect.options).find(opt => opt.value === modeValue);
+        return optionElement ? optionElement.textContent : modeValue;
+    }
+
     function populateLangSelect(select) {
         if (!select) return;
         select.innerHTML = '';
@@ -790,18 +797,71 @@
             if (talkModeContainer) talkModeContainer.classList.add('hidden');
         }
     }
-    function handleAiModeChange() {
-        const mode = aiModeSelect.value;
-        if (mode === 'talk' && !talkModeConfirmed) {
-            aiModeSelect.value = previousAiMode;
-            if (talkStartModal) talkStartModal.classList.remove('hidden');
-            return;
-        }
-        previousAiMode = mode;
-        talkModeConfirmed = false;
-        toggleCharCountBox();
+    // ★ 修正: aiModeSelect の 'change' イベントリスナー (新しいモード切り替えロジック)
+    if (aiModeSelect) {
+        aiModeSelect.addEventListener('change', async () => {
+            const newModeSelectedByUser = aiModeSelect.value;
+
+            // 1. 現在のセッションで選択中のモードと同じなら何もしない
+            if (currentSessionId !== null && newModeSelectedByUser === activeSessionOriginalMode) {
+                return;
+            }
+
+            // --- ユーティリティ関数定義 (リスナー内スコープ) ---
+            const startNewChatWithMode = (modeForNewChat) => {
+                resetChatUI(); // これが currentSessionId = null を設定し、関連UIをリセット
+                if (aiModeSelect) aiModeSelect.value = modeForNewChat; // ドロップダウンを新しいモードに設定
+                activeSessionOriginalMode = modeForNewChat; // 新しいチャットのモードを更新
+                previousAiMode = modeForNewChat; // previousAiMode も同期
+                talkModeConfirmed = (modeForNewChat === 'talk'); // トークモード確認状態を更新
+                toggleCharCountBox(); // UI要素更新
+                // resetChatUI 内の displayMessage が新しいモードで新規チャット開始をアナウンス
+            };
+
+            const revertModeSelectionToActiveSession = () => {
+                if (aiModeSelect) aiModeSelect.value = activeSessionOriginalMode; // ドロップダウンを元のセッションのモードに戻す
+            };
+
+            // 2. 「ペイルの対話」モードへの切り替え処理 (専用モーダルがある場合)
+            if (newModeSelectedByUser === 'talk') {
+                if (currentSessionId === null || activeSessionOriginalMode !== 'talk') { // 新規チャット or 非トークモードからの切り替え
+                    previousAiMode = activeSessionOriginalMode; // ★重要: モーダル表示"前"のモードを記憶
+                    sessionStorage.setItem('intendedModeForNewChatViaModal', newModeSelectedByUser); // モーダル結果処理用
+                    if (talkStartModal) {
+                        talkStartModal.classList.remove('hidden'); // 言語設定などのモーダル表示
+                    } else {
+                        // talkStartModal がない場合のフォールバック (通常はモーダルがある想定)
+                        if (confirm(`「${getModeDisplayName(newModeSelectedByUser)}」モードで新規チャットを開始しますか？`)) {
+                            startNewChatWithMode(newModeSelectedByUser);
+                        } else {
+                            revertModeSelectionToActiveSession(); // 元のセッションのモードに戻す
+                        }
+                    }
+                    return; // talkStartModalの結果待ち (またはフォールバック処理完了)
+                }
+                // それ以外 (既にトークモードのセッションで再度トークを選択など) は最初のifで弾かれるはず
+            }
+
+            // 3. 新規チャット状態 (currentSessionId === null) の場合 (かつトークモードではない)
+            if (currentSessionId === null) {
+                activeSessionOriginalMode = newModeSelectedByUser; // 新規チャットのモードとして設定
+                previousAiMode = newModeSelectedByUser;
+                talkModeConfirmed = false; // この分岐ではトークモードではない
+                toggleCharCountBox();
+                displayMessage(`新規チャットのモードを「${getModeDisplayName(newModeSelectedByUser)}」に設定しました。`, 'system');
+                return;
+            }
+
+            // 4. 既存セッションがあり、異なるモード (トーク以外) へ変更しようとした場合
+            // (currentSessionId !== null && newModeSelectedByUser !== activeSessionOriginalMode && newModeSelectedByUser !== 'talk')
+            if (confirm("モードを切り替えて新規チャットを開きますか？\n「いいえ」を選ぶと、現在のチャットに現在のモードのまま留まります。")) {
+                startNewChatWithMode(newModeSelectedByUser);
+            } else {
+                revertModeSelectionToActiveSession();
+            }
+        });
     }
-    aiModeSelect.addEventListener('change', handleAiModeChange);
+    // ★ 既存の handleAiModeChange 関数は上記リスナーに統合されたため削除
     talkInputModeRadios.forEach(r => r.addEventListener('change', updateTalkInputMode));
     if (talkRecordBtn) {
         talkRecordBtn.addEventListener('click', async () => {
@@ -829,25 +889,39 @@
 
     if (talkStartYes) {
         talkStartYes.addEventListener('click', () => {
-            talkModeConfirmed = true;
-            populateLangSelect(talkInputLang);
-            populateLangSelect(talkOutputLang);
-            talkInputLang.value = talkStartInputLang.value;
-            talkOutputLang.value = talkStartOutputLang.value;
+        const intendedMode = sessionStorage.getItem('intendedModeForNewChatViaModal');
+        sessionStorage.removeItem('intendedModeForNewChatViaModal'); // 確認後は削除
+
+        // モーダルで言語などを設定 (既存のロジック)
+        if (talkInputLang && talkStartInputLang) talkInputLang.value = talkStartInputLang.value;
+        if (talkOutputLang && talkStartOutputLang) talkOutputLang.value = talkStartOutputLang.value;
+        if (talkStartInputModeRadios && talkInputModeRadios){
             const sel = Array.from(talkStartInputModeRadios).find(r => r.checked)?.value || 'text';
             talkInputModeRadios.forEach(r => { r.checked = (r.value === sel); });
-            updateTalkInputMode();
-            if (talkStartModal) talkStartModal.classList.add('hidden');
-            aiModeSelect.value = 'talk';
-            previousAiMode = 'talk';
-            toggleCharCountBox();
+        }
+        updateTalkInputMode(); // マイク/テキスト入力欄の切り替え
+
+        if (intendedMode === 'talk') {
+            // ★ ユーザーが「トークモードで新規チャット開始」をモーダル経由で確定した場合
+            talkModeConfirmed = true; // トークモード設定完了
+            resetChatUI(); // 新規チャットUI状態へ
+            if (aiModeSelect) aiModeSelect.value = 'talk'; // ドロップダウンをトークモードに
+            activeSessionOriginalMode = 'talk';    // 新規チャットのモードをトークに
+            previousAiMode = 'talk';               // previousAiMode も同期
+            toggleCharCountBox();                  // UI更新
+        }
+
+        if (talkStartModal) talkStartModal.classList.add('hidden');
         });
     }
     if (talkStartNo) {
         talkStartNo.addEventListener('click', () => {
-            if (talkStartModal) talkStartModal.classList.add('hidden');
-            aiModeSelect.value = previousAiMode;
-            toggleCharCountBox();
+        sessionStorage.removeItem('intendedModeForNewChatViaModal'); // フラグをクリア
+        // ★ モーダル表示前に記憶した previousAiMode (元のセッションのモード or 新規チャット時の選択) に戻す
+        if (aiModeSelect) aiModeSelect.value = previousAiMode;
+        // talkModeConfirmed は変更しない (トークモードへの移行をキャンセルしたため)
+        // toggleCharCountBox(); // aiModeSelect.value が戻るので、必要なら呼び出すが、通常は不要か
+        if (talkStartModal) talkStartModal.classList.add('hidden');
         });
     }
 
@@ -880,7 +954,9 @@
     const pendingSessionPromises = {}; // 新規作成中セッションのPromise管理
     let currentUserProfileImage = null;
     let foldersCache = [];
-    let previousAiMode = aiModeSelect.value;
+    let allSessionsCache = []; // ★ 追加: 全セッション情報をキャッシュする配列
+    let activeSessionOriginalMode = aiModeSelect ? aiModeSelect.value : 'balance'; // ★ 追加: 現在アクティブなセッションの実際のモード
+    let previousAiMode = aiModeSelect ? aiModeSelect.value : 'balance'; // ★ 修正: talkStartModal表示前のモード退避用など (aiModeSelect の存在確認を追加)
     let talkModeConfirmed = false;
     let mediaRecorder = null;
     let recordedChunks = [];
@@ -990,14 +1066,20 @@ function resetChatUI() {
         if (!chatArea || !chatMessagesContainer) return;
         hideThinkingVideo();
         if (loadingIndicator) loadingIndicator.classList.add('hidden');
-        currentSessionId = null;
-        chatMessagesContainer.innerHTML = '';
-        chatArea.classList.remove('hidden');
+        currentSessionId = null; // セッションIDをクリア
+        if (chatMessagesContainer) chatMessagesContainer.innerHTML = ''; // メッセージクリア
+
+        // サイドバーのセッションリストのアクティブ表示を解除
         if (chatSessionListDiv) {
             const activeBtns = chatSessionListDiv.querySelectorAll('.session-button-active');
             activeBtns.forEach(btn => btn.classList.remove('session-button-active'));
         }
-        displayMessage('新しいチャットが開始されました。メッセージをどうぞ。', 'system');
+
+        // ★ 修正: 新規チャット開始のシステムメッセージ (モード名はaiModeSelectから取得)
+        const currentModeForNewChat = aiModeSelect ? aiModeSelect.value : 'balance';
+        displayMessage(`新しいチャットをモード「${getModeDisplayName(currentModeForNewChat)}」で開始しました。`, 'system');
+        if (chatArea) chatArea.classList.remove('hidden'); // チャットエリア表示
+        if (promptTextarea) promptTextarea.focus();
     }
 
 
@@ -1573,6 +1655,7 @@ function displayMessage(content, role, aiModelName = null, messageId = null, sea
                 throw new Error(err.detail);
             }
             let sessions = await response.json();
+            allSessionsCache = sessions; // ★ 追加: グローバルキャッシュを更新
             chatSessionListDiv.innerHTML = '';
 
             if (currentFolderId === -1) {
@@ -1809,68 +1892,83 @@ async function handleEditTags(sessionId, currentTags) {
 async function handleSessionSelection(sessionId, suppressMessages = false) {
         hideThinkingVideo();
         if (loadingIndicator) loadingIndicator.classList.add('hidden');
-        // セッションIDが数値でない場合は処理中断 (予期せぬ動作を防ぐ)
+
         if (isNaN(parseInt(sessionId))) {
             console.warn("無効なセッションIDが選択されました:", sessionId);
             return;
         }
-        sessionId = parseInt(sessionId); // 数値に変換
+        const newSelectedSessionId = parseInt(sessionId);
 
-        if (sessionId < 0) { // 仮セッションはサーバー問い合わせを行わない
-            currentSessionId = sessionId;
-            if (chatMessagesContainer) chatMessagesContainer.innerHTML = '';
-            const allSessionElements = chatSessionListDiv.querySelectorAll('.session-element > button');
-            allSessionElements.forEach(btn => btn.classList.remove('session-button-active'));
-            const newlySelectedButton = chatSessionListDiv.querySelector(`.session-element[data-session-id="${sessionId}"] > button`);
-            if (newlySelectedButton) newlySelectedButton.classList.add('session-button-active');
+        // 既に選択中のセッションをクリックした場合、何もしない (メッセージが既にある場合)
+        if (currentSessionId === newSelectedSessionId && chatMessagesContainer && chatMessagesContainer.childElementCount > 0 && !chatMessagesContainer.innerHTML.includes('読込中...')) {
+             // ただし、サイドバーのハイライトは確認する
+            const newlySelectedButtonContainer = chatSessionListDiv.querySelector(`.session-element[data-session-id="${newSelectedSessionId}"]`);
+            if (newlySelectedButtonContainer && !newlySelectedButtonContainer.classList.contains('session-button-active')) {
+                 const allSessionElements = chatSessionListDiv.querySelectorAll('.session-element.session-button-active');
+                 allSessionElements.forEach(el => el.classList.remove('session-button-active'));
+                 newlySelectedButtonContainer.classList.add('session-button-active');
+            }
             return;
         }
 
-        // 既に選択されているセッションで、かつメッセージが表示されていれば何もしない
-        if (currentSessionId === sessionId && chatMessagesContainer.childElementCount > 1 && !chatMessagesContainer.innerHTML.includes('読込中...')) {
-            return;
+        currentSessionId = newSelectedSessionId; // currentSessionId を先に更新
+
+        // ★ 修正: allSessionsCache から選択されたセッションの情報を取得し、モード関連のグローバル変数を更新
+        const selectedSessionFromCache = allSessionsCache.find(s => s.id === currentSessionId);
+
+        if (selectedSessionFromCache) {
+            activeSessionOriginalMode = selectedSessionFromCache.mode;
+            if (aiModeSelect) aiModeSelect.value = selectedSessionFromCache.mode;
+            previousAiMode = selectedSessionFromCache.mode; // talkStartModal用に現在のモードを記憶
+            talkModeConfirmed = (selectedSessionFromCache.mode === 'talk');
+            toggleCharCountBox(); // モードに合わせたUI要素の表示/非表示
+        } else {
+            console.warn("選択されたセッションがキャッシュに見つかりません:", currentSessionId);
+            // ここでサーバーから個別セッション情報を取得するフォールバックも検討可能
+            // 今は activeSessionOriginalMode などは変更せず、メッセージ取得に進む
         }
 
-        const allSessionElements = chatSessionListDiv.querySelectorAll('.session-element > button');
-        allSessionElements.forEach(btn => btn.classList.remove('session-button-active'));
-
-        const newlySelectedButton = chatSessionListDiv.querySelector(`.session-element[data-session-id="${sessionId}"] > button`);
-        if (newlySelectedButton) {
-            newlySelectedButton.classList.add('session-button-active');
+        // サイドバーのセッションリストのハイライト更新
+        if (chatSessionListDiv) {
+            const allSessionElements = chatSessionListDiv.querySelectorAll('.session-element.session-button-active');
+            allSessionElements.forEach(el => el.classList.remove('session-button-active'));
+            const newlySelectedButtonContainer = chatSessionListDiv.querySelector(`.session-element[data-session-id="${currentSessionId}"]`);
+            if (newlySelectedButtonContainer) {
+                newlySelectedButtonContainer.classList.add('session-button-active');
+            }
         }
 
-        const statusContainer = chatSessionListDiv.querySelector(`.session-element[data-session-id="${sessionId}"]`);
-        if (!suppressMessages && statusContainer && statusContainer.dataset.status && statusContainer.dataset.status !== 'complete') {
-            if (chatMessagesContainer) chatMessagesContainer.innerHTML = '';
-            displayMessage('回答生成中...', 'system');
-            if (loadingIndicator) loadingIndicator.classList.remove('hidden');
-            showThinkingVideo();
-        }
-
-
-        currentSessionId = sessionId;
-        if (chatMessagesContainer) chatMessagesContainer.innerHTML = ''; // メッセージ表示エリアをクリア
-        if (!suppressMessages) displayMessage(`セッション ${sessionId} のメッセージを読込中...`, 'system');
+        // UIクリアとメッセージ読み込み
+        if (chatMessagesContainer) chatMessagesContainer.innerHTML = '';
+        if (!suppressMessages) displayMessage(`セッション ${currentSessionId} のメッセージを読込中...`, 'system');
 
         try {
-            // routers/chat.py の get_chat_session_messages を呼び出す
-            const response = await makeAuthenticatedRequest(`${API_ENDPOINT_CHAT_SESSIONS}/${sessionId}/messages`, { method: 'GET' });
+            const response = await makeAuthenticatedRequest(`${API_ENDPOINT_CHAT_SESSIONS}/${currentSessionId}/messages`, { method: 'GET' });
             if (!response.ok) {
-                const err = await response.json().catch(() => ({ detail: `メッセージの取得に失敗しました (セッションID: ${sessionId})` }));
+                const err = await response.json().catch(() => ({ detail: `メッセージの取得に失敗しました (セッションID: ${currentSessionId})` }));
                 throw new Error(err.detail);
             }
             const messages = await response.json();
             if (chatMessagesContainer) chatMessagesContainer.innerHTML = ''; // 再度クリア
 
             if (messages && messages.length > 0) {
-                messages.forEach(msg => displayMessage(msg.content, msg.role, msg.ai_model, msg.id));
+                // 検索モードなどの詳細情報を渡せるように displayMessage を呼び出す
+                messages.forEach(msg => displayMessage(
+                    msg.content,
+                    msg.role,
+                    msg.ai_model,
+                    msg.id,
+                    msg.search_fragments,
+                    msg.search_summary_text,
+                    msg.search_mode_warnings
+                ));
             } else if (!suppressMessages) {
                 displayMessage(`この会話にはまだメッセージがありません。`, 'system');
             }
         } catch (error) {
-            console.error(`メッセージ読込エラー (SessionID: ${sessionId}):`, error);
-            if (chatMessagesContainer) chatMessagesContainer.innerHTML = ''; // エラー時もクリア
-            if (error.message !== 'auth') {
+            console.error(`メッセージ読込エラー (SessionID: ${currentSessionId}):`, error);
+            if (chatMessagesContainer) chatMessagesContainer.innerHTML = '';
+            if (error.message !== 'auth' && !suppressMessages) {
                 displayMessage(`メッセージの読み込みに失敗しました: ${error.message}`, 'system');
             }
         }
@@ -2263,8 +2361,15 @@ function highlightMessage(messageId) {
         populateLangSelect(talkOutputLang);
         populateLangSelect(talkStartInputLang);
         populateLangSelect(talkStartOutputLang);
+
+        // ★ モード関連グローバル変数の初期化 (aiModeSelect の存在確認を追加)
+        const initialMode = aiModeSelect ? aiModeSelect.value : 'balance';
+        activeSessionOriginalMode = initialMode;
+        previousAiMode = initialMode;
+        talkModeConfirmed = (initialMode === 'talk');
+
         updateTalkInputMode();
-        toggleCharCountBox();
+        toggleCharCountBox(); // 初期モードに基づいてUI要素を正しく設定
 
         const sidebar = document.getElementById('sidebar');
         const sidebarToggle = document.getElementById('sidebarToggle');
@@ -2313,7 +2418,19 @@ function highlightMessage(messageId) {
             newChatButton.addEventListener('click', () => {
                 console.log('新しい会話ボタンが押された');
                 if (!getToken()) { alert('この機能を利用するにはログインが必要です。'); return; }
-                resetChatUI();
+
+                // ★ resetChatUIが呼ばれる前に、新しいチャットのデフォルトモードをaiModeSelectに基づいて設定
+                const newChatInitialMode = aiModeSelect ? aiModeSelect.value : 'balance';
+                activeSessionOriginalMode = newChatInitialMode;
+                previousAiMode = newChatInitialMode;
+                talkModeConfirmed = (newChatInitialMode === 'talk');
+                // toggleCharCountBox(); // resetChatUI の後、または activeSessionOriginalMode 設定時に呼ぶ
+                                    // aiModeSelect.value が変わらないなら不要。変わるなら必要。
+                                    // ここでは resetChatUI の中で aiModeSelect.value を使うので、
+                                    // aiModeSelect.value 自体はまだ変わっていない。
+                resetChatUI(); // この中で displayMessage が呼ばれ、現在の aiModeSelect.value を使う
+                if (aiModeSelect) aiModeSelect.value = newChatInitialMode; // resetChatUIの後でドロップダウンを確実に同期
+                toggleCharCountBox(); // UI要素をモードに合わせて更新
             });
         }
         // Enterキーでの送信
