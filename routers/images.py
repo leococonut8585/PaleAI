@@ -79,40 +79,41 @@ async def generate_images(req: ImageGenerationRequest, current_user: models.User
     import random
     base_seed = random.randint(0, 2**32 - 1)
     cfg_scale = 5 + req.deference
-    if req.api == "openai":
+
+    async def dalle_try() -> List[str]:
         from utils.openai_client import openai_client
         if not openai_client:
-            raise HTTPException(status_code=500, detail="OpenAI is not configured")
-        try:
-            for i in range(req.count):
-                seed = base_seed if req.deference == 1 else base_seed + i
-                params = {
-                    "model": "dall-e-3",
-                    "prompt": optimized,
-                    "n": 1,
-                    "size": "1024x1024",
-                    "seed": seed,
-                }
-                print("DALL·E request params:", params)
-                res = await openai_client.images.generate(**params)
-                print("DALL·E raw response:", res)
-                url = res.data[0].url
-                print("DALL·E image URL:", url)
-                urls.append(url)
-        except Exception as e:
-            print("DALL·E error:", e)
-            raise HTTPException(status_code=500, detail=f"OpenAI image error: {e}")
-    else:
+            raise Exception("OpenAI is not configured")
+        out: List[str] = []
+        for i in range(req.count):
+            seed = base_seed if req.deference == 1 else base_seed + i
+            params = {
+                "model": "dall-e-3",
+                "prompt": optimized,
+                "n": 1,
+                "size": "1024x1024",
+                "seed": seed,
+            }
+            print("DALL·E request params:", params)
+            res = await openai_client.images.generate(**params)
+            print("DALL·E raw response:", res)
+            url = res.data[0].url
+            print("DALL·E image URL:", url)
+            out.append(url)
+        return out
+
+    async def stable_try() -> List[str]:
         try:
             from stability_sdk import client as stability_client
             import stability_sdk.interfaces.gooseai.generation.generation_pb2 as generation
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Stability SDK import error: {e}")
+            raise Exception(f"Stability SDK import error: {e}")
         key = os.getenv("STABILITY_API_KEY")
         if not key:
-            raise HTTPException(status_code=500, detail="Stability API key missing")
+            raise Exception("Stability API key missing")
         stability = stability_client.StabilityInference(key=key, verbose=False)
         negative = None if req.allow_text else "text, watermark, letters, logo"
+        out: List[str] = []
         for i in range(req.count):
             seed = base_seed if req.deference == 1 else base_seed + i
             params = {
@@ -132,7 +133,21 @@ async def generate_images(req: ImageGenerationRequest, current_user: models.User
                         b64 = base64.b64encode(art.binary).decode()
                         url = f"data:image/png;base64,{b64}"
                         print("Stable Diffusion image URL:", url)
-                        urls.append(url)
+                        out.append(url)
+        return out
+
+    api_order = [req.api, "stable" if req.api == "openai" else "openai"] if req.api else ["openai", "stable"]
+    last_error = None
+    for api in api_order:
+        try:
+            urls = await (dalle_try() if api == "openai" else stable_try())
+            break
+        except Exception as e:
+            print(f"{api} generation failed: {e}")
+            last_error = e
+            urls = []
+    if not urls:
+        raise HTTPException(status_code=500, detail=f"Image generation failed: {last_error}")
     upscaled = []
     for u in urls:
         upscaled.append(await upscale_image(u))
