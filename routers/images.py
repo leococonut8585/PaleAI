@@ -129,36 +129,32 @@ async def generate_images(req: ImageGenerationRequest, current_user: models.User
 
         stability_engine_id = "stable-diffusion-xl-1024-v1-0"
         print(f"Using Stability Engine: {stability_engine_id}")
-        stability = stability_client.StabilityInference(key=key, verbose=False, engine=stability_engine_id)
 
-        negative_prompt_text_base = "blurry, ugly, deformed, worst quality, low quality, poorly drawn, bad anatomy, extra limbs, missing limbs"
+        stability = stability_client.StabilityInference(key=key, verbose=True, engine=stability_engine_id)
+
+        negative_prompt_text_for_api = ""
         if not req.allow_text:
-            negative_prompt_text = negative_prompt_text_base + ", text, watermark, letters, logo, words, typo, signature"
-        else:
-            negative_prompt_text = negative_prompt_text_base
+            negative_prompt_text_for_api = "text, words, letters, watermark, signature, blurry, deformed, ugly, worst quality, low quality, poorly drawn, bad anatomy, extra limbs, missing limbs"
 
         out: List[str] = []
         for i in range(internal_req_count):
-            current_seed = base_seed + req.count + i + 1000
+            current_seed = base_seed + req.count + i + 2000
 
             prompt_list_for_api = [
                 generation.Prompt(text=current_optimized_prompt, parameters=generation.PromptParameters(weight=1.0))
             ]
-            if negative_prompt_text:
+            if negative_prompt_text_for_api:
                 prompt_list_for_api.append(
-                    generation.Prompt(text=negative_prompt_text, parameters=generation.PromptParameters(weight=-1.0))
+                    generation.Prompt(text=negative_prompt_text_for_api, parameters=generation.PromptParameters(weight=-1.0))
                 )
 
             call_params_for_log = {
-                "prompt_text_for_log": current_optimized_prompt,
-                "negative_prompt_text_for_log": negative_prompt_text if negative_prompt_text else "N/A",
-                "seed": current_seed,
-                "steps": 30,
-                "cfg_scale": cfg_scale,
-                "samples": 1,
-                "width": 1024,
-                "height": 1024,
                 "engine": stability_engine_id,
+                "prompts_count": len(prompt_list_for_api),
+                "main_prompt_for_log": current_optimized_prompt,
+                "negative_prompt_for_log": negative_prompt_text_for_api if negative_prompt_text_for_api else "N/A",
+                "seed": current_seed, "steps": 30, "cfg_scale": 7,
+                "samples": 1, "width": 1024, "height": 1024
             }
             print("Stable Diffusion call parameters (for logging):", call_params_for_log)
 
@@ -168,24 +164,39 @@ async def generate_images(req: ImageGenerationRequest, current_user: models.User
                     prompt=prompt_list_for_api,
                     seed=current_seed,
                     steps=30,
-                    cfg_scale=cfg_scale,
+                    cfg_scale=7.0,
                     width=1024,
                     height=1024,
-                    samples=1,
+                    samples=1
                 )
-                for resp in answer:
-                    for art in resp.artifacts:
+
+                # ☆☆☆ 生のAPI応答をログに出力 ☆☆☆
+                print(f"Stable Diffusion API raw answer for seed {current_seed}: {answer}")
+
+                found_image = False  # このシードで画像が見つかったかどうかのフラグ
+                for resp_idx, resp in enumerate(answer):  # answerがイテラブルであることを期待
+                    print(f"  Response block {resp_idx}: {type(resp)}")  # 個々のレスポンスブロックの型
+                    for art_idx, art in enumerate(resp.artifacts):  # artifactsがイテラブルであることを期待
+                        print(f"    Artifact {art_idx}: type={art.type}, finish_reason={art.finish_reason}")
                         if art.finish_reason == generation.FILTER:
-                            print("Stable Diffusion image filtered by safety filter.")
-                            errors_occurred.append("Stable Diffusion: Image filtered by safety.")
+                            print("    Stable Diffusion image filtered by safety filter.")
+                            errors_occurred.append(f"Stable Diffusion (seed {current_seed}): Image filtered by safety.")
                             continue
                         if art.type == generation.ARTIFACT_IMAGE:
                             b64 = base64.b64encode(art.binary).decode()
                             url = f"data:image/png;base64,{b64}"
                             out.append(url)
+                            found_image = True
+                            print(f"    Successfully processed artifact image for seed {current_seed}")
+
+                if not found_image:
+                    print(f"  No valid image artifact found in API response for seed {current_seed}.")
+                    # errors_occurred に何も追加しないでおくと、単に画像が0枚だったことになる
+                    # エラーとして扱うべきか検討 ( 例: APIは成功したが期待した画像がなかった場合 )
+
             except Exception as e_stable_gen:
                 print(f"Stable Diffusion individual generation failed for seed {current_seed}: {e_stable_gen}")
-                errors_occurred.append(f"Stable Diffusion: {str(e_stable_gen)}")
+                errors_occurred.append(f"Stable Diffusion Exception (seed {current_seed}): {str(e_stable_gen)}")
         return out
 
     requested_api_choice = req.api.lower() if req.api else "openai"
