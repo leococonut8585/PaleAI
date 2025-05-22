@@ -768,13 +768,17 @@
             if (charCountInput) charCountInput.classList.add('hidden');
             if (charCountLabel) charCountLabel.classList.add('hidden');
         }
+
+        // 画像生成モードの制御
         if (aiModeSelect.value === 'imagegen') {
             if (imageCountWrapper) imageCountWrapper.classList.remove('hidden');
-            if (imageApiSelectWrapper) imageApiSelectWrapper.classList.remove('hidden'); // 追加
+            if (imageApiSelectWrapper) imageApiSelectWrapper.classList.remove('hidden');
         } else {
             if (imageCountWrapper) imageCountWrapper.classList.add('hidden');
-            if (imageApiSelectWrapper) imageApiSelectWrapper.classList.add('hidden'); // 追加
+            if (imageApiSelectWrapper) imageApiSelectWrapper.classList.add('hidden');
         }
+
+        // 動画生成モードとトークモードの制御
         if (aiModeSelect.value === 'videogen') {
             if (videoModeContainer) videoModeContainer.classList.remove('hidden');
             if (talkModeContainer) talkModeContainer.classList.add('hidden');

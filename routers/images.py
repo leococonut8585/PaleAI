@@ -4,6 +4,8 @@ from typing import List, Optional
 from fastapi.concurrency import run_in_threadpool
 import os
 import base64
+import httpx
+import tempfile
 
 import models
 from dependencies import get_current_active_user
@@ -48,23 +50,55 @@ async def optimize_prompt(text: str) -> str:
         return text
 
 async def upscale_image(url: str) -> str:
-    token = os.getenv("REPLICATE_API_TOKEN")
-    if not token:
+    replicate_api_token = os.getenv("REPLICATE_API_TOKEN")
+    if not replicate_api_token:
+        print("Replicate API token not found. Skipping upscale.")
         return url
+
     import replicate
-    client = replicate.Client(api_token=token)
+
     try:
-        print("Replicate upscale input URL:", url)
-        output = await run_in_threadpool(client.run, "cjwbw/real-esrgan", input={"image": url})
-        print("Replicate upscale raw response:", output)
-        if isinstance(output, list):
-            result = output[-1]
+        print(f"Original image URL for upscale: {url}")
+        async with httpx.AsyncClient() as client_http:
+            response = await client_http.get(url, timeout=30.0)
+            response.raise_for_status()
+            image_bytes = response.content
+
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=True) as tmp_file:
+            tmp_file.write(image_bytes)
+            tmp_file.flush()
+            print(f"Image downloaded to temporary file: {tmp_file.name}")
+
+            input_payload = {"image": open(tmp_file.name, "rb")}
+
+            print("Calling Replicate API with temporary file...")
+            output = await run_in_threadpool(
+                replicate.run,
+                "cjwbw/real-esrgan:e2ec5874a9427a78cb24f52b8798dfc778e7f412378e5f1fcd4730aa0586456b",
+                input=input_payload
+            )
+
+        print(f"Replicate upscale raw response: {output}")
+
+        if isinstance(output, str):
+            result_url = output
+        elif isinstance(output, list) and len(output) > 0 and isinstance(output[0], str):
+            result_url = output[0]
         else:
-            result = str(output)
-        print("Replicate upscale result URL:", result)
-        return result
+            print(f"Unexpected Replicate output format: {type(output)}. Using original URL.")
+            return url
+
+        print(f"Replicate upscale result URL: {result_url}")
+        return result_url
+
+    except httpx.HTTPStatusError as e_http:
+        print(f"Failed to download image from DALL·E URL: {e_http}. Response: {e_http.response.text}")
+        return url
+    except replicate.exceptions.ReplicateError as e_replicate:
+        print(f"Replicate API error: {e_replicate}")
+        return url
     except Exception as e:
-        print(f"Upscale error: {e}")
+        print(f"General upscale error: {e}")
         return url
 
 @router.post("/generate", response_model=ImageGenerationResponse)
