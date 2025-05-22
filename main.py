@@ -1302,6 +1302,20 @@ async def run_balance_mode_flow(
     return response_shell
 
 
+def format_code_mode_output(code: str, explanation: str, tests: str) -> str:
+    """Apply output template for code generation mode."""
+    return (
+        "## 生成されたコード\n\n"
+        "このコードをそのまま使えます。下記をコピペしてください。\n\n"
+        f"```python\n{code}\n```\n\n"
+        "## コードの解説\n\n"
+        f"{explanation}\n\n"
+        "## テストケースの提案\n\n"
+        f"{tests}\n"
+    )
+
+
+
 async def run_iterative_search_flow(
     original_prompt: str,
     response_shell: schemas.CollaborativeResponseV2,
@@ -1772,10 +1786,10 @@ async def run_code_mode_flow(
             code_explanation = c6_res.response
         print(f"ステップC6 - コード解説 (冒頭):\n{code_explanation[:300].strip()}...")
         
-        final_code_mode_output = (
-            f"## 生成されたコード (バージョン2)\n\n```python\n{generated_code_v2}\n```\n\n"
-            f"## コードの解説\n\n{code_explanation}\n\n"
-            f"## テストケースの提案\n\n{test_cases_suggestion}\n"
+        final_code_mode_output = format_code_mode_output(
+            generated_code_v2,
+            code_explanation,
+            test_cases_suggestion,
         )
         
         response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
