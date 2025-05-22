@@ -986,7 +986,7 @@ function resetChatUI() {
     }
 
     // --- メッセージ表示関数 ---
-    function displayMessage(content, role, aiModelName = null, messageId = null) {
+    function displayMessage(content, role, aiModelName = null, messageId = null, searchFragments = null, searchSummary = null, searchModeWarnings = null) {
         if (!chatMessagesContainer) return;
         const messageWrapper = document.createElement('div');
         messageWrapper.classList.add('qa-container'); // 簡略化
@@ -1001,162 +1001,131 @@ function resetChatUI() {
         speechBubbleCard.classList.add('speech-bubble-card');
 
         if (role === 'user') {
-            messageWrapper.classList.add('justify-end', 'flex-row-reverse'); // 右寄せ
+            messageWrapper.classList.add('justify-end', 'flex-row-reverse');
             characterImage.src = currentUserProfileImage || '/static/pic/Default.png';
             characterImage.alt = 'User';
             speechBubbleCard.classList.add('user-bubble');
-      // ... (messageWrapper, characterArea, speechBubbleCard の準備までは同じ) ...
-
-    const contentDiv = document.createElement('div');
-    contentDiv.classList.add('prose', 'prose-sm', 'max-w-none', 'markdown-body');
-
-    // --- 検索モード (search3, search6) 専用の表示処理 ---
-    // selectedMode はグローバル変数か、あるいは data オブジェクトから取得できるようにする想定
-    // ここでは、aiModeSelect.value を参照しているが、displayMessageの引数で渡す方が堅牢
-    const currentSelectedMode = aiModeSelect.value; // submitBtn クリック時のモード
-    if ((currentSelectedMode === 'search3' || currentSelectedMode === 'search6' || currentSelectedMode === 'search' || currentSelectedMode === 'supersearch') && role === 'ai') {
-
-        // 1. メインの整形済みコンテンツ (data.step7_final_answer_v2_openai.response に入る想定)
-        if (content) { // content には整形済みの断片リスト本体が入る想定
-            contentDiv.innerHTML = marked.parse(content);
-            addCopyButtons(contentDiv);
-            // hljs.highlightAll() は重いので、特定の要素に対して実行する方が良い
-            contentDiv.querySelectorAll('pre code').forEach((block) => {
-                hljs.highlightElement(block);
-            });
-        } else {
-            contentDiv.innerHTML = marked.parse("*検索結果の主要コンテンツがありませんでした。*");
-        }
-        speechBubbleCard.appendChild(contentDiv); // まずメインコンテンツを追加
-
-        // 2. 生の断片情報リスト (data.search_fragments) があればそれを整形して表示
-        // data は displayMessage の呼び出し元で渡されるサーバーレスポンスオブジェクトを想定
-        // この引数名は displayMessage(content, role, aiModelName = null, messageId = null, responseData = null) のように追加する
-        // ここでは仮に responseData という名前で受け取ったと仮定
-        // if (responseData && responseData.search_fragments && Array.isArray(responseData.search_fragments) && responseData.search_fragments.length > 0) {
-        // 呼び出し側で data.search_fragments を渡すように変更するため、引数名を `searchFragments` にする
-        // displayMessage(content, role, aiModelName = null, messageId = null, searchFragments = null, searchSummary = null, searchModeWarnings = null)
-
-        if (searchFragments && Array.isArray(searchFragments) && searchFragments.length > 0) {
-            const fragmentsContainerWrapper = document.createElement('div');
-            fragmentsContainerWrapper.className = 'search-fragments-container'; // 上記CSSで定義したクラス
-
-            const listTitle = document.createElement('h4');
-            listTitle.textContent = '収集された情報源リスト（詳細）';
-            fragmentsContainerWrapper.appendChild(listTitle);
-
-            const toggleBtn = document.createElement('button');
-            toggleBtn.textContent = '詳細を表示する';
-            toggleBtn.className = 'toggle-fragments-btn'; // 上記CSSで定義
-
-            const fragmentsListDiv = document.createElement('div');
-            fragmentsListDiv.className = 'fragments-list-collapsible'; // 初期は畳まれている想定の高さ
-
-            toggleBtn.onclick = () => {
-                fragmentsListDiv.classList.toggle('expanded');
-                toggleBtn.textContent = fragmentsListDiv.classList.contains('expanded') ? '詳細を隠す' : '詳細を表示する';
-            };
-            fragmentsContainerWrapper.appendChild(toggleBtn);
-
-            searchFragments.forEach(fragment => {
-                const itemDiv = document.createElement('div');
-                itemDiv.className = 'search-fragment-item'; // 上記CSSで定義
-
-                let itemHtml = `<div class="fragment-source-header">${fragment.source || '不明なソース'}</div>`;
-                const metaDetails = [];
-                if (fragment.query) metaDetails.push(`<strong>クエリ:</strong> ${fragment.query}`);
-                if (fragment.intent) metaDetails.push(`<strong>意図/種類:</strong> ${fragment.intent}`);
-                if (fragment.source_url) metaDetails.push(`<strong>URL:</strong> <a href="<span class="math-inline">\{fragment\.source\_url\}" target\="\_blank"\></span>{fragment.source_url}</a>`);
-                if (fragment.published_date) metaDetails.push(`<strong>発行日:</strong> ${fragment.published_date}`);
-                if (fragment.author) metaDetails.push(`<strong>著者/発信者:</strong> ${fragment.author}`);
-                if (fragment.content_type) metaDetails.push(`<strong>コンテンツ種類:</strong> ${fragment.content_type}`);
-
-                // 超検索用ラベル
-                if (fragment.reliability_label) metaDetails.push(`<strong>信頼性(AI評価):</strong> ${fragment.reliability_label}`);
-                if (fragment.bias_label) metaDetails.push(`<strong>バイアス(AI評価):</strong> ${fragment.bias_label}`);
-                if (fragment.issues_detected && fragment.issues_detected.length > 0) {
-                     metaDetails.push(`<strong>指摘事項(AI評価):</strong> ${fragment.issues_detected.join(', ')}`);
-                }
-                if (metaDetails.length > 0) {
-                    itemHtml += `<div class="fragment-meta-info">${metaDetails.join('<br>')}</div>`;
-                }
-
-                const fragResponseDiv = document.createElement('div');
-                fragResponseDiv.className = 'prose prose-xs max-w-none markdown-body text-gray-700 mt-1';
-                fragResponseDiv.innerHTML = marked.parse(fragment.response || fragment.error || '<i>内容なし</i>');
-                addCopyButtons(fragResponseDiv); // 個別のコピーボタン
-                fragResponseDiv.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
-
-
-                itemHtml += fragResponseDiv.outerHTML;
-
-                if (fragment.links && fragment.links.length > 0 && (!fragment.source_url || !fragment.links.includes(fragment.source_url))) {
-                    itemHtml += `<div class="fragment-meta-info mt-1"><strong>その他関連リンク:</strong><br>${fragment.links.map(l => `<a href="${l}" target="_blank">${l}</a>`).join('<br>')}</div>`;
-                }
-
-                itemDiv.innerHTML = itemHtml;
-                fragmentsListDiv.appendChild(itemDiv);
-            });
-            fragmentsContainerWrapper.appendChild(fragmentsListDiv);
-            speechBubbleCard.appendChild(fragmentsContainerWrapper); // メインコンテンツの下に断片リストを追加
-        }
-
-        // 3. 最終まとめ (data.search_summary_text) があれば表示
-        if (searchSummary) { // searchSummary は引数で渡される想定
-            const summaryContainer = document.createElement('div');
-            summaryContainer.className = 'search-summary-container'; // 上記CSSで定義
-            summaryContainer.innerHTML = `<div class="search-summary-title">【最終まとめ】</div>` + marked.parse(searchSummary);
-            speechBubbleCard.appendChild(summaryContainer);
-        }
-
-        // 4. 超検索モード用の警告 (data.search_mode_warnings) があれば表示
-        if (searchModeWarnings && Object.keys(searchModeWarnings).length > 0) { // searchModeWarnings は引数で渡される想定
-            const warningsContainer = document.createElement('div');
-            warningsContainer.className = 'search-warnings-container'; // 上記CSSで定義
-            warningsContainer.innerHTML = `<div class="search-warnings-title">【信頼性・バイアスに関する留意点（AIによる自動分析）】</div>`;
-            for (const key in searchModeWarnings) {
-                if (Array.isArray(searchModeWarnings[key]) && searchModeWarnings[key].length > 0) {
-                    warningsContainer.innerHTML += `<p><strong><span class="math-inline">\{key\}\:</strong\><ul\></span>{searchModeWarnings[key].map(item => `<li>${item}</li>`).join('')}</ul></p>`;
-                } else if (typeof searchModeWarnings[key] === 'string' && searchModeWarnings[key]) {
-                     warningsContainer.innerHTML += `<p><strong>${key}:</strong> ${searchModeWarnings[key]}</p>`;
-                }
+        } else if (role === 'ai') {
+            characterImage.src = '/static/pic/Ukiyozaru.png';
+            characterImage.alt = 'AI';
+            speechBubbleCard.classList.add('ai-bubble');
+            if (aiModelName) {
+                const modelLabel = document.createElement('div');
+                modelLabel.className = 'text-[10px] text-gray-500 absolute -top-2 right-1';
+                modelLabel.textContent = aiModelName;
+                speechBubbleCard.appendChild(modelLabel);
             }
-            speechBubbleCard.appendChild(warningsContainer);
-        }
-
-    } else { // 通常のメッセージ表示 (検索モード以外、またはユーザーメッセージ)
-        contentDiv.innerHTML = marked.parse(content);
-        addCopyButtons(contentDiv);
-        speechBubbleCard.appendChild(contentDiv);
-        // 通常モードでもコードブロックがあればハイライト
-        if (role === 'ai' && typeof hljs !== 'undefined') {
-            contentDiv.querySelectorAll('pre code').forEach((block) => {
-                hljs.highlightElement(block);
-            });
-        }
-    }
-
-    // 翻訳ボタンなどの共通処理 (既存のものを流用)
-    if (role === 'ai' && !(currentSelectedMode === 'search3' || currentSelectedMode === 'search6' || currentSelectedMode === 'search' || currentSelectedMode === 'supersearch')) { // 検索モードでは多重表示を避けるため、ここでは追加しない
-        const transBtn = document.createElement('button');
-        // ... (既存の翻訳ボタンロジック) ...
-        // speechBubbleCard.appendChild(transBtn);
-        // speechBubbleCard.appendChild(transDiv);
-    }
-// ... (messageWrapper.appendChild(speechBubbleCard); 以降の既存の処理) ...
-        } else { // system message
-            const simpleMessageDiv = document.createElement('div');
-            simpleMessageDiv.classList.add('text-xs', 'text-gray-500', 'italic', 'text-center', 'my-2', 'w-full', 'py-1', 'px-3', 'bg-gray-100', 'rounded');
-            simpleMessageDiv.innerHTML = marked.parse(content); // marked.jsでパース
-            chatMessagesContainer.appendChild(simpleMessageDiv);
+        } else {
+            const systemDiv = document.createElement('div');
+            systemDiv.classList.add('text-xs', 'text-gray-500', 'italic', 'text-center', 'my-2', 'w-full', 'py-1', 'px-3', 'bg-gray-100', 'rounded');
+            systemDiv.innerHTML = marked.parse(content);
+            chatMessagesContainer.appendChild(systemDiv);
             chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
             return;
         }
 
         const contentDiv = document.createElement('div');
-        contentDiv.classList.add('prose', 'prose-sm', 'max-w-none', 'markdown-body'); // proseクラスでマークダウン表示
-        contentDiv.innerHTML = marked.parse(content); // marked.jsでパース
-        addCopyButtons(contentDiv);
+        contentDiv.classList.add('prose', 'prose-sm', 'max-w-none', 'markdown-body');
+
+        const currentSelectedMode = aiModeSelect.value;
+        if ((currentSelectedMode === 'search3' || currentSelectedMode === 'search6' || currentSelectedMode === 'search' || currentSelectedMode === 'supersearch') && role === 'ai') {
+            if (content) {
+                contentDiv.innerHTML = marked.parse(content);
+                addCopyButtons(contentDiv);
+                contentDiv.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
+            } else {
+                contentDiv.innerHTML = marked.parse('*検索結果の主要コンテンツがありませんでした。*');
+            }
+            speechBubbleCard.appendChild(contentDiv);
+
+            if (searchFragments && Array.isArray(searchFragments) && searchFragments.length > 0) {
+                const fragmentsWrapper = document.createElement('div');
+                fragmentsWrapper.className = 'search-fragments-container';
+                const listTitle = document.createElement('h4');
+                listTitle.textContent = '収集された情報源リスト（詳細）';
+                fragmentsWrapper.appendChild(listTitle);
+
+                const toggleBtn = document.createElement('button');
+                toggleBtn.textContent = '詳細を表示する';
+                toggleBtn.className = 'toggle-fragments-btn';
+                const fragmentsListDiv = document.createElement('div');
+                fragmentsListDiv.className = 'fragments-list-collapsible';
+                toggleBtn.onclick = () => {
+                    fragmentsListDiv.classList.toggle('expanded');
+                    toggleBtn.textContent = fragmentsListDiv.classList.contains('expanded') ? '詳細を隠す' : '詳細を表示する';
+                };
+                fragmentsWrapper.appendChild(toggleBtn);
+
+                searchFragments.forEach(fragment => {
+                    const itemDiv = document.createElement('div');
+                    itemDiv.className = 'search-fragment-item';
+
+                    let itemHtml = `<div class="fragment-source-header">${fragment.source || '不明なソース'}</div>`;
+                    const metaDetails = [];
+                    if (fragment.query) metaDetails.push(`<strong>クエリ:</strong> ${fragment.query}`);
+                    if (fragment.intent) metaDetails.push(`<strong>意図/種類:</strong> ${fragment.intent}`);
+                    if (fragment.source_url) metaDetails.push(`<strong>URL:</strong> <a href="${fragment.source_url}" target="_blank">${fragment.source_url}</a>`);
+                    if (fragment.published_date) metaDetails.push(`<strong>発行日:</strong> ${fragment.published_date}`);
+                    if (fragment.author) metaDetails.push(`<strong>著者/発信者:</strong> ${fragment.author}`);
+                    if (fragment.content_type) metaDetails.push(`<strong>コンテンツ種類:</strong> ${fragment.content_type}`);
+                    if (fragment.reliability_label) metaDetails.push(`<strong>信頼性(AI評価):</strong> ${fragment.reliability_label}`);
+                    if (fragment.bias_label) metaDetails.push(`<strong>バイアス(AI評価):</strong> ${fragment.bias_label}`);
+                    if (fragment.issues_detected && fragment.issues_detected.length > 0) {
+                        metaDetails.push(`<strong>指摘事項(AI評価):</strong> ${fragment.issues_detected.join(', ')}`);
+                    }
+                    if (metaDetails.length > 0) {
+                        itemHtml += `<div class="fragment-meta-info">${metaDetails.join('<br>')}</div>`;
+                    }
+
+                    const fragResponseDiv = document.createElement('div');
+                    fragResponseDiv.className = 'prose prose-xs max-w-none markdown-body text-gray-700 mt-1';
+                    fragResponseDiv.innerHTML = marked.parse(fragment.response || fragment.error || '<i>内容なし</i>');
+                    addCopyButtons(fragResponseDiv);
+                    fragResponseDiv.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
+
+                    itemHtml += fragResponseDiv.outerHTML;
+
+                    if (fragment.links && fragment.links.length > 0 && (!fragment.source_url || !fragment.links.includes(fragment.source_url))) {
+                        itemHtml += `<div class="fragment-meta-info mt-1"><strong>その他関連リンク:</strong><br>${fragment.links.map(l => `<a href="${l}" target="_blank">${l}</a>`).join('<br>')}</div>`;
+                    }
+
+                    itemDiv.innerHTML = itemHtml;
+                    fragmentsListDiv.appendChild(itemDiv);
+                });
+                fragmentsWrapper.appendChild(fragmentsListDiv);
+                speechBubbleCard.appendChild(fragmentsWrapper);
+            }
+
+            if (searchSummary) {
+                const summaryContainer = document.createElement('div');
+                summaryContainer.className = 'search-summary-container';
+                summaryContainer.innerHTML = `<div class="search-summary-title">【最終まとめ】</div>` + marked.parse(searchSummary);
+                speechBubbleCard.appendChild(summaryContainer);
+            }
+
+            if (searchModeWarnings && Object.keys(searchModeWarnings).length > 0) {
+                const warningsContainer = document.createElement('div');
+                warningsContainer.className = 'search-warnings-container';
+                warningsContainer.innerHTML = `<div class="search-warnings-title">【信頼性・バイアスに関する留意点（AIによる自動分析）】</div>`;
+                for (const key in searchModeWarnings) {
+                    if (Array.isArray(searchModeWarnings[key]) && searchModeWarnings[key].length > 0) {
+                        warningsContainer.innerHTML += `<p><strong>${key}:</strong><ul>${searchModeWarnings[key].map(item => `<li>${item}</li>`).join('')}</ul></p>`;
+                    } else if (typeof searchModeWarnings[key] === 'string' && searchModeWarnings[key]) {
+                        warningsContainer.innerHTML += `<p><strong>${key}:</strong> ${searchModeWarnings[key]}</p>`;
+                    }
+                }
+                speechBubbleCard.appendChild(warningsContainer);
+            }
+        } else {
+            contentDiv.innerHTML = marked.parse(content);
+            addCopyButtons(contentDiv);
+            speechBubbleCard.appendChild(contentDiv);
+            if (role === 'ai' && typeof hljs !== 'undefined') {
+                contentDiv.querySelectorAll('pre code').forEach(block => {
+                    hljs.highlightElement(block);
+                });
+            }
+        }
 
         const inCodeMode = aiModeSelect && aiModeSelect.value === 'code';
         if (role === 'ai' && inCodeMode) {
@@ -1185,7 +1154,7 @@ function resetChatUI() {
             }
         }
 
-        if (role === 'ai') {
+        if (role === 'ai' && !(currentSelectedMode === 'search3' || currentSelectedMode === 'search6' || currentSelectedMode === 'search' || currentSelectedMode === 'supersearch')) {
             const transBtn = document.createElement('button');
             transBtn.className = 'text-xs text-blue-600 underline mt-2';
             transBtn.textContent = 'この返答をDeepLで翻訳';
@@ -1226,7 +1195,8 @@ function resetChatUI() {
         messageWrapper.appendChild(characterArea);
         messageWrapper.appendChild(speechBubbleCard);
         chatMessagesContainer.appendChild(messageWrapper);
-        chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight; // 自動スクロール
+        chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
+
     }
 
 
