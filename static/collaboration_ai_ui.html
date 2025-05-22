@@ -1699,6 +1699,14 @@ function highlightMessage(messageId) {
             if (sessionLoading[targetKey]) { alert('このチャットは応答待ちです。'); return; }
             sessionLoading[targetKey] = true;
             const container = document.querySelector(`.session-element[data-session-id="${requestSessionId}"]`);
+            if (container) {
+                container.dataset.status = 'loading';
+                if (!container.querySelector('.session-loading-spinner')) {
+                    const sp = document.createElement('span');
+                    sp.className = 'session-loading-spinner';
+                    container.querySelector('button').appendChild(sp);
+                }
+            }
             if (currentSessionId === requestSessionId && requestSessionId !== null) {
                 loadingIndicator.classList.remove('hidden');
                 showThinkingVideo();
@@ -1736,15 +1744,15 @@ function highlightMessage(messageId) {
                     console.log('image data:', data);
                     if (data.urls && data.urls.length > 0) {
                         const imgs = data.urls.map(u => `<img src="${u}" class="max-w-xs mr-2 mb-2">`).join('');
-                        displayMessage(imgs, 'ai', 'Image');
+                        if (currentSessionId === requestSessionId) displayMessage(imgs, 'ai', 'Image');
                     } else {
-                        displayMessage(data.error || '画像生成に失敗しました', 'ai', 'AIError');
+                        if (currentSessionId === requestSessionId) displayMessage(data.error || '画像生成に失敗しました', 'ai', 'AIError');
                     }
                 } else {
                     console.log("サーバーからの応答 (/collaborative_answer_v2):", data); // デバッグ用
 
                     if (data.overall_error) {
-                        displayMessage(`全体エラー: ${data.overall_error}`, 'ai', 'SystemError');
+                        if (currentSessionId === requestSessionId) displayMessage(`全体エラー: ${data.overall_error}`, 'ai', 'SystemError');
                     } else if (data.search_mode_details && data.search_mode_details.length > 0) {
                         data.search_mode_details.forEach((item) => {
                             let header = `<strong>${item.source}</strong>`;
@@ -1756,17 +1764,17 @@ function highlightMessage(messageId) {
                                 const linksHtml = item.links.map(l => `<a href="${l}" target="_blank" class="text-blue-600 underline break-all">${l}</a>`).join('<br>');
                                 body += `<br><div class="mt-2 p-2 bg-gray-50 rounded">${linksHtml}</div>`;
                             }
-                            displayMessage(body, 'ai', item.source);
+                            if (currentSessionId === requestSessionId) displayMessage(body, 'ai', item.source);
                         } else if (item.error) {
-                            displayMessage(`エラー (${item.source}): ${item.error}`, 'ai', 'AIError');
+                            if (currentSessionId === requestSessionId) displayMessage(`エラー (${item.source}): ${item.error}`, 'ai', 'AIError');
                         }
                     });
                 } else if (data.step7_final_answer_v2_openai && data.step7_final_answer_v2_openai.response) {
-                    displayMessage(data.step7_final_answer_v2_openai.response, 'ai', data.step7_final_answer_v2_openai.source || 'AI');
+                    if (currentSessionId === requestSessionId) displayMessage(data.step7_final_answer_v2_openai.response, 'ai', data.step7_final_answer_v2_openai.source || 'AI');
                 } else if (data.step7_final_answer_v2_openai && data.step7_final_answer_v2_openai.error) {
-                    displayMessage(`エラー (${data.step7_final_answer_v2_openai.source || 'AI'}): ${data.step7_final_answer_v2_openai.error}`, 'ai', 'AIError');
+                    if (currentSessionId === requestSessionId) displayMessage(`エラー (${data.step7_final_answer_v2_openai.source || 'AI'}): ${data.step7_final_answer_v2_openai.error}`, 'ai', 'AIError');
                 } else {
-                    displayMessage('AIから有効な応答がありませんでした。レスポンスデータを確認してください。', 'ai', 'System');
+                    if (currentSessionId === requestSessionId) displayMessage('AIから有効な応答がありませんでした。レスポンスデータを確認してください。', 'ai', 'System');
                 }
                     // セッションIDの更新とリスト再読み込み
                     if (data.processed_session_id && currentSessionId !== data.processed_session_id) {
@@ -1791,6 +1799,12 @@ function highlightMessage(messageId) {
                 displayMessage(`リクエスト処理中にエラーが発生しました: ${error.message}`, 'ai', 'SystemError');
             } finally {
                 sessionLoading[targetKey] = false;
+                const c = document.querySelector(`.session-element[data-session-id="${requestSessionId}"]`);
+                if (c) {
+                    c.dataset.status = 'complete';
+                    const sp = c.querySelector('.session-loading-spinner');
+                    if (sp) sp.remove();
+                }
                 if (requestSessionId !== null && currentSessionId === requestSessionId) {
                     hideThinkingVideo();
                     loadingIndicator.classList.add('hidden');
