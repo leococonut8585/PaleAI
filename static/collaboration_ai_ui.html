@@ -177,6 +177,17 @@
         #loadingIndicator {
             pointer-events: none;
         }
+        #sidebar.collapsed {
+            width: 3rem;
+            padding-left: 0.5rem;
+            padding-right: 0.5rem;
+        }
+        #sidebar.collapsed #sidebarContent {
+            display: none;
+        }
+        #sidebar.collapsed #sidebarLogoText {
+            display: none;
+        }
         @media (max-width: 640px) {
             .markdown-body table {
                 display: block;
@@ -188,14 +199,18 @@
 <body class="flex h-screen antialiased text-gray-800 bg-slate-100">
     <div class="flex flex-row h-full w-full overflow-x-hidden">
 
-        <div class="flex flex-col py-8 pl-6 pr-2 w-80 bg-white flex-shrink-0 shadow-lg h-full">
-            <div class="flex flex-row items-center justify-center h-12 w-full" id="sidebarTop">
-                <img src="/static/pic/Default.png" alt="Pale AI Logo" class="h-10 w-auto mr-2" onerror="this.style.display='none';">
-                <div class="font-bold text-2xl text-teal-700">Pale AI</div>
+        <div id="sidebar" class="flex flex-col py-8 pl-6 pr-2 w-80 bg-white flex-shrink-0 shadow-lg h-full transition-all duration-300 overflow-x-hidden">
+            <div class="flex flex-row items-center justify-between h-12 w-full" id="sidebarTop">
+                <div class="flex items-center">
+                    <img src="/static/pic/Default.png" alt="Pale AI Logo" class="h-10 w-auto mr-2" onerror="this.style.display='none';">
+                    <div id="sidebarLogoText" class="font-bold text-2xl text-teal-700">Pale AI</div>
+                </div>
+                <button id="sidebarToggle" class="text-teal-700 text-xl focus:outline-none">&#9664;</button>
             </div>
             <div class="text-center mt-2">
                 <a href="#" id="sidebarTopLink" class="text-teal-600 underline text-sm">Topに戻る</a>
             </div>
+            <div id="sidebarContent">
 
             <div id="userInfoArea" class="flex flex-col items-center border border-gray-200 mt-4 w-full py-6 px-4 rounded-lg hidden">
                 <div class="h-16 w-16 rounded-full border overflow-hidden bg-gray-200 flex items-center justify-center text-gray-500 text-2xl" id="userAvatar">?</div>
@@ -266,6 +281,7 @@
                 </div>
                 <div id="chatSessionList" class="flex flex-col space-y-1 mt-4 -mx-2 pr-2 flex-1 min-h-0 overflow-y-auto">
                 </div>
+            </div>
             </div>
         </div>
 
@@ -1944,6 +1960,36 @@ function highlightMessage(messageId) {
         populateLangSelect(talkStartOutputLang);
         updateTalkInputMode();
         toggleCharCountBox();
+
+        const sidebar = document.getElementById('sidebar');
+        const sidebarToggle = document.getElementById('sidebarToggle');
+
+        function applySidebarState(collapsed) {
+            if (collapsed) {
+                sidebar.classList.add('collapsed');
+                sidebarToggle.innerHTML = '&#9654;';
+            } else {
+                sidebar.classList.remove('collapsed');
+                sidebarToggle.innerHTML = '&#9664;';
+            }
+        }
+
+        let sidebarCollapsed = localStorage.getItem('sidebarCollapsed') === '1';
+        applySidebarState(sidebarCollapsed);
+
+        if (sidebarToggle) {
+            sidebarToggle.addEventListener('click', () => {
+                sidebarCollapsed = sidebar.classList.contains('collapsed');
+                applySidebarState(!sidebarCollapsed);
+                localStorage.setItem('sidebarCollapsed', sidebar.classList.contains('collapsed') ? '1' : '0');
+            });
+        }
+
+        window.addEventListener('resize', () => {
+            if (window.innerWidth < 640) {
+                applySidebarState(true);
+            }
+        });
 
         if (sidebarTopLink) {
             sidebarTopLink.addEventListener('click', (e) => {
