@@ -501,8 +501,8 @@ async def translate_with_deepl(text: str, target_lang: str = "JA") -> str:
         raise
 
 
-async def synthesize_search_results_with_gemini(results: List[schemas.IndividualAIResponse]) -> schemas.IndividualAIResponse:
-    """Combine multiple search results using Gemini and return a single summary."""
+async def synthesize_search_results_with_gemini(results: List[schemas.IndividualAIResponse], original_prompt: str) -> schemas.IndividualAIResponse:
+    """Combine multiple search results using Gemini and return a comprehensive summary without omissions."""
     if not results:
         return schemas.IndividualAIResponse(source="Search Summary (Gemini)", error="検索結果がありませんでした")
 
@@ -521,8 +521,10 @@ async def synthesize_search_results_with_gemini(results: List[schemas.Individual
 
     merged_text = "\n\n".join(combined_text_segments)
     prompt = (
-        "以下は複数のAI検索結果です。重複内容は統合し、それ以外は省略せず個別に全てまとめてください。"
-        "端折らず、観点・数値・引用を省略しないでください。\n\n" + merged_text
+        "以下は複数のAI検索結果です。重複する内容は統合し、それ以外は省略せず個別にまとめてください。"
+        "具体的な数字・商品名・レビュー例・SNS評判・出典URLも絶対に省略しないでください。"
+        "重複は『A,B,Cで共通』など明記してください。\n\n"
+        f"ユーザーの質問:\n{original_prompt}\n\n検索結果:\n" + merged_text
     )
     summary_res = await get_gemini_response(prompt_text=prompt, system_instruction="検索結果統合AI")
     return schemas.IndividualAIResponse(
@@ -530,6 +532,28 @@ async def synthesize_search_results_with_gemini(results: List[schemas.Individual
         response=summary_res.response,
         error=summary_res.error,
     )
+
+
+async def generate_followup_query(original_prompt: str, previous_results: List[schemas.IndividualAIResponse]) -> str:
+    """Ask an AI model to suggest a new search query based on uncovered aspects."""
+    segments: List[str] = []
+    for idx, r in enumerate(previous_results, start=1):
+        seg = f"[{idx}] {r.query or ''}\n{r.response or r.error or ''}"
+        segments.append(seg)
+    history_text = "\n\n".join(segments)
+    prompt = (
+        f"ユーザー質問: {original_prompt}\n\nこれまでの検索結果:\n{history_text}\n\n"
+        "まだ答えられていない観点や不足している情報を補うため、次に検索すべき日本語のクエリを1つだけ10〜20文字で提案してください。"
+        "余計な説明は不要でクエリのみを返してください。"
+    )
+    ai_res = await get_openai_response(
+        prompt_text=prompt,
+        system_role_description="検索結果から不足情報を分析し追加クエリを提案するAI。出力はクエリのみ。",
+        model="gpt-4o",
+    )
+    if ai_res.response:
+        return ai_res.response.strip().splitlines()[0].strip()
+    return ""
 
 
 @app.post("/translate", response_model=schemas.TranslationResponse)
@@ -864,55 +888,8 @@ async def run_super_search_mode_flow(
     initial_user_prompt_for_session: Optional[str]
 ) -> schemas.CollaborativeResponseV2:
 
-    print("\n--- 6段階超検索モード 開始 ---")
-    intermediate_steps: List[schemas.IndividualAIResponse] = []
-
-    def extract_keywords(text: str, max_words: int = 5) -> List[str]:
-        import re
-        tokens = re.findall(r"\b\w+\b", text.lower())
-        freq: Dict[str, int] = {}
-        for t in tokens:
-            if len(t) <= 2:
-                continue
-            freq[t] = freq.get(t, 0) + 1
-        sorted_tokens = sorted(freq.items(), key=lambda x: x[1], reverse=True)
-        return [w for w, _ in sorted_tokens[:max_words]]
-
-    try:
-        keywords = extract_keywords(original_prompt)
-        patterns = [
-            (f"{original_prompt}", "基本情報"),
-            (f"{original_prompt} 公式", "公式情報"),
-            (f"{original_prompt} 最新 ニュース", "ニュース"),
-            (f"{original_prompt} {' '.join(keywords)} SNS クチコミ", "SNS/口コミ"),
-            (f"{original_prompt} レビュー 比較", "レビュー比較"),
-            (f"{original_prompt} FAQ 使い方 YouTube", "FAQ/動画")
-        ]
-
-        for idx, (q, intent) in enumerate(patterns, start=1):
-            res = await get_perplexity_response(prompt_for_perplexity=q, model="sonar-pro")
-            intermediate_steps.append(
-                schemas.IndividualAIResponse(
-                    source=f"Perplexity検索{idx}",
-                    query=q,
-                    intent=intent,
-                    response=res.response,
-                    links=res.links,
-                    error=res.error,
-                )
-            )
-
-        summary_step = await synthesize_search_results_with_gemini(intermediate_steps)
-        response_shell.search_mode_details = [summary_step]
-        print("--- 6段階超検索モード終了 ---")
-
-    except Exception as ve:
-        error_message = f"超検索モードの処理中にエラー: {str(ve)}"
-        print(error_message)
-        response_shell.overall_error = error_message
-        response_shell.search_mode_details = list(intermediate_steps)
-
-    return response_shell
+    # 6段階の自動穴埋め検索フローを実行
+    return await run_iterative_search_flow(original_prompt, response_shell, 6)
 
 
     try:
@@ -1325,82 +1302,59 @@ async def run_balance_mode_flow(
     return response_shell
 
 
-# --- 検索特化モード (Perplexityのみ) ---
+async def run_iterative_search_flow(
+    original_prompt: str,
+    response_shell: schemas.CollaborativeResponseV2,
+    max_steps: int
+) -> schemas.CollaborativeResponseV2:
+
+    print(f"\n--- 検索モード ({max_steps}段階) 開始 ---")
+    intermediate_steps: List[schemas.IndividualAIResponse] = []
+
+    current_query = original_prompt
+
+    try:
+        for idx in range(1, max_steps + 1):
+            res = await get_perplexity_response(prompt_for_perplexity=current_query, model="sonar-pro")
+            intermediate_steps.append(
+                schemas.IndividualAIResponse(
+                    source=f"Perplexity検索{idx}",
+                    query=current_query,
+                    intent=f"自動検索ステップ{idx}",
+                    response=res.response,
+                    links=res.links,
+                    error=res.error,
+                )
+            )
+
+            if idx < max_steps:
+                next_query = await generate_followup_query(original_prompt, intermediate_steps)
+                if next_query:
+                    current_query = next_query
+                else:
+                    current_query = original_prompt
+
+        summary_step = await synthesize_search_results_with_gemini(intermediate_steps, original_prompt)
+        response_shell.search_mode_details = [summary_step]
+        print("--- 検索モード終了 ---")
+
+    except Exception as ve:
+        error_message = f"検索モードの処理中にエラー: {str(ve)}"
+        print(error_message)
+        response_shell.overall_error = error_message
+        response_shell.search_mode_details = list(intermediate_steps)
+
+    return response_shell
+
+
 async def run_search_mode_flow(
     original_prompt: str,
     response_shell: schemas.CollaborativeResponseV2,
     chat_history_for_ai: List[Dict[str, str]],
     initial_user_prompt_for_session: Optional[str]
 ) -> schemas.CollaborativeResponseV2:
-
-    print("\n--- 検索特化モード (Perplexityのみ) 開始 ---")
-    intermediate_steps: List[schemas.IndividualAIResponse] = []
-
-    def extract_keywords(text: str, max_words: int = 5) -> List[str]:
-        import re
-        tokens = re.findall(r"\b\w+\b", text.lower())
-        freq: Dict[str, int] = {}
-        for t in tokens:
-            if len(t) <= 2:
-                continue
-            freq[t] = freq.get(t, 0) + 1
-        sorted_tokens = sorted(freq.items(), key=lambda x: x[1], reverse=True)
-        return [w for w, _ in sorted_tokens[:max_words]]
-
-    try:
-        query1 = original_prompt
-        intent1 = "通常検索"
-        res1 = await get_perplexity_response(prompt_for_perplexity=query1, model="sonar-pro")
-        intermediate_steps.append(
-            schemas.IndividualAIResponse(
-                source="Perplexity検索1",
-                query=query1,
-                intent=intent1,
-                response=res1.response,
-                links=res1.links,
-                error=res1.error,
-            )
-        )
-
-        keywords = extract_keywords(res1.response or query1)
-        query2 = f"{original_prompt} {' '.join(keywords)} SNS 公式情報"
-        intent2 = "別観点・追加情報"
-        res2 = await get_perplexity_response(prompt_for_perplexity=query2, model="sonar-pro")
-        intermediate_steps.append(
-            schemas.IndividualAIResponse(
-                source="Perplexity検索2",
-                query=query2,
-                intent=intent2,
-                response=res2.response,
-                links=res2.links,
-                error=res2.error,
-            )
-        )
-
-        query3 = f"{original_prompt} {' '.join(keywords)} 海外 評判 比較"
-        intent3 = "異なる観点・地域・プラットフォーム"
-        res3 = await get_perplexity_response(prompt_for_perplexity=query3, model="sonar-pro")
-        intermediate_steps.append(
-            schemas.IndividualAIResponse(
-                source="Perplexity検索3",
-                query=query3,
-                intent=intent3,
-                response=res3.response,
-                links=res3.links,
-                error=res3.error,
-            )
-        )
-        summary_step = await synthesize_search_results_with_gemini(intermediate_steps)
-        response_shell.search_mode_details = [summary_step]
-        print("--- 検索特化モード終了 ---")
-
-    except Exception as ve:
-        error_message = f"検索特化モードの処理中にエラー: {str(ve)}"
-        print(error_message)
-        response_shell.overall_error = error_message
-        response_shell.search_mode_details = list(intermediate_steps)
-
-    return response_shell
+    """Compatibility wrapper for 3-step search mode."""
+    return await run_iterative_search_flow(original_prompt, response_shell, 3)
 
 # main.py の run_balance_mode_flow 関数の修正
 
