@@ -951,68 +951,57 @@ async def collaborative_answer_mode_endpoint(
 
 # ... (final_ai_response_obj と final_ai_source_text の設定ロジックは変更なし) ...
 
-    # --- 5. AIの応答をDBに保存 ---
-    final_ai_response_content_for_db = ""
-    final_ai_source_text_for_db = f"Unknown AI ({mode} mode)"
+        # --- 5. AIの応答をDBに保存 ---
+        final_ai_response_content_for_db = ""
+        final_ai_source_text_for_db = f"Unknown AI ({mode} mode)"
 
-    # どのフィールドを最終応答としてDBに保存するかを決定
-    # 新しい検索モードでは、step7_final_answer_v2_openai.response が整形済み断片リスト、
-    # search_summary_text が短いまとめ。UIではこれらを分離表示する。
-    # DBには、主要なコンテンツである整形済み断片リストを保存する。
-    # まとめは search_summary_text としてフロントに渡るので、ChatMessageに含めるかは任意。
-    # ここでは、step7_final_answer_v2_openai.response のみを保存対象とする。
+        # どのフィールドを最終応答としてDBに保存するかを決定
+        # 新しい検索モードでは、step7_final_answer_v2_openai.response が整形済み断片リスト、
+        # search_summary_text が短いまとめ。UIではこれらを分離表示する。
+        # DBには、主要なコンテンツである整形済み断片リストを保存する。
+        # まとめは search_summary_text としてフロントに渡るので、ChatMessageに含めるかは任意。
+        # ここでは、step7_final_answer_v2_openai.response のみを保存対象とする。
 
-    if response_shell.step7_final_answer_v2_openai and response_shell.step7_final_answer_v2_openai.response:
-        final_ai_response_content_for_db = response_shell.step7_final_answer_v2_openai.response
-        final_ai_source_text_for_db = response_shell.step7_final_answer_v2_openai.source or f"Final Output ({mode.capitalize()} Mode)"
-    elif response_shell.overall_error: # モード実行全体でエラーがあった場合
-        final_ai_response_content_for_db = f"処理中にエラーが発生しました: {response_shell.overall_error}"
-        final_ai_source_text_for_db = f"Error in {mode.capitalize()} Mode"
-    # elif final_ai_response_obj and final_ai_response_obj.response: # 古い分岐を残す場合
-    #     final_ai_response_content_for_db = final_ai_response_obj.response
-    #     final_ai_source_text_for_db = final_ai_response_obj.source or f"Final Step in {mode.capitalize()} Mode"
-    else: # 有効な応答も全体エラーもない場合 (通常は考えにくい)
-        final_ai_response_content_for_db = "AIから有効な応答がありませんでした。"
-        final_ai_source_text_for_db = f"No Valid Response in {mode.capitalize()} Mode"
+        if response_shell.step7_final_answer_v2_openai and response_shell.step7_final_answer_v2_openai.response:
+            final_ai_response_content_for_db = response_shell.step7_final_answer_v2_openai.response
+            final_ai_source_text_for_db = response_shell.step7_final_answer_v2_openai.source or f"Final Output ({mode.capitalize()} Mode)"
+        elif response_shell.overall_error:  # モード実行全体でエラーがあった場合
+            final_ai_response_content_for_db = f"処理中にエラーが発生しました: {response_shell.overall_error}"
+            final_ai_source_text_for_db = f"Error in {mode.capitalize()} Mode"
+        # elif final_ai_response_obj and final_ai_response_obj.response: # 古い分岐を残す場合
+        #     final_ai_response_content_for_db = final_ai_response_obj.response
+        #     final_ai_source_text_for_db = final_ai_response_obj.source or f"Final Step in {mode.capitalize()} Mode"
+        else:  # 有効な応答も全体エラーもない場合 (通常は考えにくい)
+            final_ai_response_content_for_db = "AIから有効な応答がありませんでした。"
+            final_ai_source_text_for_db = f"No Valid Response in {mode.capitalize()} Mode"
 
-    # DB保存処理
-    if final_ai_response_content_for_db and active_session and active_session.id:
-        ai_message_db = models.ChatMessage(
-            chat_session_id=active_session.id,
-            role="ai",
-            content=final_ai_response_content_for_db, # 整形済み断片リスト本体など
-            ai_model=final_ai_source_text_for_db,
-            user_id=None
-        )
-        db.add(ai_message_db)
-        active_session.updated_at = func.now()
-        active_session.status = 'complete'
-        db.add(active_session) # 明示的なadd
-        db.commit()
-        db.refresh(ai_message_db)
-        db.refresh(active_session)
-        print(f"AIレスポンス保存成功: MsgID={ai_message_db.id}, SessionID={active_session.id}, Source='{final_ai_source_text_for_db}'")
-    elif response_shell.overall_error:
-        print(f"AI処理でエラー発生のためDBへのAI応答保存をスキップ: {response_shell.overall_error}")
-        if active_session: # セッションステータスだけは更新
-            active_session.status = 'error'
+        # DB保存処理
+        if final_ai_response_content_for_db and active_session and active_session.id:
+            ai_message_db = models.ChatMessage(
+                chat_session_id=active_session.id,
+                role="ai",
+                content=final_ai_response_content_for_db,  # 整形済み断片リスト本体など
+                ai_model=final_ai_source_text_for_db,
+                user_id=None
+            )
+            db.add(ai_message_db)
+            active_session.updated_at = func.now()
+            active_session.status = 'complete'
+            db.add(active_session)  # 明示的なadd
             db.commit()
-    else:
-        print(f"AIからの最終応答が見つからないか内容が空のためDBへのAI応答保存をスキップ: Mode='{mode}'")
-        if active_session:
-             active_session.status = 'complete_no_response' # 例えば
-             db.commit()
-                active_session.updated_at = func.now() # セッション最終更新
-                active_session.status = 'complete'
-                db.add(active_session) # 明示的なadd
-                db.commit()
-                db.refresh(ai_message_db)
-                db.refresh(active_session)
-                print(f"AIレスポンス保存成功: MsgID={ai_message_db.id}, SessionID={active_session.id}, Source='{final_ai_source_text}'")
+            db.refresh(ai_message_db)
+            db.refresh(active_session)
+            print(f"AIレスポンス保存成功: MsgID={ai_message_db.id}, SessionID={active_session.id}, Source='{final_ai_source_text_for_db}'")
         elif response_shell.overall_error:
             print(f"AI処理でエラー発生のためDBへのAI応答保存をスキップ: {response_shell.overall_error}")
+            if active_session:  # セッションステータスだけは更新
+                active_session.status = 'error'
+                db.commit()
         else:
             print(f"AIからの最終応答が見つからないか内容が空のためDBへのAI応答保存をスキップ: Mode='{mode}'")
+            if active_session:
+                active_session.status = 'complete_no_response'  # 例えば
+                db.commit()
 
     except ValueError as ve:
         error_message = f"モード '{mode}' の処理中にエラーが発生しました: {str(ve)}"
@@ -1209,9 +1198,9 @@ async def run_super_search_mode_flow(
                             source="Claude/GPT 情報分析・評価エラー", error=analysis_res.error
                         ))
 
-        if not queries_to_process and loop_count < max_refinement_loops : # 次のクエリがないが、まだループが残っている場合
-            print("次の検索クエリ候補が見つかりませんでした。ループを早期終了します。")
-            break
+            if not queries_to_process and loop_count < max_refinement_loops : # 次のクエリがないが、まだループが残っている場合
+                print("次の検索クエリ候補が見つかりませんでした。ループを早期終了します。")
+                break
 
 
         # Webスクレイピングや論文API、SNS APIの自動活用 (このフェーズは高度な実装が必要なため、今回は概念のみ)
@@ -1219,146 +1208,142 @@ async def run_super_search_mode_flow(
         #    print("  (概念) Webスクレイピング、論文API、SNS APIの活用を検討...")
         #    # 特定のURLが見つかればスクレイピング、キーワードで論文検索など
 
-    # --- ループ終了後: 全取得情報を最終的に整形・分類 ---
-    print("\n超検索特化モード: 全情報の最終整形・分類中...")
-    if not any(f.response for f in all_collected_fragments):
-        response_shell.overall_error = "超検索モードで情報が収集できませんでした。"
-        response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-            source="SuperSearch Orchestrator", error="情報収集ステップで有効な結果が得られませんでした。"
+        # --- ループ終了後: 全取得情報を最終的に整形・分類 ---
+        print("\n超検索特化モード: 全情報の最終整形・分類中...")
+        if not any(f.response for f in all_collected_fragments):
+            response_shell.overall_error = "超検索モードで情報が収集できませんでした。"
+            response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
+                source="SuperSearch Orchestrator", error="情報収集ステップで有効な結果が得られませんでした。"
+            )
+            response_shell.search_fragments = all_collected_fragments
+            return response_shell
+
+        final_all_fragments_text_for_formatting = ""
+        for idx, frag in enumerate(all_collected_fragments):
+            # if frag.response: # 有効な応答のみ整形対象とする (分析結果なども含む)
+            frag_header = (
+                f"--- 情報断片 {idx+1}: (ソース: {frag.source}) ---\n"
+                f"  元クエリ: {frag.query or 'N/A'}\n"
+                f"  意図/種類: {frag.intent or 'N/A'}\n"
+            )
+            frag_content = frag.response or frag.error or "内容なし"
+            frag_metadata_lines = []
+            if frag.source_url: frag_metadata_lines.append(f"  - 出典URL: {frag.source_url}")
+            if frag.published_date: frag_metadata_lines.append(f"  - 発行日: {frag.published_date}")
+            if frag.author: frag_metadata_lines.append(f"  - 著者/発信者: {frag.author}")
+            if frag.content_type: frag_metadata_lines.append(f"  - コンテンツ種類: {frag.content_type}")
+            # 信頼性・バイアスラベル (もしあれば)
+            if frag.reliability_label: frag_metadata_lines.append(f"  - 信頼性評価(仮): {frag.reliability_label}")
+            if frag.bias_label: frag_metadata_lines.append(f"  - バイアス評価(仮): {frag.bias_label}")
+            if frag.issues_detected: frag_metadata_lines.append(f"  - 指摘事項: {', '.join(frag.issues_detected)}")
+
+            frag_links_text = "\n".join([f"  - 関連リンク: {link}" for link in frag.links]) if frag.links and not frag.source_url else ""
+
+            final_all_fragments_text_for_formatting += f"{frag_header}{frag_content}\n"
+            if frag_metadata_lines: final_all_fragments_text_for_formatting += "\n".join(frag_metadata_lines) + "\n"
+            if frag_links_text: final_all_fragments_text_for_formatting += frag_links_text + "\n"
+            final_all_fragments_text_for_formatting += "\n\n"
+
+        if not final_all_fragments_text_for_formatting.strip():
+            response_shell.overall_error = "超検索モード：最終整形対象となる有効な情報がありませんでした。"
+            response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(source="SuperSearch Orchestrator", error="整形対象情報なし")
+            response_shell.search_fragments = all_collected_fragments
+            return response_shell
+
+        final_formatting_system_prompt = (
+            "PALEAI_SEARCH_FORMATTING_TASK_MARKER\n"
+            "あなたは、超大量かつ多様な情報源から集められたテキスト断片と分析結果を、極めて高度に整理・構造化する専門のAI編集長です。\n"
+            "あなたの使命は、与えられた全ての情報（原文抜粋、URL、日付、発信者、SNS投稿、レビュー、AIによる分析結果など）を『一切省略・圧縮・要約することなく』、そのままの形で、以下の観点に基づいて多次元的に分類し、ユーザーが情報を最大限に活用できるように提示することです:\n"
+            "  - **情報の種類別** (例: 初期検索結果、追加検索結果、AIによる分析・評価コメント、ニュース記事、学術論文抄録、ブログ投稿、SNSコメント、製品レビューなど)\n"
+            "  - **情報源の信頼性・客観性に関する情報** (AI分析コメント内にあればそれを反映)\n"
+            "  - **トピック・サブトピック別** (内容に応じてグルーピング)\n"
+            "  - **時系列** (発行日やイベント発生順など、可能な範囲で)\n"
+            "  - **肯定的/否定的/中立的意見** (意見が含まれる情報の場合、AI分析コメントを参考に)\n"
+            "各情報断片には、収集時のクエリ、出典、日付、著者などのメタデータを可能な限り付与し、どの情報源からのものか明確にしてください。\n"
+            "あなたの解釈や意見、追加情報は一切含めず、客観的な情報の整理と提示に徹してください。\n"
+            "最後に、全情報のごく短い（2～3段落程度の）総合的な概要と、情報全体の信頼性やバイアスに関する一般的な注意点（もしあればAI分析結果を参考に）を『【最終サマリーと留意点】』という見出しで付与してください。この部分以外では、絶対に情報を要約しないでください。"
         )
-        response_shell.search_fragments = all_collected_fragments
-        return response_shell
-
-    final_all_fragments_text_for_formatting = ""
-    for idx, frag in enumerate(all_collected_fragments):
-        # if frag.response: # 有効な応答のみ整形対象とする (分析結果なども含む)
-        frag_header = (
-            f"--- 情報断片 {idx+1}: (ソース: {frag.source}) ---\n"
-            f"  元クエリ: {frag.query or 'N/A'}\n"
-            f"  意図/種類: {frag.intent or 'N/A'}\n"
+        final_formatting_user_prompt = (
+            f"ユーザーの元の主要な関心事は「{original_prompt}」です。\n"
+            f"以下に、この関心事について多角的に収集・分析された膨大な量の情報断片群があります。\n\n"
+            f"--- 全情報断片・分析結果ここから ---\n{final_all_fragments_text_for_formatting.strip()}\n--- 全情報断片・分析結果ここまで ---\n\n"
+            f"上記のシステム指示に厳密に従い、これらの全情報を一切省略・要約せず、多次元的に分類・整形し、提示してください。"
+            f"特に、各情報源のURL、発行日、発信者といったメタ情報は可能な限り保持し、表示してください。"
+            f"最後に2～3段落の「最終サマリーと留意点」だけを「【最終サマリーと留意点】」という見出しで付与してください。"
         )
-        frag_content = frag.response or frag.error or "内容なし"
-        frag_metadata_lines = []
-        if frag.source_url: frag_metadata_lines.append(f"  - 出典URL: {frag.source_url}")
-        if frag.published_date: frag_metadata_lines.append(f"  - 発行日: {frag.published_date}")
-        if frag.author: frag_metadata_lines.append(f"  - 著者/発信者: {frag.author}")
-        if frag.content_type: frag_metadata_lines.append(f"  - コンテンツ種類: {frag.content_type}")
-        # 信頼性・バイアスラベル (もしあれば)
-        if frag.reliability_label: frag_metadata_lines.append(f"  - 信頼性評価(仮): {frag.reliability_label}")
-        if frag.bias_label: frag_metadata_lines.append(f"  - バイアス評価(仮): {frag.bias_label}")
-        if frag.issues_detected: frag_metadata_lines.append(f"  - 指摘事項: {', '.join(frag.issues_detected)}")
 
-        frag_links_text = "\n".join([f"  - 関連リンク: {link}" for link in frag.links]) if frag.links and not frag.source_url else ""
+        # GPT-4o や Claude Opus, Gemini 1.5 Pro など高性能モデル推奨
+        final_formatting_res = await get_gemini_response(
+            prompt_text=final_formatting_user_prompt,
+            system_instruction=final_formatting_system_prompt,
+            model_name="gemini-1.5-pro-latest",
+            initial_user_prompt=initial_user_prompt_for_session
+        )
 
-        final_all_fragments_text_for_formatting += f"{frag_header}{frag_content}\n"
-        if frag_metadata_lines: final_all_fragments_text_for_formatting += "\n".join(frag_metadata_lines) + "\n"
-        if frag_links_text: final_all_fragments_text_for_formatting += frag_links_text + "\n"
-        final_all_fragments_text_for_formatting += "\n\n"
-
-    if not final_all_fragments_text_for_formatting.strip():
-        response_shell.overall_error = "超検索モード：最終整形対象となる有効な情報がありませんでした。"
-        response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(source="SuperSearch Orchestrator", error="整形対象情報なし")
-        response_shell.search_fragments = all_collected_fragments
-        return response_shell
-
-    final_formatting_system_prompt = (
-        "PALEAI_SEARCH_FORMATTING_TASK_MARKER\n"
-        "あなたは、超大量かつ多様な情報源から集められたテキスト断片と分析結果を、極めて高度に整理・構造化する専門のAI編集長です。\n"
-        "あなたの使命は、与えられた全ての情報（原文抜粋、URL、日付、発信者、SNS投稿、レビュー、AIによる分析結果など）を「一切省略・圧縮・要約することなく」、そのままの形で、以下の観点に基づいて多次元的に分類し、ユーザーが情報を最大限に活用できるように提示することです:\n"
-        "  - **情報の種類別** (例: 初期検索結果、追加検索結果、AIによる分析・評価コメント、ニュース記事、学術論文抄録、ブログ投稿、SNSコメント、製品レビューなど)\n"
-        "  - **情報源の信頼性・客観性に関する情報** (AI分析コメント内にあればそれを反映)\n"
-        "  - **トピック・サブトピック別** (内容に応じてグルーピング)\n"
-        "  - **時系列** (発行日やイベント発生順など、可能な範囲で)\n"
-        "  - **肯定的/否定的/中立的意見** (意見が含まれる情報の場合、AI分析コメントを参考に)\n"
-        "各情報断片には、収集時のクエリ、出典、日付、著者などのメタデータを可能な限り付与し、どの情報源からのものか明確にしてください。\n"
-        "あなたの解釈や意見、追加情報は一切含めず、客観的な情報の整理と提示に徹してください。\n"
-        "最後に、全情報のごく短い（2～3段落程度の）総合的な概要と、情報全体の信頼性やバイアスに関する一般的な注意点（もしあればAI分析結果を参考に）を「【最終サマリーと留意点】」という見出しで付与してください。この部分以外では、絶対に情報を要約しないでください。"
-    )
-    final_formatting_user_prompt = (
-        f"ユーザーの元の主要な関心事は「{original_prompt}」です。\n"
-        f"以下に、この関心事について多角的に収集・分析された膨大な量の情報断片群があります。\n\n"
-        f"--- 全情報断片・分析結果ここから ---\n{final_all_fragments_text_for_formatting.strip()}\n--- 全情報断片・分析結果ここまで ---\n\n"
-        f"上記のシステム指示に厳密に従い、これらの全情報を一切省略・要約せず、多次元的に分類・整形し、提示してください。"
-        f"特に、各情報源のURL、発行日、発信者といったメタ情報は可能な限り保持し、表示してください。"
-        f"最後に2～3段落の「最終サマリーと留意点」だけを「【最終サマリーと留意点】」という見出しで付与してください。"
-    )
-
-    # GPT-4o や Claude Opus, Gemini 1.5 Pro など高性能モデル推奨
-    final_formatting_res = await get_gemini_response(
-        prompt_text=final_formatting_user_prompt,
-        system_instruction=final_formatting_system_prompt,
-        model_name="gemini-1.5-pro-latest",
-        initial_user_prompt=initial_user_prompt_for_session
-    )
-
-    if final_formatting_res.response:
-        summary_marker_super = "【最終サマリーと留意点】"
-        formatted_super_fragments_display = final_formatting_res.response
-        super_summary_text = "（AIによる自動最終サマリーと留意点はありませんでした）" # デフォルト
-
-        # 信頼性・バイアス警告の抽出 (簡易的な例、AIの出力形式に依存)
-        extracted_warnings = {}
-        # 例えば、整形済み応答から特定のキーワードで始まるセクションを探すなど
-        # if "信頼性に関する警告：" in formatted_super_fragments_display:
-        #     extracted_warnings["reliability"] = formatted_super_fragments_display.split("信頼性に関する警告：",1)[1].split("\n\n",1)[0]
-        # if "バイアスに関する指摘：" in formatted_super_fragments_display:
-        #     extracted_warnings["bias"] = formatted_super_fragments_display.split("バイアスに関する指摘：",1)[1].split("\n\n",1)[0]
-        # response_shell.search_mode_warnings = extracted_warnings
-
-        if summary_marker_super in formatted_super_fragments_display:
-            parts = formatted_super_fragments_display.split(summary_marker_super, 1)
-            formatted_super_fragments_display = parts[0].strip()
-            if len(parts) > 1 and parts[1].strip():
-                super_summary_text = parts[1].strip()
+        if final_formatting_res.response:
+            summary_marker_super = "【最終サマリーと留意点】"
+            formatted_super_fragments_display = final_formatting_res.response
+            super_summary_text = "（AIによる自動最終サマリーと留意点はありませんでした）" # デフォルト
+    
+            # 信頼性・バイアス警告の抽出 (簡易的な例、AIの出力形式に依存)
+            extracted_warnings = {}
+            # 例えば、整形済み応答から特定のキーワードで始まるセクションを探すなど
+            # if "信頼性に関する警告：" in formatted_super_fragments_display:
+            #     extracted_warnings["reliability"] = formatted_super_fragments_display.split("信頼性に関する警告：",1)[1].split("\n\n",1)[0]
+            # if "バイアスに関する指摘：" in formatted_super_fragments_display:
+            #     extracted_warnings["bias"] = formatted_super_fragments_display.split("バイアスに関する指摘：",1)[1].split("\n\n",1)[0]
+            # response_shell.search_mode_warnings = extracted_warnings
+    
+            if summary_marker_super in formatted_super_fragments_display:
+                parts = formatted_super_fragments_display.split(summary_marker_super, 1)
+                formatted_super_fragments_display = parts[0].strip()
+                if len(parts) > 1 and parts[1].strip():
+                    super_summary_text = parts[1].strip()
+                else:
+                    super_summary_text = "最終サマリーと留意点部分が空でした。"
             else:
-                super_summary_text = "最終サマリーと留意点部分が空でした。"
+                print(f"警告: 超検索の最終整形結果に{summary_marker_super}マーカーが見つかりませんでした。")
+    
+            response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
+                source="超検索 最終整形結果 (Gemini/GPT-4o/Claude Opus)",
+                response=formatted_super_fragments_display, # 分類・整形された断片情報リスト本体
+                query=original_prompt,
+                intent="超検索 全情報整形済みリスト"
+            )
+            response_shell.search_summary_text = super_summary_text # 分離したまとめと留意点
         else:
-            print(f"警告: 超検索の最終整形結果に{summary_marker_super}マーカーが見つかりませんでした。")
+                response_shell.overall_error = "超検索モードの最終的な情報の整形・分類に失敗しました。"
+                response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
+                    source="SuperSearch Orchestrator", error=f"超検索最終整形ステップでエラー: {final_formatting_res.error or '応答なし'}"
+                )
+    
+                response_shell.search_fragments = all_collected_fragments  # 生の断片情報もレスポンスに含める
+                print("--- 新・超検索特化モード（ペイルの叡智）終了 ---")
 
-        response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-            source="超検索 最終整形結果 (Gemini/GPT-4o/Claude Opus)",
-            response=formatted_super_fragments_display, # 分類・整形された断片情報リスト本体
-            query=original_prompt,
-            intent="超検索 全情報整形済みリスト"
-        )
-        response_shell.search_summary_text = super_summary_text # 分離したまとめと留意点
-    else:
-        response_shell.overall_error = "超検索モードの最終的な情報の整形・分類に失敗しました。"
-        response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-            source="SuperSearch Orchestrator", error=f"超検索最終整形ステップでエラー: {final_formatting_res.error or '応答なし'}"
-        )
+    except ValueError as ve:
+        error_message = f"超検索特化モードの処理中にエラー: {str(ve)}"
+        print(error_message)
+        response_shell.overall_error = error_message
+        response_shell.search_fragments = all_collected_fragments
+        if not response_shell.step7_final_answer_v2_openai:
+            response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
+                source="SuperSearch Error", error=str(ve)
+            )
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        error_message = f"超検索特化モードで予期せぬエラー: {str(e)}"
+        print(f"{error_message}\nTrace: {error_trace}")
+        response_shell.overall_error = "サーバー内部で予期せぬエラーが発生しました（超検索）。"
+        response_shell.search_fragments = all_collected_fragments
+        if not response_shell.step7_final_answer_v2_openai:
+            response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
+                source="SuperSearch Unexpected Error", error=str(e)
+            )
 
-    response_shell.search_fragments = all_collected_fragments # 生の断片情報もレスポンスに含める
-    print("--- 新・超検索特化モード（ペイルの叡智）終了 ---")
-
-except ValueError as ve:
-    error_message = f"超検索特化モードの処理中にエラー: {str(ve)}"
-    print(error_message)
-    response_shell.overall_error = error_message
-    response_shell.search_fragments = all_collected_fragments
-    if not response_shell.step7_final_answer_v2_openai:
-        response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-            source="SuperSearch Error", error=str(ve)
-        )
-except Exception as e:
-    import traceback
-    error_trace = traceback.format_exc()
-    error_message = f"超検索特化モードで予期せぬエラー: {str(e)}"
-    print(f"{error_message}\nTrace: {error_trace}")
-    response_shell.overall_error = "サーバー内部で予期せぬエラーが発生しました（超検索）。"
-    response_shell.search_fragments = all_collected_fragments
-    if not response_shell.step7_final_answer_v2_openai:
-        response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-            source="SuperSearch Unexpected Error", error=str(e)
-        )
+        return response_shell
 
     return response_shell
-    """Run the super deepsearch flow for advanced search mode."""
-    return await run_super_deepsearch_mode_flow(
-        original_prompt,
-        response_shell,
-        initial_user_prompt_for_session=initial_user_prompt_for_session,
-    )
 
 
 # --- 各モード実行フロー関数 ---
