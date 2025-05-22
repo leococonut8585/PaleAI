@@ -96,6 +96,25 @@
         .prose p { margin-top: 0.5em; margin-bottom: 0.5em; }
         .prose ul, .prose ol { margin-top: 0.5em; margin-bottom: 0.5em; }
 
+        pre.code-block {
+            position: relative;
+            background-color: #f3f4f6;
+            border: 1px solid #e5e7eb;
+            padding: 0.75rem;
+            border-radius: 0.25rem;
+        }
+        pre.code-block button.copy-btn {
+            position: absolute;
+            top: 0.25rem;
+            right: 0.25rem;
+            border: 1px solid #cbd5e1;
+            background-color: #ffffff;
+            font-size: 0.75rem;
+            padding: 0.1rem 0.3rem;
+            border-radius: 0.25rem;
+            cursor: pointer;
+        }
+
         .loader { border: 4px solid #ccfbf1; border-top: 4px solid #14b8a6; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 15px auto; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
@@ -527,6 +546,22 @@
     const sessionSection = document.getElementById('sessionSection');
     const chatArea = document.getElementById('chatArea');
     const memoryManageButton = document.getElementById('memoryManageButton');
+
+    function addCopyButtons(container) {
+        const blocks = container.querySelectorAll('pre > code');
+        blocks.forEach(code => {
+            const pre = code.parentElement;
+            pre.classList.add('code-block');
+            if (pre.querySelector('.copy-btn')) return;
+            const btn = document.createElement('button');
+            btn.textContent = 'コピー';
+            btn.className = 'copy-btn';
+            btn.addEventListener('click', () => {
+                navigator.clipboard.writeText(code.textContent);
+            });
+            pre.appendChild(btn);
+        });
+    }
     const memoryModal = document.getElementById('memoryModal');
     const memoryList = document.getElementById('memoryList');
     const memoryClose = document.getElementById('memoryClose');
@@ -895,6 +930,7 @@ function resetChatUI() {
         const contentDiv = document.createElement('div');
         contentDiv.classList.add('prose', 'prose-sm', 'max-w-none', 'markdown-body'); // proseクラスでマークダウン表示
         contentDiv.innerHTML = marked.parse(content); // marked.jsでパース
+        addCopyButtons(contentDiv);
 
         if (role === 'ai') {
             const transBtn = document.createElement('button');
