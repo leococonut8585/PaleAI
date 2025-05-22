@@ -92,7 +92,8 @@ async def generate_images(req: ImageGenerationRequest, current_user: models.User
                 "prompt": optimized,
                 "n": 1,
                 "size": "1024x1024",
-                "seed": seed,
+                # OpenAI DALL·E 3 API does not support a seed parameter
+                # "seed": seed,
             }
             print("DALL·E request params:", params)
             res = await openai_client.images.generate(**params)
