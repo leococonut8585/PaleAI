@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 
 # --- Auth & User Schemas ---
@@ -174,6 +174,15 @@ class IndividualAIResponse(BaseModel):
     response: Optional[str] = None
     links: Optional[List[str]] = None
     error: Optional[str] = None
+    # --- 検索結果や断片情報に付随するメタデータ ---
+    source_url: Optional[str] = None
+    published_date: Optional[str] = None # 日付は文字列として格納 (例: "2024-05-22")
+    author: Optional[str] = None
+    content_type: Optional[str] = None # 例: "news_article", "sns_post", "research_paper_abstract", "review", "web_page"
+    # --- 超検索モード用 ---
+    reliability_label: Optional[str] = None # 例: "High", "Medium", "Low", "Unverified"
+    bias_label: Optional[str] = None # 例: "Neutral", "Positive Bias", "Negative Bias", "Contains Opinions"
+    issues_detected: Optional[List[str]] = None # 例: ["Contradictory Information", "Outdated", "Needs Fact-check"]
 
 class PromptRequestWithHistory(BaseModel):
     prompt: str
@@ -185,17 +194,26 @@ class CollaborativeResponseV2(BaseModel):
     prompt: str
     mode_executed: Optional[str] = None
     processed_session_id: Optional[int] = None
+    # --- バランスモードなどのステップ別詳細 ---
     step1_initial_draft_openai: Optional[IndividualAIResponse] = None
     step2_review_claude: Optional[IndividualAIResponse] = None
     step3_improved_draft_cohere: Optional[IndividualAIResponse] = None
     step4_comprehensive_answer_perplexity: Optional[IndividualAIResponse] = None
     step5_final_answer_gemini: Optional[IndividualAIResponse] = None
     step6_review2_claude: Optional[IndividualAIResponse] = None
+    # --- 全モード共通の最終的な整形済み回答 (検索モードでは整形された断片リスト本体) ---
     step7_final_answer_v2_openai: Optional[IndividualAIResponse] = None
-    search_mode_details: Optional[List[IndividualAIResponse]] = None
-    code_mode_details: Optional[List[IndividualAIResponse]] = None
-    writing_mode_details: Optional[List[IndividualAIResponse]] = None
-    ultra_writing_mode_details: Optional[List[IndividualAIResponse]] = None
+
+    # --- 検索モード専用フィールド ---
+    search_fragments: List[IndividualAIResponse] = Field(default_factory=list) # 収集された全ての生の情報断片リスト
+    search_summary_text: Optional[str] = None # 検索モードの最後に付与される非常に短いまとめ
+    search_mode_warnings: Optional[Dict[str, Any]] = Field(default_factory=dict) # 超検索モード用の信頼性・バイアス警告など (例: {"reliability_concerns": ["古い情報が含まれます"], "bias_alerts": ["強い意見が含まれるソースあり"]})
+
+    # --- 他モード専用フィールド (既存のものを確認しつつ、必要なら追加) ---
+    code_mode_details: Optional[List[IndividualAIResponse]] = None # コード生成の各ステップ詳細
+    writing_mode_details: Optional[List[IndividualAIResponse]] = None # 通常執筆の各ステップ詳細
+    ultra_writing_mode_details: Optional[List[IndividualAIResponse]] = None # 超長文執筆の各ステップ詳細
+
     overall_error: Optional[str] = None
 
     class Config:

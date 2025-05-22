@@ -145,15 +145,30 @@ async def get_openai_response(
 
     messages_for_api: List[Dict[str, str]] = []
 
-    final_system_message_content = FRIENDLY_TONE_SYSTEM_PROMPT
-    if system_role_description:
-        final_system_message_content += f"\n\n{system_role_description}"
-    if initial_user_prompt:
+    # ...
+    final_system_message_content = ""
+    # 検索モードの整形ステップではキャラクター性を抑制し、指示を明確にする
+    is_search_formatting_step = system_role_description and "PALEAI_SEARCH_FORMATTING_TASK_MARKER" in system_role_description
+
+    if is_search_formatting_step:
+        final_system_message_content = system_role_description.replace("PALEAI_SEARCH_FORMATTING_TASK_MARKER", "").strip()
+    else:
+        final_system_message_content = FRIENDLY_TONE_SYSTEM_PROMPT
+        if system_role_description:
+            final_system_message_content += f"\n\n{system_role_description}"
+
+    if initial_user_prompt: # initial_user_prompt は検索モードでも有用な場合があるので残す
         prefix = "\n\n" if final_system_message_content.strip() else ""
-        final_system_message_content += f"{prefix}[重要] この会話全体の主要な目的は次の通りです: 「{initial_user_prompt}」\nこの目的を常に意識して回答してください。"
+        # 検索整形ステップ以外では目的を強調
+        if not is_search_formatting_step:
+            final_system_message_content += f"{prefix}[重要] この会話全体の主要な目的は次の通りです: 「{initial_user_prompt}」\nこの目的を常に意識して回答してください。"
+        else: # 検索整形ステップでは、元の質問文脈として追加する
+            final_system_message_content += f"{prefix}[参考] ユーザーの当初の質問の文脈: 「{initial_user_prompt}」"
+
+
     if final_system_message_content.strip():
         messages_for_api.append({"role": "system", "content": final_system_message_content.strip()})
-
+    # ...
     if chat_history:
         for msg in chat_history:
             role = msg.get("role")
@@ -238,22 +253,34 @@ async def get_claude_response(
         print("警告: Claude APIのメッセージリストがassistantから始まっています。先頭にダミーのユーザーメッセージを挿入します。")
         messages_for_api.insert(0, {"role": "user", "content":"(会話の文脈を開始します)"})
 
-    final_system_prompt_for_claude = FRIENDLY_TONE_SYSTEM_PROMPT
-    if system_instruction:
-        final_system_prompt_for_claude += f"\n\n{system_instruction}"
+    # ...
+    final_system_prompt_for_claude = ""
+    is_search_formatting_step_claude = system_instruction and "PALEAI_SEARCH_FORMATTING_TASK_MARKER" in system_instruction
+
+    if is_search_formatting_step_claude:
+        final_system_prompt_for_claude = system_instruction.replace("PALEAI_SEARCH_FORMATTING_TASK_MARKER", "").strip()
+    else:
+        final_system_prompt_for_claude = FRIENDLY_TONE_SYSTEM_PROMPT
+        if system_instruction:
+            final_system_prompt_for_claude += f"\n\n{system_instruction}"
+
     if initial_user_prompt:
         prefix = "\n\n" if final_system_prompt_for_claude.strip() else ""
-        final_system_prompt_for_claude += f"{prefix}[重要] この会話全体の主要な目的は次の通りです: 「{initial_user_prompt}」\nこの目的を常に意識して回答してください。"
+        if not is_search_formatting_step_claude:
+            final_system_prompt_for_claude += f"{prefix}[重要] この会話全体の主要な目的は次の通りです: 「{initial_user_prompt}」\nこの目的を常に意識して回答してください。"
+        else:
+            final_system_prompt_for_claude += f"{prefix}[参考] ユーザーの当初の質問の文脈: 「{initial_user_prompt}」"
+
 
     api_params: Dict[str, Any] = {
         "model": model,
-        "max_tokens": 4000,
+        "max_tokens": 4000, # 必要に応じて調整
         "messages": messages_for_api,
-        "temperature": 0.6
+        "temperature": 0.6 # 検索整形では低め (0.2など) も検討
     }
     if final_system_prompt_for_claude.strip():
         api_params["system"] = final_system_prompt_for_claude.strip()
-    
+    # ...
     try:
         print(f"Claude API Request ({model}): System='{(api_params.get('system', 'N/A'))[:100].strip()}', Messages Count={len(messages_for_api)}")
         res = await anthropic_aclient.messages.create(**api_params)
@@ -429,25 +456,122 @@ async def get_gemini_response(
          return schemas.IndividualAIResponse(source=source_name, error="Geminiモデルの取得に重大なエラーが発生しました（初期化後）。")
 
     contents_for_api: List[Dict[str, Any]] = []
-    effective_initial_instructions = FRIENDLY_TONE_SYSTEM_PROMPT
-    if system_instruction:
-        effective_initial_instructions += f"\n\n{system_instruction}"
+    # ...
+    effective_initial_instructions = ""
+    is_search_formatting_step_gemini = system_instruction and "PALEAI_SEARCH_FORMATTING_TASK_MARKER" in system_instruction
+
+    if is_search_formatting_step_gemini:
+        effective_initial_instructions = system_instruction.replace("PALEAI_SEARCH_FORMATTING_TASK_MARKER", "").strip()
+    else:
+        effective_initial_instructions = FRIENDLY_TONE_SYSTEM_PROMPT
+        if system_instruction:
+            effective_initial_instructions += f"\n\n{system_instruction}"
+
     if initial_user_prompt:
         prefix = "\n\n" if effective_initial_instructions.strip() else ""
-        effective_initial_instructions += f"{prefix}[重要] この会話全体の主要な目的は次の通りです: 「{initial_user_prompt}」です。"
+        if not is_search_formatting_step_gemini:
+            effective_initial_instructions += f"{prefix}[重要] この会話全体の主要な目的は次の通りです: 「{initial_user_prompt}」です。"
+        else:
+            effective_initial_instructions += f"{prefix}[参考] ユーザーの当初の質問の文脈: 「{initial_user_prompt}」"
 
-    if chat_history:
-        for i, msg in enumerate(chat_history):
+
+    # Gemini APIでは、システム指示はcontentsの最初のuserロールの前に置くか、
+    # `GenerativeModel` の `system_instruction` パラメータ (beta) で渡す。
+    # ここでは、従来のcontentsに含める方法で、履歴の先頭か、単発プロンプトの先頭に挿入する。
+
+    # contents_for_api の生成ロジック
+    if effective_initial_instructions.strip():
+        # Geminiはsystemロールを直接サポートしないため、通常は最初のuserメッセージに含めるか、
+        # model.start_chat(history=[...], instruction=system_instruction) のように使う。
+        # ここでは、履歴の最初のユーザーメッセージにプレフィックスとしてシステム指示を追加するアプローチを試みる。
+        # もし履歴が空か、AIから始まる場合は、新しいユーザーメッセージを作成してシステム指示を先頭に置く。
+
+        # system_instruction を model インスタンスに設定する新しい方法 (genaiライブラリのバージョンによる)
+        # if hasattr(active_gemini_model, 'system_instruction'):
+        #    active_gemini_model.system_instruction = genai.types.Content(parts=[genai.types.Part(text=effective_initial_instructions.strip())])
+        # 上記が使えない場合は、従来通りメッセージリストに含める
+        pass # 下のロジックで処理
+
+
+    temp_chat_history = list(chat_history) if chat_history else []
+
+    # 履歴の先頭にシステム指示を組み込む (Geminiの推奨する形式に近づける)
+    # systemロールの代わりに、最初のユーザーメッセージの前に置くか、専用パラメータを使用
+    # ここでは、履歴のメッセージリストを直接操作して、最初の要素の前にシステム指示的なものをuserロールで追加する形は避ける
+    # 代わりに、generate_content_async の contents パラメータを工夫する
+
+    processed_history_for_gemini: List[Dict[str, Any]] = []
+    if temp_chat_history:
+        for msg in temp_chat_history:
             role = "model" if msg.get("role") in ["ai", "assistant"] else "user"
-            content = str(msg.get("content", ""))
-            if role == "user" and i == 0 and effective_initial_instructions.strip():
-                content = f"{effective_initial_instructions.strip()}\n\n---\n\n{content}"
-                effective_initial_instructions = "" 
-            contents_for_api.append({"role": role, "parts": [{"text": content}]})
-    elif prompt_text: # 履歴がなく、現在のプロンプトのみ
-        content_to_send = f"{effective_initial_instructions.strip()}\n\n---\n\n{prompt_text}" if effective_initial_instructions.strip() else prompt_text
-        contents_for_api.append({"role": "user", "parts": [{"text": content_to_send}]})
-    
+            processed_history_for_gemini.append({"role": role, "parts": [{"text": str(msg.get("content", ""))}]})
+
+    # 最終的なプロンプトをユーザーロールとして追加
+    # システム指示は、`generate_content_async` に渡す `contents` の構成で工夫するか、
+    # `active_gemini_model.start_chat(system_instruction=...)` を使う必要がある。
+    # `generate_content_async` に直接システムロールを渡すのは非推奨。
+    # 代わりに、`system_instruction` パラメータが利用可能ならそれを使うか、
+    # 履歴の最初のユーザーメッセージの前にコンテキストとして挿入する。
+
+    # ここでは、contents_for_api を直接構築する
+    # 1. system_instruction (もしあれば)
+    # 2. chat_history
+    # 3. prompt_text (現在のユーザー入力)
+
+    if effective_initial_instructions.strip() and not processed_history_for_gemini:
+        # 履歴がなく、システム指示とプロンプトのみの場合
+        # Geminiではシステムメッセージをユーザーメッセージの前に置くことが多い
+        contents_for_api.append({"role": "user", "parts": [{"text": effective_initial_instructions.strip()}]})
+        contents_for_api.append({"role": "model", "parts": [{"text": "承知いたしました。どのようなご用件でしょうか？"}]}) # システム指示に対するモデルの応答例
+        contents_for_api.append({"role": "user", "parts": [{"text": prompt_text}]})
+    elif effective_initial_instructions.strip() and processed_history_for_gemini:
+        # 履歴があり、システム指示もある場合
+        # 最初のユーザーメッセージの前にシステム指示を置く
+        # ただし、Googleのドキュメントでは system_instruction パラメータを推奨
+        # ここではcontentsを工夫する例:
+        # (注意: この方法はモデルの解釈に依存する可能性がある)
+        # contents_for_api.append({"role": "user", "parts": [{"text": effective_initial_instructions.strip() }]}) # システム指示をユーザーメッセージとして
+        # contents_for_api.append({"role": "model", "parts": [{"text": "はい、理解しました。"}]}) # それに対するダミーのモデル応答
+        # contents_for_api.extend(processed_history_for_gemini)
+        # contents_for_api.append({"role": "user", "parts": [{"text": prompt_text}]})
+        # より推奨されるのは、modelインスタンスのsystem_instructionに設定するか、
+        # generate_content_asyncのsystem_instruction引数 (利用可能なら)
+
+        # 今回は、履歴をそのまま使い、最後のユーザープロンプトにシステム指示を付加する（やや苦肉の策）
+        contents_for_api.extend(processed_history_for_gemini)
+        final_user_prompt_with_instruction = prompt_text
+        if not any(item.get("role") == "user" for item in contents_for_api): # 履歴がAIから始まっている場合など
+            contents_for_api.insert(0, {"role": "user", "parts": [{"text": effective_initial_instructions.strip() + "\n\n" + prompt_text}]})
+        elif contents_for_api: # 履歴の最後のユーザーメッセージに付加、なければ新規追加
+            last_message_is_user = contents_for_api[-1]["role"] == "user"
+            if last_message_is_user:
+                # 最後のユーザーメッセージに結合するのは、そのメッセージの意図を変えてしまう可能性がある
+                # そのため、システム指示は別途考慮するか、履歴の先頭に置く設計が望ましい。
+                # ここでは、Gemini の場合、system_instruction を使うのがベストプラクティス。
+                # それが難しい場合の次善策として、履歴を整形する。
+                # 今回は、`active_gemini_model.generate_content_async` に `system_instruction` がないので、
+                # `contents` の先頭にユーザーロールでシステム指示を入れ、モデルロールでACKを入れ、その後履歴とプロンプトを入れる形にする。
+                contents_for_api = [] # 一旦クリア
+                contents_for_api.append({"role": "user", "parts": [{"text": effective_initial_instructions.strip()}]})
+                contents_for_api.append({"role": "model", "parts": [{"text": "承知いたしました。指示に従います。"}]}) # AIの受諾応答
+                contents_for_api.extend(processed_history_for_gemini) # その後の履歴
+                contents_for_api.append({"role": "user", "parts": [{"text": prompt_text}]}) # 最後のユーザープロンプト
+            else: # 履歴の最後がモデルの場合
+                contents_for_api.append({"role": "user", "parts": [{"text": effective_initial_instructions.strip() + "\n\n" + prompt_text}]})
+        else: # 履歴がない場合
+            contents_for_api.append({"role": "user", "parts": [{"text": effective_initial_instructions.strip() + "\n\n" + prompt_text}]})
+
+    elif processed_history_for_gemini: # システム指示なし、履歴あり
+        contents_for_api.extend(processed_history_for_gemini)
+        contents_for_api.append({"role": "user", "parts": [{"text": prompt_text}]})
+    else: # システム指示なし、履歴なし、プロンプトのみ
+        contents_for_api.append({"role": "user", "parts": [{"text": prompt_text}]})
+
+    # ユーザーメッセージが必ず存在するように最終チェック
+    if not any(item.get("role") == "user" for item in contents_for_api):
+        # 通常、ここには到達しないはずだが、フォールバック
+        contents_for_api.append({"role": "user", "parts": [{"text": prompt_text or "何か情報を教えてください。"}]})
+    # ...
     if not any(item.get("role") == "user" for item in contents_for_api):
         if prompt_text: # chat_history が空でも prompt_text があればそれを最後の砦としてユーザーメッセージとする
              content_to_send_fallback = f"{effective_initial_instructions.strip()}\n\n---\n\n{prompt_text}" if effective_initial_instructions.strip() else prompt_text
@@ -825,16 +949,59 @@ async def collaborative_answer_mode_endpoint(
             final_ai_source_text = final_ai_response_obj.source or "Fast Chat Mode"
         # 他のモードについても同様に、最終応答が格納されるフィールドを確認し、final_ai_response_obj を設定する
 
-        if final_ai_response_obj and final_ai_response_obj.response:
-                final_ai_source_text = final_ai_response_obj.source or f"Final Step in {mode.capitalize()} Mode" # ソース名取得の改善
-                ai_message_db = models.ChatMessage(
-                    chat_session_id=active_session.id, # 確定したセッションID
-                    role="ai", # AIの応答なので role="ai"
-                    content=final_ai_response_obj.response,
-                    ai_model=final_ai_source_text, # AIモデル名やステップ情報
-                    user_id=None # ★★★ AIのメッセージなので user_id は NULL ★★★
-                )
-                db.add(ai_message_db)
+# ... (final_ai_response_obj と final_ai_source_text の設定ロジックは変更なし) ...
+
+    # --- 5. AIの応答をDBに保存 ---
+    final_ai_response_content_for_db = ""
+    final_ai_source_text_for_db = f"Unknown AI ({mode} mode)"
+
+    # どのフィールドを最終応答としてDBに保存するかを決定
+    # 新しい検索モードでは、step7_final_answer_v2_openai.response が整形済み断片リスト、
+    # search_summary_text が短いまとめ。UIではこれらを分離表示する。
+    # DBには、主要なコンテンツである整形済み断片リストを保存する。
+    # まとめは search_summary_text としてフロントに渡るので、ChatMessageに含めるかは任意。
+    # ここでは、step7_final_answer_v2_openai.response のみを保存対象とする。
+
+    if response_shell.step7_final_answer_v2_openai and response_shell.step7_final_answer_v2_openai.response:
+        final_ai_response_content_for_db = response_shell.step7_final_answer_v2_openai.response
+        final_ai_source_text_for_db = response_shell.step7_final_answer_v2_openai.source or f"Final Output ({mode.capitalize()} Mode)"
+    elif response_shell.overall_error: # モード実行全体でエラーがあった場合
+        final_ai_response_content_for_db = f"処理中にエラーが発生しました: {response_shell.overall_error}"
+        final_ai_source_text_for_db = f"Error in {mode.capitalize()} Mode"
+    # elif final_ai_response_obj and final_ai_response_obj.response: # 古い分岐を残す場合
+    #     final_ai_response_content_for_db = final_ai_response_obj.response
+    #     final_ai_source_text_for_db = final_ai_response_obj.source or f"Final Step in {mode.capitalize()} Mode"
+    else: # 有効な応答も全体エラーもない場合 (通常は考えにくい)
+        final_ai_response_content_for_db = "AIから有効な応答がありませんでした。"
+        final_ai_source_text_for_db = f"No Valid Response in {mode.capitalize()} Mode"
+
+    # DB保存処理
+    if final_ai_response_content_for_db and active_session and active_session.id:
+        ai_message_db = models.ChatMessage(
+            chat_session_id=active_session.id,
+            role="ai",
+            content=final_ai_response_content_for_db, # 整形済み断片リスト本体など
+            ai_model=final_ai_source_text_for_db,
+            user_id=None
+        )
+        db.add(ai_message_db)
+        active_session.updated_at = func.now()
+        active_session.status = 'complete'
+        db.add(active_session) # 明示的なadd
+        db.commit()
+        db.refresh(ai_message_db)
+        db.refresh(active_session)
+        print(f"AIレスポンス保存成功: MsgID={ai_message_db.id}, SessionID={active_session.id}, Source='{final_ai_source_text_for_db}'")
+    elif response_shell.overall_error:
+        print(f"AI処理でエラー発生のためDBへのAI応答保存をスキップ: {response_shell.overall_error}")
+        if active_session: # セッションステータスだけは更新
+            active_session.status = 'error'
+            db.commit()
+    else:
+        print(f"AIからの最終応答が見つからないか内容が空のためDBへのAI応答保存をスキップ: Mode='{mode}'")
+        if active_session:
+             active_session.status = 'complete_no_response' # 例えば
+             db.commit()
                 active_session.updated_at = func.now() # セッション最終更新
                 active_session.status = 'complete'
                 db.add(active_session) # 明示的なadd
@@ -885,8 +1052,307 @@ async def run_super_search_mode_flow(
     original_prompt: str,
     response_shell: schemas.CollaborativeResponseV2,
     chat_history_for_ai: List[Dict[str, str]],
-    initial_user_prompt_for_session: Optional[str]
+    initial_user_prompt_for_session: Optional[str],
+    max_refinement_loops: int = 1 # 初期検索 + 不足観点からの再検索1回 = 計2ループ相当
 ) -> schemas.CollaborativeResponseV2:
+    print("\n--- 新・超検索特化モード（ペイルの叡智）開始 ---")
+    response_shell.search_summary_text = None
+    response_shell.search_mode_warnings = {}
+    response_shell.step7_final_answer_v2_openai = None
+
+    current_chat_history_with_prompt = list(chat_history_for_ai) # コピー
+    current_chat_history_with_prompt.append({"role": "user", "content": original_prompt})
+
+    all_collected_fragments: List[schemas.IndividualAIResponse] = []
+    queries_to_process: List[str] = [original_prompt]
+    processed_queries: set[str] = set() # 無限ループ防止
+
+    try:
+        for loop_count in range(max_refinement_loops + 1): # 初期検索 + 再検索ループ
+            current_round_queries = [q for q in queries_to_process if q not in processed_queries]
+            if not current_round_queries:
+                print(f"超検索モード ループ {loop_count + 1}: 新規クエリがないため終了。")
+                break
+
+            queries_to_process = [] # 次のラウンドのためにクリア
+            print(f"超検索モード ループ {loop_count + 1}: 処理対象クエリ数 = {len(current_round_queries)}")
+
+            search_tasks = []
+            for query_to_search in current_round_queries:
+                processed_queries.add(query_to_search)
+                print(f"  並列検索タスク準備中 (クエリ: {query_to_search[:50]}...)")
+
+                # Perplexity検索タスク (より詳細な情報を求めるプロンプト)
+                perplexity_prompt = (
+                    f"ユーザーの主要な関心事は「{original_prompt}」です。"
+                    f"現在調査中の具体的な観点は「{query_to_search}」です。"
+                    f"この観点について、ウェブ、ニュース、SNS投稿、レビュー、学術論文の抄録など、考えうるあらゆる情報源から、「可能な限り原文のまま、一切省略せずに」詳細な情報を収集してください。"
+                    f"各情報には、出典URL、発行日、著者/発信者名、コンテンツの種類（例：ニュース記事、SNS投稿、レビュー原文など）を必ず付記してください。"
+                    f"情報の網羅性と詳細度を最優先し、多様な視点からの情報を集めてください。"
+                )
+                search_tasks.append(
+                    get_perplexity_response(prompt_for_perplexity=perplexity_prompt, model="sonar-reasoning-pro") # 高性能モデル
+                )
+
+                # (オプション) Gemini Web Search など他の検索APIタスクも追加
+                # gemini_web_search_prompt = f"「{query_to_search}」に関する最新かつ多様な情報をウェブから収集し、それぞれの情報源（URL、サイト名、日付など）と共に詳細をリストアップしてください。要約は不要です。"
+                # search_tasks.append(get_gemini_response(prompt_text=gemini_web_search_prompt, system_instruction="PALEAI_SEARCH_FORMATTING_TASK_MARKER\nWeb情報収集専門AI", model_name="gemini-pro")) # Geminiの検索に適したモデル
+
+            if not search_tasks:
+                if loop_count == 0 and not all_collected_fragments:
+                    response_shell.overall_error = "超検索モード：初期クエリで検索タスクを生成できませんでした。"
+                    return response_shell
+                else:
+                    print("超検索モード：これ以上処理する新規クエリがありません。")
+                    break
+
+            print(f"  {len(search_tasks)}件の並列検索タスクを実行します...")
+            search_results_raw = await asyncio.gather(*search_tasks, return_exceptions=True)
+            print(f"  並列検索タスク完了。結果数: {len(search_results_raw)}")
+
+            # 並列検索結果を整理して all_collected_fragments に追加
+            query_idx_for_tasks = 0 # search_tasksとsearch_results_rawの対応を取るため
+            for raw_res in search_results_raw:
+                # current_round_queriesのどのクエリに対応する結果かを特定する必要がある
+                # 簡単のため、タスク作成順と結果の順が一致すると仮定
+                original_search_query = current_round_queries[query_idx_for_tasks] if query_idx_for_tasks < len(current_round_queries) else "不明なクエリ"
+                query_idx_for_tasks += 1
+
+                frag_to_add = None
+                if isinstance(raw_res, Exception):
+                    print(f"  並列検索中にエラー (クエリ: {original_search_query}): {raw_res}")
+                    frag_to_add = schemas.IndividualAIResponse(
+                        source=f"並列検索エラー ({original_search_query[:20]}...)", query=original_search_query, error=str(raw_res)
+                    )
+                elif isinstance(raw_res, schemas.IndividualAIResponse):
+                    # ここでPerplexity等のAPI応答からメタデータ（URL、日付、著者など）を抽出・設定する
+                    # この例では簡略化し、応答テキストとリンクのみを扱う
+                    frag_to_add = schemas.IndividualAIResponse(
+                        source=raw_res.source or "不明な検索ソース",
+                        response=raw_res.response,
+                        links=raw_res.links,
+                        error=raw_res.error,
+                        query=original_search_query,
+                        intent=f"超検索 ループ{loop_count+1}",
+                        source_url=raw_res.links[0] if raw_res.links else None, # 代表URL (仮)
+                        # published_date, author, content_type はAPI応答のパースが必要
+                    )
+                else:
+                    frag_to_add = schemas.IndividualAIResponse(
+                        source="不明な検索結果型", query=original_search_query, error=f"予期しない型: {type(raw_res)}"
+                    )
+
+                if frag_to_add:
+                    all_collected_fragments.append(frag_to_add)
+
+            # --- ステップ2 (ループ内): 不足論点/矛盾/信頼性等を分析し、次のクエリ候補を生成 ---
+            if loop_count < max_refinement_loops: # 最終ループでは不足観点抽出は不要
+                print(f"\n超検索モード ループ {loop_count + 1} - 分析と次クエリ生成中...")
+                current_all_info_text = ""
+                for idx, frag in enumerate(all_collected_fragments):
+                    if frag.response:
+                        frag_header = f"--- 情報断片 {idx+1} (ソース: {frag.source}, クエリ: {frag.query or 'N/A'}) ---\n"
+                        current_all_info_text += f"{frag_header}{frag.response}\n"
+                        if frag.source_url: current_all_info_text += f"  URL: {frag.source_url}\n"
+                        if frag.published_date: current_all_info_text += f"  日付: {frag.published_date}\n"
+                        current_all_info_text += "\n"
+
+                if not current_all_info_text.strip():
+                    print("  収集情報が空のため、分析と次クエリ生成をスキップ。")
+                else:
+                    analysis_system_prompt = ( # キャラ口調なし
+                        "PALEAI_SEARCH_FORMATTING_TASK_MARKER\n"
+                        "あなたは高度な情報分析AIです。複数の情報源から得られた複雑な情報を比較検討し、その情報の完全性、一貫性、信頼性、客観性を評価する専門家です。\n"
+                        "あなたの主なタスクは、以下の通りです。\n"
+                        "1.  **不足している論点や情報**: まだカバーされていない重要な側面や、さらに深掘りすべき具体的なトピックを特定し、それらを新しい検索クエリとして使える形で【3つ以内、各20字程度で】提案してください。\n"
+                        "2.  **情報間の矛盾や食い違い**: 異なる情報源間で明確に矛盾している点があれば、具体的に指摘してください。（出力に含める）\n"
+                        "3.  **信頼性に疑問がある情報**: 情報源の信憑性が低い、データが古い、客観性に欠けるなど、信頼性に懸念がある情報があれば指摘してください。（出力に含める）\n"
+                        "4.  **潜在的なバイアス**: 特定の意見に偏っている、一方的な視点のみが提示されているなど、バイアスが疑われる箇所があれば指摘してください。（出力に含める）\n"
+                        "5.  **要再検証・最新情報確認が必要な観点**: 時間経過により情報が変化している可能性が高いトピックや、最新の動向を確認すべき点を挙げてください。（出力に含める）\n"
+                        "出力は、まず「新たな検索クエリ候補：」として1で提案されたクエリリストを提示し、その後「分析結果と指摘事項：」として2～5の分析結果を記述してください。"
+                    )
+                    analysis_user_prompt = (
+                        f"ユーザーの主要な関心事は「{original_prompt}」です。\n"
+                        f"以下は、これまでに収集された関連情報群です。\n\n"
+                        f"--- 収集情報全体 ---\n{current_all_info_text.strip()}\n--- 収集情報全体ここまで ---\n\n"
+                        f"上記のシステム指示に従い、この全情報を徹底的に分析し、新たな検索クエリ候補と、その他の分析結果・指摘事項を提示してください。"
+                    )
+                    # Claude Opus または GPT-4 Turbo/GPT-4o が適任
+                    analysis_res = await get_claude_response(
+                        prompt_text=analysis_user_prompt,
+                        system_instruction=analysis_system_prompt,
+                        model="claude-3-opus-20240229",
+                        initial_user_prompt=initial_user_prompt_for_session
+                    )
+
+                    if analysis_res.response:
+                        # 分析結果全体を一時的な断片として保存
+                        all_collected_fragments.append(schemas.IndividualAIResponse(
+                            source="Claude/GPT 情報分析・評価", response=analysis_res.response, intent="情報分析と次クエリ候補"
+                        ))
+                        # 分析結果から新しいクエリ候補を抽出 (AIの出力形式に依存)
+                        # 例: "新たな検索クエリ候補：" の後に続く行から抽出
+                        # ここでは簡易的に、応答全体からキーワードらしきものを抽出する。実際のパースはAIの出力形式に合わせること。
+                        raw_queries_section = ""
+                        if "新たな検索クエリ候補：" in analysis_res.response:
+                            raw_queries_section = analysis_res.response.split("新たな検索クエリ候補：", 1)[1].split("分析結果と指摘事項：", 1)[0]
+
+                        for line in raw_queries_section.splitlines():
+                            clean_query = line.strip().lstrip("-・* ").rstrip("?")
+                            if clean_query and len(clean_query) > 3 and len(clean_query) < 50 and clean_query not in processed_queries:
+                                if len(queries_to_process) < 3: # 次のラウンドのクエリ数を制限
+                                    queries_to_process.append(clean_query)
+                        print(f"  次のループで処理する新規クエリ候補: {queries_to_process}")
+                    if analysis_res.error:
+                        print(f"  情報分析・評価ステップでエラー: {analysis_res.error}")
+                        all_collected_fragments.append(schemas.IndividualAIResponse(
+                            source="Claude/GPT 情報分析・評価エラー", error=analysis_res.error
+                        ))
+
+        if not queries_to_process and loop_count < max_refinement_loops : # 次のクエリがないが、まだループが残っている場合
+            print("次の検索クエリ候補が見つかりませんでした。ループを早期終了します。")
+            break
+
+
+        # Webスクレイピングや論文API、SNS APIの自動活用 (このフェーズは高度な実装が必要なため、今回は概念のみ)
+        # if loop_count > 0 : # 例えば2ループ目以降で検討
+        #    print("  (概念) Webスクレイピング、論文API、SNS APIの活用を検討...")
+        #    # 特定のURLが見つかればスクレイピング、キーワードで論文検索など
+
+    # --- ループ終了後: 全取得情報を最終的に整形・分類 ---
+    print("\n超検索特化モード: 全情報の最終整形・分類中...")
+    if not any(f.response for f in all_collected_fragments):
+        response_shell.overall_error = "超検索モードで情報が収集できませんでした。"
+        response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
+            source="SuperSearch Orchestrator", error="情報収集ステップで有効な結果が得られませんでした。"
+        )
+        response_shell.search_fragments = all_collected_fragments
+        return response_shell
+
+    final_all_fragments_text_for_formatting = ""
+    for idx, frag in enumerate(all_collected_fragments):
+        # if frag.response: # 有効な応答のみ整形対象とする (分析結果なども含む)
+        frag_header = (
+            f"--- 情報断片 {idx+1}: (ソース: {frag.source}) ---\n"
+            f"  元クエリ: {frag.query or 'N/A'}\n"
+            f"  意図/種類: {frag.intent or 'N/A'}\n"
+        )
+        frag_content = frag.response or frag.error or "内容なし"
+        frag_metadata_lines = []
+        if frag.source_url: frag_metadata_lines.append(f"  - 出典URL: {frag.source_url}")
+        if frag.published_date: frag_metadata_lines.append(f"  - 発行日: {frag.published_date}")
+        if frag.author: frag_metadata_lines.append(f"  - 著者/発信者: {frag.author}")
+        if frag.content_type: frag_metadata_lines.append(f"  - コンテンツ種類: {frag.content_type}")
+        # 信頼性・バイアスラベル (もしあれば)
+        if frag.reliability_label: frag_metadata_lines.append(f"  - 信頼性評価(仮): {frag.reliability_label}")
+        if frag.bias_label: frag_metadata_lines.append(f"  - バイアス評価(仮): {frag.bias_label}")
+        if frag.issues_detected: frag_metadata_lines.append(f"  - 指摘事項: {', '.join(frag.issues_detected)}")
+
+        frag_links_text = "\n".join([f"  - 関連リンク: {link}" for link in frag.links]) if frag.links and not frag.source_url else ""
+
+        final_all_fragments_text_for_formatting += f"{frag_header}{frag_content}\n"
+        if frag_metadata_lines: final_all_fragments_text_for_formatting += "\n".join(frag_metadata_lines) + "\n"
+        if frag_links_text: final_all_fragments_text_for_formatting += frag_links_text + "\n"
+        final_all_fragments_text_for_formatting += "\n\n"
+
+    if not final_all_fragments_text_for_formatting.strip():
+        response_shell.overall_error = "超検索モード：最終整形対象となる有効な情報がありませんでした。"
+        response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(source="SuperSearch Orchestrator", error="整形対象情報なし")
+        response_shell.search_fragments = all_collected_fragments
+        return response_shell
+
+    final_formatting_system_prompt = (
+        "PALEAI_SEARCH_FORMATTING_TASK_MARKER\n"
+        "あなたは、超大量かつ多様な情報源から集められたテキスト断片と分析結果を、極めて高度に整理・構造化する専門のAI編集長です。\n"
+        "あなたの使命は、与えられた全ての情報（原文抜粋、URL、日付、発信者、SNS投稿、レビュー、AIによる分析結果など）を「一切省略・圧縮・要約することなく」、そのままの形で、以下の観点に基づいて多次元的に分類し、ユーザーが情報を最大限に活用できるように提示することです:\n"
+        "  - **情報の種類別** (例: 初期検索結果、追加検索結果、AIによる分析・評価コメント、ニュース記事、学術論文抄録、ブログ投稿、SNSコメント、製品レビューなど)\n"
+        "  - **情報源の信頼性・客観性に関する情報** (AI分析コメント内にあればそれを反映)\n"
+        "  - **トピック・サブトピック別** (内容に応じてグルーピング)\n"
+        "  - **時系列** (発行日やイベント発生順など、可能な範囲で)\n"
+        "  - **肯定的/否定的/中立的意見** (意見が含まれる情報の場合、AI分析コメントを参考に)\n"
+        "各情報断片には、収集時のクエリ、出典、日付、著者などのメタデータを可能な限り付与し、どの情報源からのものか明確にしてください。\n"
+        "あなたの解釈や意見、追加情報は一切含めず、客観的な情報の整理と提示に徹してください。\n"
+        "最後に、全情報のごく短い（2～3段落程度の）総合的な概要と、情報全体の信頼性やバイアスに関する一般的な注意点（もしあればAI分析結果を参考に）を「【最終サマリーと留意点】」という見出しで付与してください。この部分以外では、絶対に情報を要約しないでください。"
+    )
+    final_formatting_user_prompt = (
+        f"ユーザーの元の主要な関心事は「{original_prompt}」です。\n"
+        f"以下に、この関心事について多角的に収集・分析された膨大な量の情報断片群があります。\n\n"
+        f"--- 全情報断片・分析結果ここから ---\n{final_all_fragments_text_for_formatting.strip()}\n--- 全情報断片・分析結果ここまで ---\n\n"
+        f"上記のシステム指示に厳密に従い、これらの全情報を一切省略・要約せず、多次元的に分類・整形し、提示してください。"
+        f"特に、各情報源のURL、発行日、発信者といったメタ情報は可能な限り保持し、表示してください。"
+        f"最後に2～3段落の「最終サマリーと留意点」だけを「【最終サマリーと留意点】」という見出しで付与してください。"
+    )
+
+    # GPT-4o や Claude Opus, Gemini 1.5 Pro など高性能モデル推奨
+    final_formatting_res = await get_gemini_response(
+        prompt_text=final_formatting_user_prompt,
+        system_instruction=final_formatting_system_prompt,
+        model_name="gemini-1.5-pro-latest",
+        initial_user_prompt=initial_user_prompt_for_session
+    )
+
+    if final_formatting_res.response:
+        summary_marker_super = "【最終サマリーと留意点】"
+        formatted_super_fragments_display = final_formatting_res.response
+        super_summary_text = "（AIによる自動最終サマリーと留意点はありませんでした）" # デフォルト
+
+        # 信頼性・バイアス警告の抽出 (簡易的な例、AIの出力形式に依存)
+        extracted_warnings = {}
+        # 例えば、整形済み応答から特定のキーワードで始まるセクションを探すなど
+        # if "信頼性に関する警告：" in formatted_super_fragments_display:
+        #     extracted_warnings["reliability"] = formatted_super_fragments_display.split("信頼性に関する警告：",1)[1].split("\n\n",1)[0]
+        # if "バイアスに関する指摘：" in formatted_super_fragments_display:
+        #     extracted_warnings["bias"] = formatted_super_fragments_display.split("バイアスに関する指摘：",1)[1].split("\n\n",1)[0]
+        # response_shell.search_mode_warnings = extracted_warnings
+
+        if summary_marker_super in formatted_super_fragments_display:
+            parts = formatted_super_fragments_display.split(summary_marker_super, 1)
+            formatted_super_fragments_display = parts[0].strip()
+            if len(parts) > 1 and parts[1].strip():
+                super_summary_text = parts[1].strip()
+            else:
+                super_summary_text = "最終サマリーと留意点部分が空でした。"
+        else:
+            print(f"警告: 超検索の最終整形結果に{summary_marker_super}マーカーが見つかりませんでした。")
+
+        response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
+            source="超検索 最終整形結果 (Gemini/GPT-4o/Claude Opus)",
+            response=formatted_super_fragments_display, # 分類・整形された断片情報リスト本体
+            query=original_prompt,
+            intent="超検索 全情報整形済みリスト"
+        )
+        response_shell.search_summary_text = super_summary_text # 分離したまとめと留意点
+    else:
+        response_shell.overall_error = "超検索モードの最終的な情報の整形・分類に失敗しました。"
+        response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
+            source="SuperSearch Orchestrator", error=f"超検索最終整形ステップでエラー: {final_formatting_res.error or '応答なし'}"
+        )
+
+    response_shell.search_fragments = all_collected_fragments # 生の断片情報もレスポンスに含める
+    print("--- 新・超検索特化モード（ペイルの叡智）終了 ---")
+
+except ValueError as ve:
+    error_message = f"超検索特化モードの処理中にエラー: {str(ve)}"
+    print(error_message)
+    response_shell.overall_error = error_message
+    response_shell.search_fragments = all_collected_fragments
+    if not response_shell.step7_final_answer_v2_openai:
+        response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
+            source="SuperSearch Error", error=str(ve)
+        )
+except Exception as e:
+    import traceback
+    error_trace = traceback.format_exc()
+    error_message = f"超検索特化モードで予期せぬエラー: {str(e)}"
+    print(f"{error_message}\nTrace: {error_trace}")
+    response_shell.overall_error = "サーバー内部で予期せぬエラーが発生しました（超検索）。"
+    response_shell.search_fragments = all_collected_fragments
+    if not response_shell.step7_final_answer_v2_openai:
+        response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
+            source="SuperSearch Unexpected Error", error=str(e)
+        )
+
+    return response_shell
     """Run the super deepsearch flow for advanced search mode."""
     return await run_super_deepsearch_mode_flow(
         original_prompt,
@@ -1172,16 +1638,26 @@ async def run_balance_mode_flow(
     return response_shell
 
 
+import re
+
 def format_code_mode_output(code: str, explanation: str, tests: str) -> str:
-    """Apply output template for code generation mode."""
+    # コード部分の前後に余計な```がないか除去（AI出力にはよく含まれる）
+    code_clean = re.sub(r"^```[a-z]*\n?|\n?```$", "", code.strip(), flags=re.IGNORECASE)
+    tests_clean = re.sub(r"^```[a-z]*\n?|\n?```$", "", tests.strip(), flags=re.IGNORECASE)
+    explanation_clean = explanation.strip()
+
     return (
-        "## 生成されたコード\n\n"
+        "## 生成されたコード\n"
         "このコードをそのまま使えます。下記をコピペしてください。\n\n"
-        f"```python\n{code}\n```\n\n"
-        "## コードの解説\n\n"
-        f"{explanation}\n\n"
-        "## テストケースの提案\n\n"
-        f"{tests}\n"
+        "```python\n"
+        f"{code_clean}\n"
+        "```\n\n"
+        "## コードの解説\n"
+        f"{explanation_clean}\n\n"
+        "## テストケース例\n"
+        "```python\n"
+        f"{tests_clean}\n"
+        "```\n"
     )
 
 
@@ -1388,22 +1864,238 @@ async def run_search_mode_flow(
     chat_history_for_ai: List[Dict[str, str]],
     initial_user_prompt_for_session: Optional[str]
 ) -> schemas.CollaborativeResponseV2:
-    """Run the Deepsearch flow for standard search mode."""
-    return await run_deepsearch_mode_flow(
-        original_prompt,
-        response_shell,
-        initial_user_prompt_for_session=initial_user_prompt_for_session,
-    )
+    print("\n--- 新・検索特化モード（ペイルの知恵）開始 ---")
+    # response_shell.search_fragments は [] で初期化されている想定 (pydanticのdefault_factory)
+    response_shell.search_summary_text = None # 初期化
+    response_shell.step7_final_answer_v2_openai = None # 初期化
 
-# main.py の run_balance_mode_flow 関数の修正
+    # このターンでAIに渡す完全な会話履歴 (モードフロー内で必要に応じて使用)
+    current_chat_history_with_prompt = list(chat_history_for_ai) # コピー
+    current_chat_history_with_prompt.append({"role": "user", "content": original_prompt})
 
-async def run_balance_mode_flow(
-    original_prompt: str,
-    response_shell: schemas.CollaborativeResponseV2, # schemas. を使用
-    chat_history_for_ai: Optional[List[Dict[str, str]]] = None,
-    initial_user_prompt_for_session: Optional[str] = None # <<< 追加
-) -> schemas.CollaborativeResponseV2: # schemas. を使用
+    collected_fragments: List[schemas.IndividualAIResponse] = []
 
+    try:
+        # --- ステップ1: 最初のクエリでPerplexity検索 ---
+        print("検索特化モード ステップ1: Perplexityによる初期検索中...")
+        perplexity_initial_prompt = (
+            f"ユーザーリクエスト「{original_prompt}」について、関連する情報を幅広く検索してください。\n"
+            f"特に、ウェブページ、ニュース記事、SNS投稿、レビュー、学術論文の要旨など、多様な情報源からの情報を探してください。\n"
+            f"見つかった各情報については、「可能な限り原文のまま、一切省略せずに」その内容をリストアップしてください。\n"
+            f"さらに、各情報には、取得可能な範囲で「出典URL」「発行日」「著者名」「コンテンツの種類（例：ニュース記事、SNS投稿など）」を必ず付記してください。\n"
+            f"情報の質と量を重視し、詳細なデータ収集を目的とします。"
+        )
+        step1_res_perplexity = await get_perplexity_response(
+            prompt_for_perplexity=perplexity_initial_prompt,
+            model="sonar-pro" # または "sonar-reasoning-pro"
+        )
+        if step1_res_perplexity.response:
+            # Perplexityの応答をパースしてメタデータを付与する処理が必要 (ここでは簡略化)
+            # 実際のPerplexity APIの応答形式に合わせてパース処理を実装してください。
+            # 以下は仮のメタデータ付与です。
+            collected_fragments.append(schemas.IndividualAIResponse(
+                source="Perplexity 初期検索",
+                response=step1_res_perplexity.response,
+                links=step1_res_perplexity.links,
+                query=original_prompt,
+                intent="初期情報収集",
+                source_url=step1_res_perplexity.links[0] if step1_res_perplexity.links else None,
+                content_type="search_result_summary", # Perplexityは多様なソースを返す
+                # published_date, author などもAPI応答から抽出できれば設定
+            ))
+        if step1_res_perplexity.error:
+            print(f"ステップ1 Perplexity検索エラー: {step1_res_perplexity.error}")
+            collected_fragments.append(schemas.IndividualAIResponse(
+                source="Perplexity 初期検索エラー", error=step1_res_perplexity.error, query=original_prompt
+            ))
+
+        # --- ステップ2: Claude（またはGPT-4）で“抜けている観点”を自動抽出 ---
+        print("\n検索特化モード ステップ2: 不足観点の抽出中...")
+        missing_aspects_list: List[str] = []
+        if not collected_fragments or not collected_fragments[-1].response:
+            print("ステップ1の検索結果がないため、不足観点抽出をスキップします。")
+        else:
+            initial_search_results_text = "\n\n".join([f.response for f in collected_fragments if f.response])
+
+            missing_aspects_system_prompt = ( # キャラ口調なし、検索モード専用マーカー付与
+                "PALEAI_SEARCH_FORMATTING_TASK_MARKER\n" # このマーカーでAIヘルパー側でキャラ口調を抑制
+                "あなたは、与えられた情報群を分析し、まだ触れられていない重要な論点、深掘りすべき追加情報、あるいは異なる視点を的確に見つけ出す専門家です。\n"
+                "提案する観点は、次の検索ステップで具体的な検索クエリとして使用できるような、簡潔かつ明確な言葉で表現してください。\n"
+                "出力は、提案される検索クエリのリストのみとし、各クエリは20字程度に収め、最大で5つまでとしてください。説明や前置きは一切不要です。"
+            )
+            missing_aspects_user_prompt_claude = (
+                f"ユーザーの当初のリクエストは「{original_prompt}」です。\n"
+                f"以下に、このリクエストに対する初期検索で得られた情報群を示します。\n\n"
+                f"--- 初期検索結果群 ---\n{initial_search_results_text}\n--- 初期検索結果群ここまで ---\n\n"
+                f"これらの情報を踏まえ、ユーザーがさらに知りたいであろう「まだカバーされていない重要な論点」や「深掘りすべき追加のキーワードや質問」を、"
+                f"具体的な検索クエリとしてリスト形式で提案してください。提案は最大5つまで、各20字程度でお願いします。リスト以外の説明文は不要です。"
+            )
+            step2_res_claude = await get_claude_response( # または get_openai_response
+                prompt_text=missing_aspects_user_prompt_claude,
+                system_instruction=missing_aspects_system_prompt, # 専用システムプロンプト
+                model="claude-3-haiku-20240307", # Opusより高速・安価なモデルで十分な場合も
+                # chat_history=current_chat_history_with_prompt, # 必要に応じて文脈として渡す
+                initial_user_prompt=initial_user_prompt_for_session
+            )
+            if step2_res_claude.response:
+                collected_fragments.append(schemas.IndividualAIResponse(
+                    source="Claude 不足観点抽出", response=step2_res_claude.response, intent="不足観点リスト"
+                ))
+                # クエリリストをパース (AIの出力形式に依存するため、適宜調整が必要)
+                missing_aspects_list = [q.strip().lstrip("-・* ").rstrip("?") for q in step2_res_claude.response.splitlines() if q.strip() and len(q.strip()) > 3] # 簡単なフィルタ
+            if step2_res_claude.error:
+                print(f"ステップ2 不足観点抽出エラー: {step2_res_claude.error}")
+                collected_fragments.append(schemas.IndividualAIResponse(
+                    source="Claude 不足観点抽出エラー", error=step2_res_claude.error
+                ))
+
+        # --- ステップ3: 抜け観点ごとに再びPerplexity（またはGemini Web/News）で深掘り追加検索 ---
+        print(f"\n検索特化モード ステップ3: {len(missing_aspects_list)}件の不足観点で追加検索中...")
+        for i, aspect_query in enumerate(missing_aspects_list):
+            if not aspect_query: continue
+            print(f"  追加検索 {i+1}/{len(missing_aspects_list)}: 「{aspect_query}」")
+            perplexity_followup_prompt = (
+                f"ユーザーの当初のリクエストは「{original_prompt}」でした。\n"
+                f"それに関連する深掘り観点として「{aspect_query}」が特定されました。\n"
+                f"この「{aspect_query}」について、関連情報を幅広く検索し、ウェブページ、ニュース記事、SNS投稿、レビュー、論文の要旨など、見つかった情報を「可能な限り原文のまま、省略せずに」リストアップしてください。\n"
+                f"各情報には、出典URL、発行日、著者名、コンテンツの種類を可能な限り付記してください。"
+            )
+            # Perplexityを使うが、GeminiのWeb検索機能や他の検索APIも検討可能
+            step3_sub_res_perplexity = await get_perplexity_response(
+                prompt_for_perplexity=perplexity_followup_prompt, model="sonar-pro"
+            )
+            if step3_sub_res_perplexity.response:
+                collected_fragments.append(schemas.IndividualAIResponse(
+                    source=f"Perplexity 追加検索 ({aspect_query[:20]}...)",
+                    response=step3_sub_res_perplexity.response,
+                    links=step3_sub_res_perplexity.links,
+                    query=aspect_query,
+                    intent=f"深掘り ({aspect_query[:20]}...)",
+                    source_url=step3_sub_res_perplexity.links[0] if step3_sub_res_perplexity.links else None,
+                    content_type="search_result_summary_followup"
+                    # published_date, author などもAPI応答から抽出できれば設定
+                ))
+            if step3_sub_res_perplexity.error:
+                print(f"  追加検索「{aspect_query}」エラー: {step3_sub_res_perplexity.error}")
+                collected_fragments.append(schemas.IndividualAIResponse(
+                    source=f"Perplexity 追加検索エラー ({aspect_query[:20]}...)",
+                    error=step3_sub_res_perplexity.error, query=aspect_query
+                ))
+
+        # --- ステップ4: 全取得情報をまとめて、Gemini AdvancedまたはGPT-4に成形・分類だけさせる ---
+        print("\n検索特化モード ステップ4: 全情報の整形・分類中...")
+        if not any(f.response for f in collected_fragments): # 有効な情報断片がない場合
+            response_shell.overall_error = "検索結果がありませんでした。"
+            response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
+                source="Search Mode Orchestrator", error="情報収集ステップで有効な結果が得られませんでした。"
+            )
+            response_shell.search_fragments = collected_fragments # エラー情報だけでも返す
+            return response_shell
+
+        all_fragments_text_for_formatting = ""
+        for idx, frag in enumerate(collected_fragments):
+            if frag.response: # 有効な応答のみを整形対象とする
+                frag_header = f"--- 情報断片 {idx+1}: (ソース: {frag.source}, クエリ: {frag.query or 'N/A'}, 意図: {frag.intent or 'N/A'}) ---\n"
+                frag_content = frag.response
+                frag_metadata_lines = []
+                if frag.source_url: frag_metadata_lines.append(f"  - 出典URL: {frag.source_url}")
+                if frag.published_date: frag_metadata_lines.append(f"  - 発行日: {frag.published_date}")
+                if frag.author: frag_metadata_lines.append(f"  - 著者/発信者: {frag.author}")
+                if frag.content_type: frag_metadata_lines.append(f"  - コンテンツ種類: {frag.content_type}")
+                frag_links_text = "\n".join([f"  - 関連リンク: {link}" for link in frag.links]) if frag.links and not frag.source_url else "" # source_urlと重複する可能性があるので注意
+
+                all_fragments_text_for_formatting += f"{frag_header}{frag_content}\n"
+                if frag_metadata_lines: all_fragments_text_for_formatting += "\n".join(frag_metadata_lines) + "\n"
+                if frag_links_text: all_fragments_text_for_formatting += frag_links_text + "\n"
+                all_fragments_text_for_formatting += "\n\n"
+
+        if not all_fragments_text_for_formatting.strip():
+             response_shell.overall_error = "整形対象となる有効な検索情報がありませんでした。"
+             response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(source="Search Orchestrator", error="有効な情報断片なし")
+             response_shell.search_fragments = collected_fragments
+             return response_shell
+
+        # 整形用システムプロンプト (キャラクター性抑制マーカー付き)
+        formatting_system_prompt_gemini = (
+            "PALEAI_SEARCH_FORMATTING_TASK_MARKER\n" 
+            "あなたは、大量のテキスト情報を整理し、構造化する専門のAIアシスタントです。\n"
+            "あなたの主な役割は、与えられた情報断片を「一切省略・圧縮・要約せず」、そのままの形で、関連性の高いグループ（例：情報源の種類別、トピック別、時系列順など、文脈に応じて適切に判断）に分類し、各情報断片の出典URL、発行日、著者、コンテンツ種類などのメタデータ（もしあれば）が明確に分かるように、見出しや区切りをつけて、読みやすく提示することです。\n"
+            "ユーザーは原文の詳細情報を求めているため、あなたの解釈や意見、追加情報は一切含めないでください。\n"
+            "全ての情報を提示した後、最後に、提示した全情報のごく短い（1～2段落程度の）概要のみを「【最終まとめ】」という見出しで付与してください。このまとめ以外では、絶対に情報を要約したり、省略したりしないでください。\n"
+            "特に、各情報源のURL、発行日、発信者といったメタ情報は可能な限り保持し、表示してください。"
+        )
+        formatting_user_prompt_gemini = (
+            f"ユーザーの当初の質問は「{original_prompt}」です。\n"
+            f"以下に、この質問に関連して収集された複数の情報断片（原文抜粋、検索結果の応答、ニュース記事の断片、SNS投稿のテキスト、レビュー内容など）と、それらに付随するメタデータ（出典URL、発行日、著者、コンテンツ種類など）があります。\n\n"
+            f"--- 全情報断片ここから ---\n{all_fragments_text_for_formatting.strip()}\n--- 全情報断片ここまで ---\n\n"
+            f"上記のシステム指示に従い、これらの情報断片とメタデータを一切省略・要約せず、分野・時系列・ソースの種類別などに適切に分類・整形し、提示してください。\n"
+            f"各断片には、収集時の情報（ソース、クエリ、意図、URL、日付、著者など）を可能な限り明記してください。\n"
+            f"最後に1～2段落の「超短いまとめ」だけを「【最終まとめ】」という見出しで付与してください。"
+        )
+
+        step4_formatting_res_gemini = await get_gemini_response( # または get_openai_response("gpt-4o")
+            prompt_text=formatting_user_prompt_gemini,
+            system_instruction=formatting_system_prompt_gemini, # キャラ抑制マーカー含む
+            model_name="gemini-1.5-pro-latest", # 高度な長文処理能力を持つモデル推奨
+            initial_user_prompt=initial_user_prompt_for_session # 文脈として渡す
+        )
+
+        if step4_formatting_res_gemini.response:
+            summary_marker = "【最終まとめ】"
+            formatted_fragments_display = step4_formatting_res_gemini.response
+            summary_text = "（AIによる自動まとめはありませんでした）" # デフォルト
+
+            if summary_marker in formatted_fragments_display:
+                parts = formatted_fragments_display.split(summary_marker, 1)
+                formatted_fragments_display = parts[0].strip()
+                if len(parts) > 1 and parts[1].strip():
+                    summary_text = parts[1].strip()
+                else: # マーカーはあるが中身がない場合
+                    summary_text = "まとめ部分が空でした。"
+            else:
+                print("警告: 整形結果に【最終まとめ】マーカーが見つかりませんでした。応答全体を断片情報として扱います。")
+
+            # 整形されたメインコンテンツ (断片リスト) を格納
+            response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
+                source="Gemini 整形・分類結果",
+                response=formatted_fragments_display,
+                query=original_prompt, # この整形タスクの元のトリガー
+                intent="全情報整形済みリスト"
+            )
+            response_shell.search_summary_text = summary_text # 分離したまとめ
+        else:
+            response_shell.overall_error = "最終的な情報の整形・分類に失敗しました。"
+            response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
+                source="Search Mode Orchestrator", error=f"最終整形ステップでエラー: {step4_formatting_res_gemini.error or '応答なし'}"
+            )
+
+        # 生の断片情報もレスポンスに含める
+        response_shell.search_fragments = collected_fragments
+        print("--- 新・検索特化モード（ペイルの知恵）終了 ---")
+
+    except ValueError as ve:
+        error_message = f"検索特化モードの処理中にエラー: {str(ve)}"
+        print(error_message)
+        response_shell.overall_error = error_message
+        response_shell.search_fragments = collected_fragments # ここまでの断片は返す
+        if not response_shell.step7_final_answer_v2_openai:
+            response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
+                source="Search Mode Error", error=str(ve)
+            )
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        error_message = f"検索特化モードで予期せぬエラー: {str(e)}"
+        print(f"{error_message}\nTrace: {error_trace}")
+        response_shell.overall_error = "サーバー内部で予期せぬエラーが発生しました（検索特化）。"
+        response_shell.search_fragments = collected_fragments
+        if not response_shell.step7_final_answer_v2_openai:
+            response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
+                source="Search Mode Unexpected Error", error=str(e)
+            )
+
+    return response_shell
+  
     print("\n--- バランスモード開始 ---")
 
     step1_res = schemas.IndividualAIResponse(source="OpenAI (Initial Draft)", error="未実行")

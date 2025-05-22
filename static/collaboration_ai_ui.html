@@ -223,6 +223,94 @@
                 overflow-x: auto;
             }
         }
+        /* ... 既存のスタイル ... */
+    .search-fragments-container {
+        border: 1px solid #d1d5db; /* Tailwind gray-300 */
+        border-radius: 0.5rem; /* Tailwind rounded-lg */
+        padding: 0.75rem; /* Tailwind p-3 */
+        margin-top: 0.75rem; /* Tailwind mt-3 */
+        background-color: #f9fafb; /* Tailwind gray-50 */
+    }
+    .search-fragments-container h4 { /* 断片リストのタイトル */
+        font-size: 0.875rem; /* Tailwind text-sm */
+        font-weight: 600; /* Tailwind font-semibold */
+        color: #1f2937; /* Tailwind gray-800 */
+        margin-bottom: 0.5rem; /* Tailwind mb-2 */
+    }
+    .search-fragment-item {
+        border-bottom: 1px dashed #e5e7eb; /* Tailwind gray-200 */
+        padding-bottom: 0.75rem; /* Tailwind pb-3 */
+        margin-bottom: 0.75rem; /* Tailwind mb-3 */
+    }
+    .search-fragment-item:last-child {
+        border-bottom: none;
+        margin-bottom: 0;
+        padding-bottom: 0;
+    }
+    .fragment-source-header { /* 各断片のソース名など */
+        font-weight: 600; /* Tailwind font-semibold */
+        color: #059669; /* Tailwind emerald-600 */
+        font-size: 0.8rem; /* 少し小さめ */
+        margin-bottom: 0.25rem; /* Tailwind mb-1 */
+    }
+    .fragment-meta-info { /* URL、日付、著者など */
+        font-size: 0.7rem; /* さらに小さく */
+        color: #4b5563; /* Tailwind gray-600 */
+        margin-left: 0.5rem; /* Tailwind ml-2 */
+        line-height: 1.4;
+    }
+    .fragment-meta-info a {
+        color: #2563eb; /* Tailwind blue-600 */
+        word-break: break-all;
+    }
+    .search-summary-container {
+        border: 1px solid #60a5fa; /* Tailwind blue-400 */
+        border-radius: 0.5rem; /* Tailwind rounded-lg */
+        padding: 0.75rem; /* Tailwind p-3 */
+        margin-top: 1rem; /* Tailwind mt-4 */
+        background-color: #eff6ff; /* Tailwind blue-50 */
+    }
+    .search-summary-title {
+        font-weight: bold;
+        color: #1d4ed8; /* Tailwind blue-700 */
+        margin-bottom: 0.25rem; /* Tailwind mb-1 */
+        font-size: 0.875rem; /* Tailwind text-sm */
+    }
+    .search-warnings-container {
+        border: 1px solid #facc15; /* Tailwind yellow-400 */
+        border-radius: 0.5rem;
+        padding: 0.75rem;
+        margin-top: 1rem;
+        background-color: #fefce8; /* Tailwind yellow-50 */
+        font-size: 0.75rem; /* Tailwind text-xs */
+    }
+    .search-warnings-title {
+        font-weight: bold;
+        color: #a16207; /* Tailwind yellow-700 */
+        margin-bottom: 0.25rem;
+    }
+
+    .toggle-fragments-btn {
+        background-color: #e0f2fe; /* Tailwind sky-100 */
+        color: #0ea5e9; /* Tailwind sky-600 */
+        padding: 0.25rem 0.5rem; /* Tailwind px-2 py-1 */
+        font-size: 0.75rem; /* Tailwind text-xs */
+        border-radius: 0.25rem; /* Tailwind rounded */
+        cursor: pointer;
+        border: 1px solid #7dd3fc; /* Tailwind sky-300 */
+        margin-bottom: 0.5rem; /* Tailwind mb-2 */
+        display: block; /* 必要に応じて */
+    }
+    .fragments-list-collapsible {
+        max-height: 300px; /* 初期表示の高さ制限 */
+        overflow-y: auto;   /* スクロール可能に */
+        transition: max-height 0.3s ease-in-out;
+        border-top: 1px solid #e5e7eb; /* Tailwind gray-200 */
+        padding-top: 0.5rem; /* Tailwind pt-2 */
+    }
+    .fragments-list-collapsible.expanded {
+        max-height: 1000px; /* 十分な高さ、必要なら調整 */
+    }
     </style>
 </head>
 <body class="flex h-screen antialiased text-gray-800 bg-slate-100">
@@ -917,11 +1005,145 @@ function resetChatUI() {
             characterImage.src = currentUserProfileImage || '/static/pic/Default.png';
             characterImage.alt = 'User';
             speechBubbleCard.classList.add('user-bubble');
-        } else if (role === 'ai') {
-            messageWrapper.classList.add('justify-start', 'flex-row'); // 左寄せ
-            characterImage.src = '/static/pic/Answer.png';
-            characterImage.alt = aiModelName || 'AI';
-            speechBubbleCard.classList.add('ai-bubble');
+      // ... (messageWrapper, characterArea, speechBubbleCard の準備までは同じ) ...
+
+    const contentDiv = document.createElement('div');
+    contentDiv.classList.add('prose', 'prose-sm', 'max-w-none', 'markdown-body');
+
+    // --- 検索モード (search3, search6) 専用の表示処理 ---
+    // selectedMode はグローバル変数か、あるいは data オブジェクトから取得できるようにする想定
+    // ここでは、aiModeSelect.value を参照しているが、displayMessageの引数で渡す方が堅牢
+    const currentSelectedMode = aiModeSelect.value; // submitBtn クリック時のモード
+    if ((currentSelectedMode === 'search3' || currentSelectedMode === 'search6' || currentSelectedMode === 'search' || currentSelectedMode === 'supersearch') && role === 'ai') {
+
+        // 1. メインの整形済みコンテンツ (data.step7_final_answer_v2_openai.response に入る想定)
+        if (content) { // content には整形済みの断片リスト本体が入る想定
+            contentDiv.innerHTML = marked.parse(content);
+            addCopyButtons(contentDiv);
+            // hljs.highlightAll() は重いので、特定の要素に対して実行する方が良い
+            contentDiv.querySelectorAll('pre code').forEach((block) => {
+                hljs.highlightElement(block);
+            });
+        } else {
+            contentDiv.innerHTML = marked.parse("*検索結果の主要コンテンツがありませんでした。*");
+        }
+        speechBubbleCard.appendChild(contentDiv); // まずメインコンテンツを追加
+
+        // 2. 生の断片情報リスト (data.search_fragments) があればそれを整形して表示
+        // data は displayMessage の呼び出し元で渡されるサーバーレスポンスオブジェクトを想定
+        // この引数名は displayMessage(content, role, aiModelName = null, messageId = null, responseData = null) のように追加する
+        // ここでは仮に responseData という名前で受け取ったと仮定
+        // if (responseData && responseData.search_fragments && Array.isArray(responseData.search_fragments) && responseData.search_fragments.length > 0) {
+        // 呼び出し側で data.search_fragments を渡すように変更するため、引数名を `searchFragments` にする
+        // displayMessage(content, role, aiModelName = null, messageId = null, searchFragments = null, searchSummary = null, searchModeWarnings = null)
+
+        if (searchFragments && Array.isArray(searchFragments) && searchFragments.length > 0) {
+            const fragmentsContainerWrapper = document.createElement('div');
+            fragmentsContainerWrapper.className = 'search-fragments-container'; // 上記CSSで定義したクラス
+
+            const listTitle = document.createElement('h4');
+            listTitle.textContent = '収集された情報源リスト（詳細）';
+            fragmentsContainerWrapper.appendChild(listTitle);
+
+            const toggleBtn = document.createElement('button');
+            toggleBtn.textContent = '詳細を表示する';
+            toggleBtn.className = 'toggle-fragments-btn'; // 上記CSSで定義
+
+            const fragmentsListDiv = document.createElement('div');
+            fragmentsListDiv.className = 'fragments-list-collapsible'; // 初期は畳まれている想定の高さ
+
+            toggleBtn.onclick = () => {
+                fragmentsListDiv.classList.toggle('expanded');
+                toggleBtn.textContent = fragmentsListDiv.classList.contains('expanded') ? '詳細を隠す' : '詳細を表示する';
+            };
+            fragmentsContainerWrapper.appendChild(toggleBtn);
+
+            searchFragments.forEach(fragment => {
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'search-fragment-item'; // 上記CSSで定義
+
+                let itemHtml = `<div class="fragment-source-header">${fragment.source || '不明なソース'}</div>`;
+                const metaDetails = [];
+                if (fragment.query) metaDetails.push(`<strong>クエリ:</strong> ${fragment.query}`);
+                if (fragment.intent) metaDetails.push(`<strong>意図/種類:</strong> ${fragment.intent}`);
+                if (fragment.source_url) metaDetails.push(`<strong>URL:</strong> <a href="<span class="math-inline">\{fragment\.source\_url\}" target\="\_blank"\></span>{fragment.source_url}</a>`);
+                if (fragment.published_date) metaDetails.push(`<strong>発行日:</strong> ${fragment.published_date}`);
+                if (fragment.author) metaDetails.push(`<strong>著者/発信者:</strong> ${fragment.author}`);
+                if (fragment.content_type) metaDetails.push(`<strong>コンテンツ種類:</strong> ${fragment.content_type}`);
+
+                // 超検索用ラベル
+                if (fragment.reliability_label) metaDetails.push(`<strong>信頼性(AI評価):</strong> ${fragment.reliability_label}`);
+                if (fragment.bias_label) metaDetails.push(`<strong>バイアス(AI評価):</strong> ${fragment.bias_label}`);
+                if (fragment.issues_detected && fragment.issues_detected.length > 0) {
+                     metaDetails.push(`<strong>指摘事項(AI評価):</strong> ${fragment.issues_detected.join(', ')}`);
+                }
+                if (metaDetails.length > 0) {
+                    itemHtml += `<div class="fragment-meta-info">${metaDetails.join('<br>')}</div>`;
+                }
+
+                const fragResponseDiv = document.createElement('div');
+                fragResponseDiv.className = 'prose prose-xs max-w-none markdown-body text-gray-700 mt-1';
+                fragResponseDiv.innerHTML = marked.parse(fragment.response || fragment.error || '<i>内容なし</i>');
+                addCopyButtons(fragResponseDiv); // 個別のコピーボタン
+                fragResponseDiv.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
+
+
+                itemHtml += fragResponseDiv.outerHTML;
+
+                if (fragment.links && fragment.links.length > 0 && (!fragment.source_url || !fragment.links.includes(fragment.source_url))) {
+                    itemHtml += `<div class="fragment-meta-info mt-1"><strong>その他関連リンク:</strong><br>${fragment.links.map(l => `<a href="${l}" target="_blank">${l}</a>`).join('<br>')}</div>`;
+                }
+
+                itemDiv.innerHTML = itemHtml;
+                fragmentsListDiv.appendChild(itemDiv);
+            });
+            fragmentsContainerWrapper.appendChild(fragmentsListDiv);
+            speechBubbleCard.appendChild(fragmentsContainerWrapper); // メインコンテンツの下に断片リストを追加
+        }
+
+        // 3. 最終まとめ (data.search_summary_text) があれば表示
+        if (searchSummary) { // searchSummary は引数で渡される想定
+            const summaryContainer = document.createElement('div');
+            summaryContainer.className = 'search-summary-container'; // 上記CSSで定義
+            summaryContainer.innerHTML = `<div class="search-summary-title">【最終まとめ】</div>` + marked.parse(searchSummary);
+            speechBubbleCard.appendChild(summaryContainer);
+        }
+
+        // 4. 超検索モード用の警告 (data.search_mode_warnings) があれば表示
+        if (searchModeWarnings && Object.keys(searchModeWarnings).length > 0) { // searchModeWarnings は引数で渡される想定
+            const warningsContainer = document.createElement('div');
+            warningsContainer.className = 'search-warnings-container'; // 上記CSSで定義
+            warningsContainer.innerHTML = `<div class="search-warnings-title">【信頼性・バイアスに関する留意点（AIによる自動分析）】</div>`;
+            for (const key in searchModeWarnings) {
+                if (Array.isArray(searchModeWarnings[key]) && searchModeWarnings[key].length > 0) {
+                    warningsContainer.innerHTML += `<p><strong><span class="math-inline">\{key\}\:</strong\><ul\></span>{searchModeWarnings[key].map(item => `<li>${item}</li>`).join('')}</ul></p>`;
+                } else if (typeof searchModeWarnings[key] === 'string' && searchModeWarnings[key]) {
+                     warningsContainer.innerHTML += `<p><strong>${key}:</strong> ${searchModeWarnings[key]}</p>`;
+                }
+            }
+            speechBubbleCard.appendChild(warningsContainer);
+        }
+
+    } else { // 通常のメッセージ表示 (検索モード以外、またはユーザーメッセージ)
+        contentDiv.innerHTML = marked.parse(content);
+        addCopyButtons(contentDiv);
+        speechBubbleCard.appendChild(contentDiv);
+        // 通常モードでもコードブロックがあればハイライト
+        if (role === 'ai' && typeof hljs !== 'undefined') {
+            contentDiv.querySelectorAll('pre code').forEach((block) => {
+                hljs.highlightElement(block);
+            });
+        }
+    }
+
+    // 翻訳ボタンなどの共通処理 (既存のものを流用)
+    if (role === 'ai' && !(currentSelectedMode === 'search3' || currentSelectedMode === 'search6' || currentSelectedMode === 'search' || currentSelectedMode === 'supersearch')) { // 検索モードでは多重表示を避けるため、ここでは追加しない
+        const transBtn = document.createElement('button');
+        // ... (既存の翻訳ボタンロジック) ...
+        // speechBubbleCard.appendChild(transBtn);
+        // speechBubbleCard.appendChild(transDiv);
+    }
+// ... (messageWrapper.appendChild(speechBubbleCard); 以降の既存の処理) ...
         } else { // system message
             const simpleMessageDiv = document.createElement('div');
             simpleMessageDiv.classList.add('text-xs', 'text-gray-500', 'italic', 'text-center', 'my-2', 'w-full', 'py-1', 'px-3', 'bg-gray-100', 'rounded');
