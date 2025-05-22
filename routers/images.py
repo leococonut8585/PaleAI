@@ -4,8 +4,8 @@ from typing import List, Optional
 from fastapi.concurrency import run_in_threadpool
 import os
 import base64
-import httpx
-import tempfile
+# import httpx  # removed: upscale_image no longer uses it
+# import tempfile  # removed: upscale_image no longer uses it
 
 import models
 from dependencies import get_current_active_user
@@ -49,90 +49,16 @@ async def optimize_prompt(text: str) -> str:
         print(f"Claude error: {e}")
         return text
 
-async def upscale_image(url: str) -> str:
-    replicate_api_token = os.getenv("REPLICATE_API_TOKEN")
-    if not replicate_api_token:
-        print("Replicate API token not found. Skipping upscale.")
-        return url
-
-    import replicate
-
-    tmp_file_path = None
-    try:
-        print(f"Original image URL for upscale: {url}")
-        async with httpx.AsyncClient() as client_http:
-            response = await client_http.get(url, timeout=30.0)
-            response.raise_for_status()
-            image_bytes = response.content
-
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_file:
-            tmp_file.write(image_bytes)
-            tmp_file_path = tmp_file.name
-
-        print(f"Image downloaded to temporary file: {tmp_file_path}")
-
-        input_payload = {"image": open(tmp_file_path, "rb")}
-
-        print(f"Calling Replicate API with temporary file: {tmp_file_path}")
-        output = await run_in_threadpool(
-            replicate.run,
-            "cjwbw/real-esrgan:e2ec5874a9427a78cb24f52b8798dfc778e7f412378e5f1fcd4730aa0586456b",
-            input=input_payload
-        )
-
-        input_payload["image"].close()
-
-        print(f"Replicate upscale raw response: {output}")
-
-        if isinstance(output, str):
-            result_url = output
-        elif isinstance(output, list) and len(output) > 0 and isinstance(output[0], str):
-            result_url = output[0]
-        else:
-            print(f"Unexpected Replicate output format: {type(output)}. Using original URL.")
-            if tmp_file_path:
-                os.remove(tmp_file_path)
-            return url
-
-        print(f"Replicate upscale result URL: {result_url}")
-        if tmp_file_path:
-            os.remove(tmp_file_path)
-        return result_url
-
-    except httpx.HTTPStatusError as e_http:
-        print(f"Failed to download image from DALL·E URL: {e_http}. Response: {e_http.response.text}")
-        if tmp_file_path and os.path.exists(tmp_file_path): os.remove(tmp_file_path)
-        return url
-    except replicate.exceptions.ReplicateError as e_replicate:
-        print(f"Replicate API error: {e_replicate}")
-        if tmp_file_path and os.path.exists(tmp_file_path): os.remove(tmp_file_path)
-        return url
-    except Exception as e:
-        print(f"General upscale error: {e}")
-        if tmp_file_path and os.path.exists(tmp_file_path): os.remove(tmp_file_path)
-        return url
-    finally:
-        if tmp_file_path and os.path.exists(tmp_file_path):
-            try:
-                input_payload["image"].close()
-            except NameError:
-                pass
-            except AttributeError:
-                pass
-            try:
-                os.remove(tmp_file_path)
-                print(f"Temporary file {tmp_file_path} removed in finally block.")
-            except OSError as e_os:
-                print(f"Error removing temporary file {tmp_file_path} in finally block: {e_os}")
 
 @router.post("/generate", response_model=ImageGenerationResponse)
 async def generate_images(req: ImageGenerationRequest, current_user: models.User = Depends(get_current_active_user)):
-    english = await translate_prompt(req.prompt)
+    english_prompt_for_translation = req.prompt
     if req.text_content:
-        english += f" text:{req.text_content}"
-    if not req.allow_text:
-        english += " no letters, watermark, text"
+        english_prompt_for_translation += f" with text: \"{req.text_content}\""
+
+    english = await translate_prompt(english_prompt_for_translation)
     optimized = await optimize_prompt(english)
+
     all_generated_urls: List[str] = []
     errors_occurred: List[str] = []
 
@@ -140,146 +66,147 @@ async def generate_images(req: ImageGenerationRequest, current_user: models.User
     base_seed = random.randint(0, 2**32 - 1)
     cfg_scale = 5 + req.deference
 
-    async def dalle_try(internal_req_count: int) -> List[str]:
+    async def dalle_try(internal_req_count: int, current_optimized_prompt: str) -> List[str]:
         from utils.openai_client import openai_client
         if not openai_client:
-            raise Exception("OpenAI is not configured")
+            raise Exception("OpenAI client is not configured")
         out: List[str] = []
         for i in range(internal_req_count):
-            current_seed = base_seed + i
             params = {
                 "model": "dall-e-3",
-                "prompt": optimized,
+                "prompt": current_optimized_prompt,
                 "n": 1,
                 "size": "1024x1024",
+                "quality": "standard",
             }
             print("DALL·E request params:", params)
             try:
                 res = await openai_client.images.generate(**params)
-                print("DALL·E raw response:", res)
                 if res.data and res.data[0].url:
-                    url = res.data[0].url
-                    print("DALL·E image URL:", url)
-                    out.append(url)
+                    print(f"DALL·E image URL: {res.data[0].url}")
+                    out.append(res.data[0].url)
                 else:
-                    print("DALL·E response does not contain a valid URL.")
+                    print("DALL·E response did not contain a valid URL.")
             except Exception as e_dalle:
                 print(f"DALL·E individual generation failed: {e_dalle}")
+                errors_occurred.append(f"DALL·E: {str(e_dalle)}")
         return out
 
-    async def stable_try(internal_req_count: int) -> List[str]:
+    async def stable_try(internal_req_count: int, current_optimized_prompt: str) -> List[str]:
         try:
             from stability_sdk import client as stability_client
             import stability_sdk.interfaces.gooseai.generation.generation_pb2 as generation
         except Exception as e:
-            # このエラーはSDKがインストールされていないなど、致命的な場合
             raise Exception(f"Stability SDK import error or critical setup issue: {e}")
 
         key = os.getenv("STABILITY_API_KEY")
         if not key:
             raise Exception("Stability API key missing. Cannot use Stable Diffusion.")
 
-        stability = stability_client.StabilityInference(key=key, verbose=False, engine="stable-diffusion-xl-1024-v1-0")
+        stability_engine_id = "stable-diffusion-xl-1024-v1-0"
+        print(f"Using Stability Engine: {stability_engine_id}")
+        stability = stability_client.StabilityInference(key=key, verbose=False, engine=stability_engine_id)
 
-        negative_text_for_prompt = "text, watermark, letters, logo, words, typo, signature, blurry, ugly, deformed"
+        negative_prompt_text_base = "blurry, ugly, deformed, worst quality, low quality, poorly drawn, bad anatomy, extra limbs, missing limbs"
+        if not req.allow_text:
+            negative_prompt_text = negative_prompt_text_base + ", text, watermark, letters, logo, words, typo, signature"
+        else:
+            negative_prompt_text = negative_prompt_text_base
 
         out: List[str] = []
-
         for i in range(internal_req_count):
-            current_seed = base_seed + req.count + i
+            current_seed = base_seed + req.count + i + 1000
 
-            prompts = [generation.Prompt(text=optimized, parameters=generation.PromptParameters(weight=1.0))]
-            if not req.allow_text and negative_text_for_prompt:
-                prompts.append(generation.Prompt(text=negative_text_for_prompt, parameters=generation.PromptParameters(weight=-1.0)))
+            prompt_list_for_api = [
+                generation.Prompt(text=current_optimized_prompt, parameters=generation.PromptParameters(weight=1.0))
+            ]
+            if negative_prompt_text:
+                prompt_list_for_api.append(
+                    generation.Prompt(text=negative_prompt_text, parameters=generation.PromptParameters(weight=-1.0))
+                )
 
-            generation_params = {
-                "prompt": prompts,
-                "steps": 30,
+            call_params_for_log = {
+                "prompt_text_for_log": current_optimized_prompt,
+                "negative_prompt_text_for_log": negative_prompt_text if negative_prompt_text else "N/A",
                 "seed": current_seed,
+                "steps": 30,
                 "cfg_scale": cfg_scale,
                 "samples": 1,
                 "width": 1024,
                 "height": 1024,
+                "engine": stability_engine_id,
             }
+            print("Stable Diffusion call parameters (for logging):", call_params_for_log)
 
-            print("Stable Diffusion request params (for generate call):", generation_params)
             try:
                 answer = await run_in_threadpool(
                     stability.generate,
-                    prompt=generation_params["prompt"],
-                    seed=generation_params["seed"],
-                    steps=generation_params["steps"],
-                    cfg_scale=generation_params["cfg_scale"],
-                    width=generation_params["width"],
-                    height=generation_params["height"],
-                    samples=generation_params["samples"]
+                    prompt=prompt_list_for_api,
+                    seed=current_seed,
+                    steps=30,
+                    cfg_scale=cfg_scale,
+                    width=1024,
+                    height=1024,
+                    samples=1,
                 )
                 for resp in answer:
                     for art in resp.artifacts:
                         if art.finish_reason == generation.FILTER:
-                            print("Stable Diffusion image filtered.")
+                            print("Stable Diffusion image filtered by safety filter.")
+                            errors_occurred.append("Stable Diffusion: Image filtered by safety.")
                             continue
                         if art.type == generation.ARTIFACT_IMAGE:
                             b64 = base64.b64encode(art.binary).decode()
                             url = f"data:image/png;base64,{b64}"
                             out.append(url)
             except Exception as e_stable_gen:
-                print(f"Stable Diffusion individual generation failed: {e_stable_gen}")
+                print(f"Stable Diffusion individual generation failed for seed {current_seed}: {e_stable_gen}")
+                errors_occurred.append(f"Stable Diffusion: {str(e_stable_gen)}")
         return out
 
-    requested_api = req.api.lower() if req.api else "openai"
-    openai_count = 0
-    stable_count = 0
+    requested_api_choice = req.api.lower() if req.api else "openai"
 
-    if requested_api == "openai":
-        openai_count = req.count
-    elif requested_api == "stable":
-        stable_count = req.count
-    elif requested_api == "both":
-        openai_count = (req.count + 1) // 2
-        stable_count = req.count // 2
+    openai_images_to_generate = 0
+    stable_images_to_generate = 0
+
+    if requested_api_choice == "openai":
+        openai_images_to_generate = req.count
+    elif requested_api_choice == "stable":
+        stable_images_to_generate = req.count
+    elif requested_api_choice == "both":
+        openai_images_to_generate = (req.count + 1) // 2
+        stable_images_to_generate = req.count // 2
     else:
-        raise HTTPException(status_code=400, detail=f"Unsupported API type: {req.api}")
+        raise HTTPException(status_code=400, detail=f"Unsupported API choice: {req.api}")
 
-    if openai_count > 0:
+    if openai_images_to_generate > 0:
         try:
-            print(f"Attempting OpenAI generation for {openai_count} image(s)...")
-            openai_urls = await dalle_try(openai_count)
+            print(f"Attempting OpenAI (DALL·E) generation for {openai_images_to_generate} image(s)...")
+            openai_urls = await dalle_try(openai_images_to_generate, optimized)
             all_generated_urls.extend(openai_urls)
         except Exception as e:
-            print(f"OpenAI (DALL·E) generation failed entirely: {e}")
-            errors_occurred.append(f"OpenAI Error: {str(e)}")
+            print(f"OpenAI (DALL·E) main call failed: {e}")
+            errors_occurred.append(f"OpenAI Main Error: {str(e)}")
 
-    if stable_count > 0:
+    if stable_images_to_generate > 0:
+        stable_optimized_prompt = optimized
         try:
-            print(f"Attempting Stable Diffusion generation for {stable_count} image(s)...")
-            stable_urls = await stable_try(stable_count)
+            print(f"Attempting Stable Diffusion generation for {stable_images_to_generate} image(s)...")
+            stable_urls = await stable_try(stable_images_to_generate, stable_optimized_prompt)
             all_generated_urls.extend(stable_urls)
         except Exception as e:
-            print(f"Stable Diffusion generation failed entirely: {e}")
-            errors_occurred.append(f"Stable Diffusion Error: {str(e)}")
+            print(f"Stable Diffusion main call failed: {e}")
+            errors_occurred.append(f"Stable Diffusion Main Error: {str(e)}")
 
     if not all_generated_urls:
-        error_detail = "Image generation failed for all requested APIs."
+        error_detail_msg = "Image generation failed for all selected APIs."
         if errors_occurred:
-            error_detail += " Errors: " + "; ".join(errors_occurred)
-        raise HTTPException(status_code=500, detail=error_detail)
+            error_detail_msg += " Specific errors: " + "; ".join(errors_occurred)
+        raise HTTPException(status_code=500, detail=error_detail_msg)
 
-    upscaled_urls: List[str] = []
-    if all_generated_urls:
-        for u_idx, u_url in enumerate(all_generated_urls):
-            print(f"Upscaling image {u_idx+1}/{len(all_generated_urls)}: {u_url[:60]}...")
-            try:
-                upscaled_url = await upscale_image(u_url)
-                upscaled_urls.append(upscaled_url)
-            except Exception as e_upscale:
-                print(f"Failed to upscale image {u_url[:60]}... Error: {e_upscale}. Using original URL.")
-                upscaled_urls.append(u_url)
+    response_payload = {"urls": all_generated_urls}
+    if errors_occurred:
+        response_payload["error"] = "Image generation process completed with some errors: " + "; ".join(errors_occurred)
 
-    final_response_data = {"urls": upscaled_urls}
-    if errors_occurred and not upscaled_urls:
-        final_response_data["error"] = "; ".join(errors_occurred)
-    elif errors_occurred:
-        final_response_data["error"] = "Some image generations may have failed. Errors: " + "; ".join(errors_occurred)
+    return response_payload
 
-    return final_response_data
