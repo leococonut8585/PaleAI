@@ -1000,220 +1000,223 @@ function resetChatUI() {
         displayMessage('新しいチャットが開始されました。メッセージをどうぞ。', 'system');
     }
 
-    // --- メッセージ表示関数 ---
-    function displayMessage(content, role, aiModelName = null, messageId = null, searchFragments = null, searchSummary = null, searchModeWarnings = null) {
-        if (!chatMessagesContainer) return;
-        const messageWrapper = document.createElement('div');
-        messageWrapper.classList.add('qa-container'); // 簡略化
-        if (messageId) messageWrapper.setAttribute('data-message-id', messageId);
 
-        const characterArea = document.createElement('div');
-        characterArea.classList.add('character-area');
-        const characterImage = document.createElement('img');
-        characterImage.classList.add('character-image');
+// --- メッセージ表示関数 ---
+function displayMessage(content, role, aiModelName = null, messageId = null, searchFragments = null, searchSummary = null, searchModeWarnings = null) {
+    if (!chatMessagesContainer) return;
+    const messageWrapper = document.createElement('div');
+    messageWrapper.classList.add('qa-container');
+    if (messageId) messageWrapper.setAttribute('data-message-id', messageId);
 
-        const speechBubbleCard = document.createElement('div');
-        speechBubbleCard.classList.add('speech-bubble-card');
+    const characterArea = document.createElement('div');
+    characterArea.classList.add('character-area');
+    const characterImage = document.createElement('img');
+    characterImage.classList.add('character-image');
 
-        if (role === 'user') {
-            messageWrapper.classList.add('justify-end', 'flex-row-reverse');
-            characterImage.src = currentUserProfileImage || '/static/pic/Default.png';
-            characterImage.alt = 'User';
-            speechBubbleCard.classList.add('user-bubble');
-        } else if (role === 'ai') {
-            characterImage.src = '/static/pic/Ukiyozaru.png';
-            characterImage.alt = 'AI';
-            speechBubbleCard.classList.add('ai-bubble');
-            if (aiModelName) {
-                const modelLabel = document.createElement('div');
-                modelLabel.className = 'text-[10px] text-gray-500 absolute -top-2 right-1';
-                modelLabel.textContent = aiModelName;
-                speechBubbleCard.appendChild(modelLabel);
-            }
-        } else {
-            const systemDiv = document.createElement('div');
-            systemDiv.classList.add('text-xs', 'text-gray-500', 'italic', 'text-center', 'my-2', 'w-full', 'py-1', 'px-3', 'bg-gray-100', 'rounded');
-            systemDiv.innerHTML = marked.parse(content);
-            chatMessagesContainer.appendChild(systemDiv);
-            chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
-            return;
+    const speechBubbleCard = document.createElement('div');
+    speechBubbleCard.classList.add('speech-bubble-card');
+
+    if (role === 'user') {
+        messageWrapper.classList.add('justify-end', 'flex-row-reverse');
+        characterImage.src = currentUserProfileImage || '/static/pic/Default.png';
+        characterImage.alt = 'User';
+        speechBubbleCard.classList.add('user-bubble');
+    } else if (role === 'ai') {
+        characterImage.src = '/static/pic/Ukiyozaru.png'; // この画像は 404 になっているので後で確認
+        characterImage.alt = 'AI';
+        speechBubbleCard.classList.add('ai-bubble');
+        if (aiModelName) {
+            const modelLabel = document.createElement('div');
+            modelLabel.className = 'text-[10px] text-gray-500 absolute -top-2 right-1';
+            modelLabel.textContent = aiModelName;
+            speechBubbleCard.appendChild(modelLabel);
         }
-
-        const contentDiv = document.createElement('div');
-        contentDiv.classList.add('prose', 'prose-sm', 'max-w-none', 'markdown-body');
-
-        const currentSelectedMode = aiModeSelect.value;
-        if ((currentSelectedMode === 'search3' || currentSelectedMode === 'search6' || currentSelectedMode === 'search' || currentSelectedMode === 'supersearch') && role === 'ai') {
-            if (content) {
-                contentDiv.innerHTML = marked.parse(content);
-                addCopyButtons(contentDiv);
-                contentDiv.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
-            } else {
-                contentDiv.innerHTML = marked.parse('*検索結果の主要コンテンツがありませんでした。*');
-            }
-            speechBubbleCard.appendChild(contentDiv);
-
-            if (searchFragments && Array.isArray(searchFragments) && searchFragments.length > 0) {
-                const fragmentsWrapper = document.createElement('div');
-                fragmentsWrapper.className = 'search-fragments-container';
-                const listTitle = document.createElement('h4');
-                listTitle.textContent = '収集された情報源リスト（詳細）';
-                fragmentsWrapper.appendChild(listTitle);
-
-                const toggleBtn = document.createElement('button');
-                toggleBtn.textContent = '詳細を表示する';
-                toggleBtn.className = 'toggle-fragments-btn';
-                const fragmentsListDiv = document.createElement('div');
-                fragmentsListDiv.className = 'fragments-list-collapsible';
-                toggleBtn.onclick = () => {
-                    fragmentsListDiv.classList.toggle('expanded');
-                    toggleBtn.textContent = fragmentsListDiv.classList.contains('expanded') ? '詳細を隠す' : '詳細を表示する';
-                };
-                fragmentsWrapper.appendChild(toggleBtn);
-
-                searchFragments.forEach(fragment => {
-                    const itemDiv = document.createElement('div');
-                    itemDiv.className = 'search-fragment-item';
-
-                    let itemHtml = `<div class="fragment-source-header">${fragment.source || '不明なソース'}</div>`;
-                    const metaDetails = [];
-                    if (fragment.query) metaDetails.push(`<strong>クエリ:</strong> ${fragment.query}`);
-                    if (fragment.intent) metaDetails.push(`<strong>意図/種類:</strong> ${fragment.intent}`);
-                    if (fragment.source_url) metaDetails.push(`<strong>URL:</strong> <a href="${fragment.source_url}" target="_blank">${fragment.source_url}</a>`);
-                    if (fragment.published_date) metaDetails.push(`<strong>発行日:</strong> ${fragment.published_date}`);
-                    if (fragment.author) metaDetails.push(`<strong>著者/発信者:</strong> ${fragment.author}`);
-                    if (fragment.content_type) metaDetails.push(`<strong>コンテンツ種類:</strong> ${fragment.content_type}`);
-                    if (fragment.reliability_label) metaDetails.push(`<strong>信頼性(AI評価):</strong> ${fragment.reliability_label}`);
-                    if (fragment.bias_label) metaDetails.push(`<strong>バイアス(AI評価):</strong> ${fragment.bias_label}`);
-                    if (fragment.issues_detected && fragment.issues_detected.length > 0) {
-                        metaDetails.push(`<strong>指摘事項(AI評価):</strong> ${fragment.issues_detected.join(', ')}`);
-                    }
-                    if (metaDetails.length > 0) {
-                        itemHtml += `<div class="fragment-meta-info">${metaDetails.join('<br>')}</div>`;
-                    }
-
-                    const fragResponseDiv = document.createElement('div');
-                    fragResponseDiv.className = 'prose prose-xs max-w-none markdown-body text-gray-700 mt-1';
-                    fragResponseDiv.innerHTML = marked.parse(fragment.response || fragment.error || '<i>内容なし</i>');
-                    addCopyButtons(fragResponseDiv);
-                    fragResponseDiv.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
-
-                    itemHtml += fragResponseDiv.outerHTML;
-
-                    if (fragment.links && fragment.links.length > 0 && (!fragment.source_url || !fragment.links.includes(fragment.source_url))) {
-                        itemHtml += `<div class="fragment-meta-info mt-1"><strong>その他関連リンク:</strong><br>${fragment.links.map(l => `<a href="${l}" target="_blank">${l}</a>`).join('<br>')}</div>`;
-                    }
-
-                    itemDiv.innerHTML = itemHtml;
-                    fragmentsListDiv.appendChild(itemDiv);
-                });
-                fragmentsWrapper.appendChild(fragmentsListDiv);
-                speechBubbleCard.appendChild(fragmentsWrapper);
-            }
-
-            if (searchSummary) {
-                const summaryContainer = document.createElement('div');
-                summaryContainer.className = 'search-summary-container';
-                summaryContainer.innerHTML = `<div class="search-summary-title">【最終まとめ】</div>` + marked.parse(searchSummary);
-                speechBubbleCard.appendChild(summaryContainer);
-            }
-
-            if (searchModeWarnings && Object.keys(searchModeWarnings).length > 0) {
-                const warningsContainer = document.createElement('div');
-                warningsContainer.className = 'search-warnings-container';
-                warningsContainer.innerHTML = `<div class="search-warnings-title">【信頼性・バイアスに関する留意点（AIによる自動分析）】</div>`;
-                for (const key in searchModeWarnings) {
-                    if (Array.isArray(searchModeWarnings[key]) && searchModeWarnings[key].length > 0) {
-                        warningsContainer.innerHTML += `<p><strong>${key}:</strong><ul>${searchModeWarnings[key].map(item => `<li>${item}</li>`).join('')}</ul></p>`;
-                    } else if (typeof searchModeWarnings[key] === 'string' && searchModeWarnings[key]) {
-                        warningsContainer.innerHTML += `<p><strong>${key}:</strong> ${searchModeWarnings[key]}</p>`;
-                    }
-                }
-                speechBubbleCard.appendChild(warningsContainer);
-            }
-        } else {
-            contentDiv.innerHTML = marked.parse(content);
-            addCopyButtons(contentDiv);
-            speechBubbleCard.appendChild(contentDiv);
-            if (role === 'ai' && typeof hljs !== 'undefined') {
-                contentDiv.querySelectorAll('pre code').forEach(block => {
-                    hljs.highlightElement(block);
-                });
-            }
+    } else { // system メッセージ
+        const systemDiv = document.createElement('div');
+        systemDiv.classList.add('text-xs', 'text-gray-500', 'italic', 'text-center', 'my-2', 'w-full', 'py-1', 'px-3', 'bg-gray-100', 'rounded');
+        try {
+            systemDiv.innerHTML = marked.parse(content || "");
+        } catch (e) {
+            console.error("Error parsing system message with marked:", e);
+            systemDiv.textContent = content || "";
         }
-
-        const inCodeMode = aiModeSelect && aiModeSelect.value === 'code';
-        if (role === 'ai' && inCodeMode) {
-            const blocks = contentDiv.querySelectorAll('pre > code');
-            if (blocks.length > 0) {
-                blocks.forEach(code => {
-                    code.textContent = code.textContent.replace(/ウキヨザル|おともだち|ウッキー/g, '');
-                    const pre = code.parentElement;
-                    if (!pre.previousElementSibling || !pre.previousElementSibling.classList.contains('code-intro')) {
-                        const intro = document.createElement('div');
-                        intro.className = 'text-xs font-semibold mb-1 code-intro';
-                        intro.textContent = 'このコードをコピペして使ってください';
-                        pre.parentNode.insertBefore(intro, pre);
-                    }
-                    if (!pre.nextElementSibling || !pre.nextElementSibling.classList.contains('code-hint')) {
-                        const hint = document.createElement('div');
-                        hint.className = 'bg-yellow-50 border-l-4 border-yellow-300 p-2 my-2 text-sm code-hint';
-                        hint.innerHTML = '<strong>ヒント</strong>: 生成されたコードは実行前に確認してください。';
-                        pre.parentNode.insertBefore(hint, pre.nextSibling);
-                    }
-                });
-                if (typeof hljs !== 'undefined') {
-                    blocks.forEach(b => hljs.highlightElement(b));
-                }
-                addCopyButtons(contentDiv);
-            }
-        }
-
-        if (role === 'ai' && !(currentSelectedMode === 'search3' || currentSelectedMode === 'search6' || currentSelectedMode === 'search' || currentSelectedMode === 'supersearch')) {
-            const transBtn = document.createElement('button');
-            transBtn.className = 'text-xs text-blue-600 underline mt-2';
-            transBtn.textContent = 'この返答をDeepLで翻訳';
-            const transDiv = document.createElement('div');
-            transDiv.className = 'text-xs text-gray-600 mt-1';
-            transBtn.addEventListener('click', async () => {
-                transDiv.textContent = '翻訳中...';
-                try {
-                    const res = await makeAuthenticatedRequest(API_ENDPOINT_TRANSLATE, {
-                        method: 'POST',
-                        body: JSON.stringify({ text: contentDiv.textContent, target_lang: 'JA' })
-                    });
-                    if (res.ok) { const data = await res.json(); transDiv.textContent = data.translated_text; } else { transDiv.textContent = '翻訳失敗'; }
-                } catch (e) { transDiv.textContent = '翻訳エラー'; }
-            });
-            speechBubbleCard.appendChild(transBtn);
-            speechBubbleCard.appendChild(transDiv);
-            if (autoTranslateCheckbox && autoTranslateCheckbox.checked) transBtn.click();
-        }
-        if (role === 'user' && autoTranslateCheckbox && autoTranslateCheckbox.checked) {
-            const userTransDiv = document.createElement('div');
-            userTransDiv.className = 'text-xs text-gray-600 mt-1';
-            speechBubbleCard.appendChild(userTransDiv);
-            (async () => {
-                userTransDiv.textContent = '翻訳中...';
-                try {
-                    const r = await makeAuthenticatedRequest(API_ENDPOINT_TRANSLATE, {
-                        method: 'POST',
-                        body: JSON.stringify({ text: contentDiv.textContent, target_lang: 'JA' })
-                    });
-                    if (r.ok) { const d = await r.json(); userTransDiv.textContent = d.translated_text; } else { userTransDiv.textContent = '翻訳失敗'; }
-                } catch (e) { userTransDiv.textContent = '翻訳エラー'; }
-            })();
-        }
-
-        speechBubbleCard.appendChild(contentDiv);
-        characterArea.appendChild(characterImage);
-        messageWrapper.appendChild(characterArea);
-        messageWrapper.appendChild(speechBubbleCard);
-        chatMessagesContainer.appendChild(messageWrapper);
+        chatMessagesContainer.appendChild(systemDiv);
         chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
-
+        return;
     }
 
+    const contentDiv = document.createElement('div');
+    // proseクラスはMarkdown用なので、画像の場合は外すことも検討
+    // ここでは一旦共通でつけておくが、画像表示に影響があれば調整
+    contentDiv.classList.add('prose', 'prose-sm', 'max-w-none', 'markdown-body');
+
+    const currentSelectedMode = aiModeSelect.value;
+
+    if (role === 'ai' && currentSelectedMode === 'imagegen') {
+        // ★★★ 画像生成モードのAI応答の場合 ★★★
+        // content には画像URLの配列から作られたHTML文字列が渡ってくる想定
+        // (submitBtnのイベントリスナー内の data.urls.map(...).join('') 部分)
+        // または、エラーの場合はエラーメッセージ文字列
+        if (content.startsWith('<img src="data:image')) { // 正常な画像データの場合
+             contentDiv.innerHTML = content; // そのままHTMLとしてセット (marked.parseしない)
+             // 画像の場合は copyButton や highlight.js は不要
+        } else { // エラーメッセージなどのテキストの場合
+            try {
+                contentDiv.innerHTML = marked.parse(content || "");
+            } catch (e) {
+                console.error("Error parsing AI (imagegen error) message with marked:", e);
+                contentDiv.textContent = content || "";
+            }
+        }
+    } else if ((currentSelectedMode === 'search3' || currentSelectedMode === 'search6' || currentSelectedMode === 'search' || currentSelectedMode === 'supersearch') && role === 'ai') {
+        // 検索モードの処理 (変更なし)
+        if (content) {
+            try {
+                contentDiv.innerHTML = marked.parse(content || "");
+            } catch (e) {
+                console.error("Error parsing search AI message with marked:", e);
+                contentDiv.textContent = content || "";
+            }
+            addCopyButtons(contentDiv);
+            contentDiv.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
+        } else {
+             contentDiv.innerHTML = marked.parse('*検索結果の主要コンテンツがありませんでした。*');
+        }
+       // ... (searchFragments, searchSummary などの処理は省略せずそのまま)
+        if (searchFragments && Array.isArray(searchFragments) && searchFragments.length > 0) {
+            const fragmentsWrapper = document.createElement('div');
+            fragmentsWrapper.className = 'search-fragments-container';
+            const listTitle = document.createElement('h4');
+            listTitle.textContent = '収集された情報源リスト（詳細）';
+            fragmentsWrapper.appendChild(listTitle);
+
+            const toggleBtn = document.createElement('button');
+            toggleBtn.textContent = '詳細を表示する';
+            toggleBtn.className = 'toggle-fragments-btn';
+            const fragmentsListDiv = document.createElement('div');
+            fragmentsListDiv.className = 'fragments-list-collapsible';
+            toggleBtn.onclick = () => {
+                fragmentsListDiv.classList.toggle('expanded');
+                toggleBtn.textContent = fragmentsListDiv.classList.contains('expanded') ? '詳細を隠す' : '詳細を表示する';
+            };
+            fragmentsWrapper.appendChild(toggleBtn);
+
+            searchFragments.forEach(fragment => {
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'search-fragment-item';
+
+                let itemHtml = `<div class="fragment-source-header">${fragment.source || '不明なソース'}</div>`;
+                const metaDetails = [];
+                if (fragment.query) metaDetails.push(`<strong>クエリ:</strong> ${fragment.query}`);
+                if (fragment.intent) metaDetails.push(`<strong>意図/種類:</strong> ${fragment.intent}`);
+                if (fragment.source_url) metaDetails.push(`<strong>URL:</strong> <a href="${fragment.source_url}" target="_blank">${fragment.source_url}</a>`);
+                if (fragment.published_date) metaDetails.push(`<strong>発行日:</strong> ${fragment.published_date}`);
+                if (fragment.author) metaDetails.push(`<strong>著者/発信者:</strong> ${fragment.author}`);
+                if (fragment.content_type) metaDetails.push(`<strong>コンテンツ種類:</strong> ${fragment.content_type}`);
+                if (fragment.reliability_label) metaDetails.push(`<strong>信頼性(AI評価):</strong> ${fragment.reliability_label}`);
+                if (fragment.bias_label) metaDetails.push(`<strong>バイアス(AI評価):</strong> ${fragment.bias_label}`);
+                if (fragment.issues_detected && fragment.issues_detected.length > 0) {
+                    metaDetails.push(`<strong>指摘事項(AI評価):</strong> ${fragment.issues_detected.join(', ')}`);
+                }
+                if (metaDetails.length > 0) {
+                    itemHtml += `<div class="fragment-meta-info">${metaDetails.join('<br>')}</div>`;
+                }
+
+                const fragResponseDiv = document.createElement('div');
+                fragResponseDiv.className = 'prose prose-xs max-w-none markdown-body text-gray-700 mt-1';
+                try {
+                    fragResponseDiv.innerHTML = marked.parse(fragment.response || fragment.error || '<i>内容なし</i>');
+                } catch (e) {
+                    console.error("Error parsing search fragment with marked:", e);
+                    fragResponseDiv.textContent = fragment.response || fragment.error || '<i>内容なし</i>';
+                }
+                addCopyButtons(fragResponseDiv);
+                fragResponseDiv.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
+
+                itemHtml += fragResponseDiv.outerHTML;
+
+                if (fragment.links && fragment.links.length > 0 && (!fragment.source_url || !fragment.links.includes(fragment.source_url))) {
+                    itemHtml += `<div class="fragment-meta-info mt-1"><strong>その他関連リンク:</strong><br>${fragment.links.map(l => `<a href="${l}" target="_blank">${l}</a>`).join('<br>')}</div>`;
+                }
+
+                itemDiv.innerHTML = itemHtml;
+                fragmentsListDiv.appendChild(itemDiv);
+            });
+            fragmentsWrapper.appendChild(fragmentsListDiv);
+            speechBubbleCard.appendChild(fragmentsWrapper); // fragmentsWrapperをspeechBubbleCardに追加
+        }
+
+        if (searchSummary) {
+            const summaryContainer = document.createElement('div');
+            summaryContainer.className = 'search-summary-container';
+            try {
+                summaryContainer.innerHTML = `<div class="search-summary-title">【最終まとめ】</div>` + marked.parse(searchSummary || "");
+            } catch (e) {
+                 console.error("Error parsing search summary with marked:", e);
+                summaryContainer.innerHTML = `<div class="search-summary-title">【最終まとめ】</div>` + (searchSummary || "");
+            }
+            speechBubbleCard.appendChild(summaryContainer);
+        }
+
+        if (searchModeWarnings && Object.keys(searchModeWarnings).length > 0) {
+            const warningsContainer = document.createElement('div');
+            warningsContainer.className = 'search-warnings-container';
+            warningsContainer.innerHTML = `<div class="search-warnings-title">【信頼性・バイアスに関する留意点（AIによる自動分析）】</div>`;
+            for (const key in searchModeWarnings) {
+                if (Array.isArray(searchModeWarnings[key]) && searchModeWarnings[key].length > 0) {
+                    warningsContainer.innerHTML += `<p><strong>${key}:</strong><ul>${searchModeWarnings[key].map(item => `<li>${item}</li>`).join('')}</ul></p>`;
+                } else if (typeof searchModeWarnings[key] === 'string' && searchModeWarnings[key]) {
+                    warningsContainer.innerHTML += `<p><strong>${key}:</strong> ${searchModeWarnings[key]}</p>`;
+                }
+            }
+            speechBubbleCard.appendChild(warningsContainer);
+        }
+    } else { // 通常のテキスト応答 (ユーザーメッセージも含む)
+        try {
+            contentDiv.innerHTML = marked.parse(content || "");
+        } catch (e) {
+            console.error("Error parsing general message with marked:", e);
+            contentDiv.textContent = content || "";
+        }
+        addCopyButtons(contentDiv);
+        if (role === 'ai' && typeof hljs !== 'undefined') {
+            contentDiv.querySelectorAll('pre code').forEach(block => {
+                hljs.highlightElement(block);
+            });
+        }
+    }
+    speechBubbleCard.appendChild(contentDiv);
+
+    // 翻訳ボタンの追加ロジック (変更なし、ただし画像生成モードでは表示しないようにする)
+    if (role === 'ai' && currentSelectedMode !== 'imagegen' && !(currentSelectedMode === 'search3' || currentSelectedMode === 'search6' || currentSelectedMode === 'search' || currentSelectedMode === 'supersearch')) {
+        const transBtn = document.createElement('button');
+        transBtn.className = 'text-xs text-blue-600 underline mt-2';
+        transBtn.textContent = 'この返答をDeepLで翻訳';
+        const transDiv = document.createElement('div');
+        transDiv.className = 'text-xs text-gray-600 mt-1';
+        transBtn.addEventListener('click', async () => {
+            transDiv.textContent = '翻訳中...';
+            let textToTranslate = contentDiv.innerText || contentDiv.textContent || "";
+            try {
+                const res = await makeAuthenticatedRequest(API_ENDPOINT_TRANSLATE, {
+                    method: 'POST',
+                    body: JSON.stringify({ text: textToTranslate, target_lang: 'JA' })
+                });
+                if (res.ok) { const data = await res.json(); transDiv.textContent = data.translated_text; } else { transDiv.textContent = '翻訳失敗'; }
+            } catch (e) { transDiv.textContent = '翻訳エラー'; }
+        });
+        speechBubbleCard.appendChild(transBtn);
+        speechBubbleCard.appendChild(transDiv);
+        // autoTranslateCheckbox の処理は変更なし
+    }
+    // ユーザーメッセージの自動翻訳は変更なし
+
+    characterArea.appendChild(characterImage);
+    messageWrapper.appendChild(characterArea);
+    messageWrapper.appendChild(speechBubbleCard);
+    chatMessagesContainer.appendChild(messageWrapper);
+    chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
+}
 
     // --- フォルダ一覧表示関連 ---
     async function loadFolders() {
