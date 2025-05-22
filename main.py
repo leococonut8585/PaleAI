@@ -502,7 +502,7 @@ async def translate_with_deepl(text: str, target_lang: str = "JA") -> str:
 
 
 async def synthesize_search_results_with_gemini(results: List[schemas.IndividualAIResponse], original_prompt: str) -> schemas.IndividualAIResponse:
-    """Combine multiple search results using Gemini and return a comprehensive summary without omissions."""
+    """Group search results with Gemini without summarizing and add a short closing note."""
     if not results:
         return schemas.IndividualAIResponse(source="Search Summary (Gemini)", error="検索結果がありませんでした")
 
@@ -521,9 +521,9 @@ async def synthesize_search_results_with_gemini(results: List[schemas.Individual
 
     merged_text = "\n\n".join(combined_text_segments)
     prompt = (
-        "以下は複数のAI検索結果です。重複する内容は統合し、それ以外は省略せず個別にまとめてください。"
-        "具体的な数字・商品名・レビュー例・SNS評判・出典URLも絶対に省略しないでください。"
-        "重複は『A,B,Cで共通』など明記してください。\n\n"
+        "以下の検索結果全文を一切要約せずに整理してください。"
+        "時系列や分野ごとにグループ化するだけで、原文抜粋・引用・URL・SNS投稿などはそのまま列挙します。"
+        "最後に2〜3行で簡単なまとめだけを加えてください。\n\n"
         f"ユーザーの質問:\n{original_prompt}\n\n検索結果:\n" + merged_text
     )
     summary_res = await get_gemini_response(prompt_text=prompt, system_instruction="検索結果統合AI")
