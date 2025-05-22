@@ -870,59 +870,31 @@ async def collaborative_answer_mode_endpoint(
         # 実際には、mode に応じて参照するフィールドを変えるか、
         # 各モード実行関数が final_response のような共通フィールドに結果を格納するようにする。
 
-        final_ai_response_obj: Optional[schemas.IndividualAIResponse] = None
-        final_ai_source_text: str = f"Unknown AI ({mode} mode)"
-
-        if mode == "balance" and response_shell.step7_final_answer_v2_openai:
-            final_ai_response_obj = response_shell.step7_final_answer_v2_openai
-            final_ai_source_text = response_shell.step7_final_answer_v2_openai.source or f"Final Step in Balance Mode"
-        elif mode in ("search", "search3", "search6", "supersearch") and response_shell.search_mode_details and response_shell.search_mode_details[-1]:
-             # search_mode_details は List[IndividualAIResponse] なので、その最後の要素が最終回答と仮定
-            if response_shell.search_mode_details: # リストが空でないことを確認
-                final_ai_response_obj = response_shell.search_mode_details[-1] # 最後の要素
-                final_ai_source_text = final_ai_response_obj.source or f"Final Step in Search Mode"
-        elif mode == "code" and response_shell.code_mode_details and response_shell.code_mode_details[-1]: # 同様に仮定
-            if response_shell.code_mode_details:
-                final_ai_response_obj = response_shell.code_mode_details[-1]
-                final_ai_source_text = final_ai_response_obj.source or f"Final Step in Code Mode"
-        elif mode == "writing" and response_shell.step7_final_answer_v2_openai: # writingモードはstep7_final_answer_v2_openaiを使うと仮定
-            final_ai_response_obj = response_shell.step7_final_answer_v2_openai
-            final_ai_source_text = final_ai_response_obj.source or f"Final Step in Writing Mode"
-        elif mode == "longwriting" and response_shell.step7_final_answer_v2_openai:
-            final_ai_response_obj = response_shell.step7_final_answer_v2_openai
-            final_ai_source_text = final_ai_response_obj.source or f"Final Step in LongWriting Mode"
-        elif mode == "fastchat" and response_shell.step7_final_answer_v2_openai:
-            final_ai_response_obj = response_shell.step7_final_answer_v2_openai
-            final_ai_source_text = final_ai_response_obj.source or "Fast Chat Mode"
-        # 他のモードについても同様に、最終応答が格納されるフィールドを確認し、final_ai_response_obj を設定する
-
-# ... (final_ai_response_obj と final_ai_source_text の設定ロジックは変更なし) ...
-
         # --- 5. AIの応答をDBに保存 ---
-        final_ai_response_content_for_db = ""
-        final_ai_source_text_for_db = f"Unknown AI ({mode} mode)"
+        # 各モードで最終応答が格納されるフィールドが response_shell.step7_final_answer_v2_openai に
+        # 集約されることを前提とする。
+        # 検索モードの場合、step7_final_answer_v2_openai.response が整形済み断片リスト本体、
+        # search_summary_text が短いまとめ、search_fragments が生の断片リストとなる。
+        # DBには主に step7_final_answer_v2_openai.response を保存する。
 
-        # どのフィールドを最終応答としてDBに保存するかを決定
-        # 新しい検索モードでは、step7_final_answer_v2_openai.response が整形済み断片リスト、
-        # search_summary_text が短いまとめ。UIではこれらを分離表示する。
-        # DBには、主要なコンテンツである整形済み断片リストを保存する。
-        # まとめは search_summary_text としてフロントに渡るので、ChatMessageに含めるかは任意。
-        # ここでは、step7_final_answer_v2_openai.response のみを保存対象とする。
+        final_ai_response_content_for_db: str = ""
+        final_ai_source_text_for_db: str = f"Unknown AI ({mode} mode)"
+        final_response_object_for_db: Optional[schemas.IndividualAIResponse] = None
 
+        # 全てのモードで、主要な最終応答は step7_final_answer_v2_openai に格納されることを期待する
         if response_shell.step7_final_answer_v2_openai and response_shell.step7_final_answer_v2_openai.response:
-            final_ai_response_content_for_db = response_shell.step7_final_answer_v2_openai.response
-            final_ai_source_text_for_db = response_shell.step7_final_answer_v2_openai.source or f"Final Output ({mode.capitalize()} Mode)"
+            final_response_object_for_db = response_shell.step7_final_answer_v2_openai
+            final_ai_response_content_for_db = final_response_object_for_db.response
+            final_ai_source_text_for_db = final_response_object_for_db.source or f"Final Output ({mode.capitalize()} Mode)"
         elif response_shell.overall_error:  # モード実行全体でエラーがあった場合
             final_ai_response_content_for_db = f"処理中にエラーが発生しました: {response_shell.overall_error}"
             final_ai_source_text_for_db = f"Error in {mode.capitalize()} Mode"
-        # elif final_ai_response_obj and final_ai_response_obj.response: # 古い分岐を残す場合
-        #     final_ai_response_content_for_db = final_ai_response_obj.response
-        #     final_ai_source_text_for_db = final_ai_response_obj.source or f"Final Step in {mode.capitalize()} Mode"
-        else:  # 有効な応答も全体エラーもない場合 (通常は考えにくい)
+        else:  # 有効な応答も全体エラーもない場合
             final_ai_response_content_for_db = "AIから有効な応答がありませんでした。"
             final_ai_source_text_for_db = f"No Valid Response in {mode.capitalize()} Mode"
+            # この場合、final_response_object_for_db は None のまま
 
-        # DB保存処理
+        # DB保存処理 (この部分は以前の修正から流用・確認)
         if final_ai_response_content_for_db and active_session and active_session.id:
             ai_message_db = models.ChatMessage(
                 chat_session_id=active_session.id,
@@ -944,11 +916,13 @@ async def collaborative_answer_mode_endpoint(
             if active_session:  # セッションステータスだけは更新
                 active_session.status = 'error'
                 db.commit()
+                db.refresh(active_session) # refresh を追加
         else:
             print(f"AIからの最終応答が見つからないか内容が空のためDBへのAI応答保存をスキップ: Mode='{mode}'")
             if active_session:
                 active_session.status = 'complete_no_response'  # 例えば
                 db.commit()
+                db.refresh(active_session) # refresh を追加
 
     except ValueError as ve:
         error_message = f"モード '{mode}' の処理中にエラーが発生しました: {str(ve)}"
