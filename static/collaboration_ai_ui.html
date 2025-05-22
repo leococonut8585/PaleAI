@@ -6,6 +6,8 @@
     <title>Pale AI</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/default.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;500;700;800&display=swap" rel="stylesheet">
@@ -102,6 +104,8 @@
             border: 1px solid #e5e7eb;
             padding: 0.75rem;
             border-radius: 0.25rem;
+            margin-top: 0.75rem;
+            margin-bottom: 0.75rem;
         }
         pre.code-block button.copy-btn {
             position: absolute;
@@ -931,6 +935,33 @@ function resetChatUI() {
         contentDiv.classList.add('prose', 'prose-sm', 'max-w-none', 'markdown-body'); // proseクラスでマークダウン表示
         contentDiv.innerHTML = marked.parse(content); // marked.jsでパース
         addCopyButtons(contentDiv);
+
+        const inCodeMode = aiModeSelect && aiModeSelect.value === 'code';
+        if (role === 'ai' && inCodeMode) {
+            const blocks = contentDiv.querySelectorAll('pre > code');
+            if (blocks.length > 0) {
+                blocks.forEach(code => {
+                    code.textContent = code.textContent.replace(/ウキヨザル|おともだち|ウッキー/g, '');
+                    const pre = code.parentElement;
+                    if (!pre.previousElementSibling || !pre.previousElementSibling.classList.contains('code-intro')) {
+                        const intro = document.createElement('div');
+                        intro.className = 'text-xs font-semibold mb-1 code-intro';
+                        intro.textContent = 'このコードをコピペして使ってください';
+                        pre.parentNode.insertBefore(intro, pre);
+                    }
+                    if (!pre.nextElementSibling || !pre.nextElementSibling.classList.contains('code-hint')) {
+                        const hint = document.createElement('div');
+                        hint.className = 'bg-yellow-50 border-l-4 border-yellow-300 p-2 my-2 text-sm code-hint';
+                        hint.innerHTML = '<strong>ヒント</strong>: 生成されたコードは実行前に確認してください。';
+                        pre.parentNode.insertBefore(hint, pre.nextSibling);
+                    }
+                });
+                if (typeof hljs !== 'undefined') {
+                    blocks.forEach(b => hljs.highlightElement(b));
+                }
+                addCopyButtons(contentDiv);
+            }
+        }
 
         if (role === 'ai') {
             const transBtn = document.createElement('button');
@@ -2014,6 +2045,7 @@ function highlightMessage(messageId) {
             loginEmailInput.value = prefill;
             sessionStorage.removeItem('prefillEmail');
         }
+        if (typeof hljs !== 'undefined') { hljs.highlightAll(); }
         fetchCurrentUserAndSetupUI(); // ページ読み込み時にユーザー情報を確認・UIセットアップ
         loadFolders();
         populateLangSelect(talkInputLang);
