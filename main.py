@@ -2282,7 +2282,6 @@ async def run_code_mode_flow(
             )
     return response_shell
 
-# 修正後
 async def run_writing_mode_flow(
     original_prompt: str,
     response_shell: schemas.CollaborativeResponseV2,
