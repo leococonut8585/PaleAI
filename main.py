@@ -20,7 +20,7 @@ import deepl
 from fastapi.concurrency import run_in_threadpool # 同期処理を非同期で実行するため
 import json # 今回の修正では直接使用していませんが、一般的に役立つため残します
 import asyncio # 今回の修正では直接使用していませんが、一般的に役立つため残します
-from datetime import datetime
+from datetime import datetime, timezone
 # ... (他のimport) ...
 from pydantic import BaseModel, Field  # Field は前回修正済みのはず
 from typing import Optional, Dict, Any, List  # List も前回修正済みのはず
@@ -128,33 +128,48 @@ FRIENDLY_TONE_SYSTEM_PROMPT = """
 キャラクター表現が会話や回答の邪魔にならないよう、内容・説明が最優先です。ウキヨザルらしさはほんのり香る程度で十分です。
 """
 
-def format_memories_for_prompt(memories: Optional[List[schemas.UserMemoryResponse]], max_length: int = 2000) -> str:
+def format_memories_for_prompt(
+    memories: Optional[List[schemas.UserMemoryResponse]],
+    max_length: int = 2000,
+) -> str:
     if not memories:
         return ""
 
     try:
         sorted_memories = sorted(
             memories,
-            key=lambda m: (m.priority, m.updated_at if m.updated_at else datetime.min),
+            key=lambda m: (
+                m.priority,
+                m.updated_at if m.updated_at else datetime.min.replace(tzinfo=timezone.utc),
+            ),
             reverse=True,
         )
     except AttributeError:
         sorted_memories = sorted(memories, key=lambda m: m.priority, reverse=True)
-        print("警告: メモリのソート中に 'updated_at' 属性が見つからないか、None の可能性があるため、優先度のみでソートしました。")
+        print(
+            "警告: メモリのソート中に 'updated_at' 属性が見つからないか、None の可能性があるため、優先度のみでソートしました。"
+        )
 
     formatted_memories_parts = []
     current_total_length = 0
-    memory_prefix_length = len(
-        "[ユーザーの長期記憶からの参考情報]\n以下の情報は、ユーザーが以前に重要だと考えた記憶です。現在のタスクを遂行する上で関連があれば参考にしてください。\nただし、現在のユーザーからの指示（プロンプト）がこれらの記憶と矛盾する、またはより具体的である場合は、現在の指示を最優先してください。\n"
-    )
+    memory_fixed_prompt = """
+[ユーザーの長期記憶からの参考情報]
+以下の情報は、ユーザーが以前に重要だと考えた記憶です。現在のタスクを遂行する上で関連があれば参考にしてください。
+ただし、現在のユーザーからの指示（プロンプト）がこれらの記憶と矛盾する、またはより具体的である場合は、現在の指示を最優先してください。
+"""
+    memory_prefix_length = len(memory_fixed_prompt)
 
     for mem in sorted_memories:
         part = f"- {mem.title}: {mem.content}"
         if current_total_length + len(part) + 1 + memory_prefix_length > max_length:
             if not formatted_memories_parts:
-                part = part[: max_length - memory_prefix_length - 3] + "..."
-                formatted_memories_parts.append(part)
-                current_total_length += len(part) + 1
+                allowed_content_length = (
+                    max_length - memory_prefix_length - len(f"- {mem.title}: ") - 3
+                )
+                if allowed_content_length > 0:
+                    part = f"- {mem.title}: {mem.content[:allowed_content_length]}..."
+                    formatted_memories_parts.append(part)
+                    current_total_length += len(part) + 1
             break
         formatted_memories_parts.append(part)
         current_total_length += len(part) + 1
@@ -163,13 +178,7 @@ def format_memories_for_prompt(memories: Optional[List[schemas.UserMemoryRespons
         return ""
 
     combined_memories = "\n".join(formatted_memories_parts)
-
-    return f"""
-[ユーザーの長期記憶からの参考情報]
-以下の情報は、ユーザーが以前に重要だと考えた記憶です。現在のタスクを遂行する上で関連があれば参考にしてください。
-ただし、現在のユーザーからの指示（プロンプト）がこれらの記憶と矛盾する、またはより具体的である場合は、現在の指示を最優先してください。
-{combined_memories}
-"""
+    return f"{memory_fixed_prompt.strip()}\n{combined_memories}"
 
 # --- 各AIへの問い合わせヘルパー関数 ---
 # main.py の get_openai_response 関数
