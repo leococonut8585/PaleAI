@@ -874,8 +874,20 @@ async def convert_markdown_to_format_with_pandoc(
             output_file_path,
         ]
         if output_format == "pdf":
-            pass
+            # 高品質な日本語PDFのためには、lualatex や xelatex と適切なフォント設定が必要
+            # サーバー環境に lualatex と IPAexフォントがインストールされていることを前提とします。
+            # フォント名は環境に合わせて調整してください。
+            pandoc_cmd.extend([
+                "--pdf-engine=lualatex",
+                "-V", "documentclass=ltjarticle",  # 日本語組版に適したクラス
+                "-V", "mainfont=IPAexMincho",     # メインフォントにIPAex明朝を指定
+                "-V", "sansfont=IPAexGothic",     # サンセリフフォントにIPAexゴシックを指定
+                "-V", "monofont=IPAexGothic",     # 等幅フォントにIPAexゴシックを指定 (好みで変更可)
+                # "-V", "geometry:margin=2.5cm"   # 必要に応じて余白などのジオメトリ設定
+            ])
         elif output_format == "docx":
+            # DOCX特有のオプションがあればここに追加
+            # 例: --reference-doc=custom-styles.docx でカスタムスタイルを指定
             pass
 
         print(f"Pandocコマンド実行準備: {' '.join(pandoc_cmd)}")
