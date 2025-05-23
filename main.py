@@ -182,67 +182,68 @@ async def get_openai_response(
     system_role_description: Optional[str] = None,
     model: str = "gpt-4o",
     chat_history: Optional[List[Dict[str, str]]] = None,
-    initial_user_prompt: Optional[str] = None
+    initial_user_prompt: Optional[str] = None,
+    user_memories: Optional[List[schemas.UserMemoryResponse]] = None
 ) -> schemas.IndividualAIResponse:
     if not openai_client:
         return schemas.IndividualAIResponse(source=f"OpenAI ({model})", error="OpenAIクライアントが初期化されていません。")
 
     messages_for_api: List[Dict[str, str]] = []
 
-    # ...
+    formatted_memory_info = format_memories_for_prompt(user_memories)
+
     final_system_message_content = ""
-    # 検索モードの整形ステップではキャラクター性を抑制し、指示を明確にする
     is_search_formatting_step = system_role_description and "PALEAI_SEARCH_FORMATTING_TASK_MARKER" in system_role_description
 
     if is_search_formatting_step:
         final_system_message_content = system_role_description.replace("PALEAI_SEARCH_FORMATTING_TASK_MARKER", "").strip()
+        if initial_user_prompt:
+            final_system_message_content += f"\n\n[参考] ユーザーの当初の質問の文脈: 「{initial_user_prompt}」"
     else:
         final_system_message_content = FRIENDLY_TONE_SYSTEM_PROMPT
+        if formatted_memory_info:
+            final_system_message_content += f"\n\n{formatted_memory_info}"
         if system_role_description:
             final_system_message_content += f"\n\n{system_role_description}"
-
-    if initial_user_prompt: # initial_user_prompt は検索モードでも有用な場合があるので残す
-        prefix = "\n\n" if final_system_message_content.strip() else ""
-        # 検索整形ステップ以外では目的を強調
-        if not is_search_formatting_step:
+        if initial_user_prompt:
+            prefix = "\n\n" if final_system_message_content.strip() else ""
             final_system_message_content += f"{prefix}[重要] この会話全体の主要な目的は次の通りです: 「{initial_user_prompt}」\nこの目的を常に意識して回答してください。"
-        else: # 検索整形ステップでは、元の質問文脈として追加する
-            final_system_message_content += f"{prefix}[参考] ユーザーの当初の質問の文脈: 「{initial_user_prompt}」"
-
 
     if final_system_message_content.strip():
         messages_for_api.append({"role": "system", "content": final_system_message_content.strip()})
-    # ...
+
     if chat_history:
         for msg in chat_history:
             role = msg.get("role")
             content = msg.get("content")
-            if role == "ai": role = "assistant"
+            if role == "ai":
+                role = "assistant"
             if role in ["user", "assistant"] and content is not None:
                 messages_for_api.append({"role": role, "content": str(content)})
-    elif prompt_text:
-        if not any(m.get("role") == "user" and m.get("content") == prompt_text for m in messages_for_api):
-             messages_for_api.append({"role": "user", "content": prompt_text})
+
+    if prompt_text:
+        add_current_prompt = True
+        if messages_for_api and messages_for_api[-1].get("role") == "user" and messages_for_api[-1].get("content") == prompt_text:
+            add_current_prompt = False
+        if add_current_prompt:
+            messages_for_api.append({"role": "user", "content": prompt_text})
 
     if not any(msg.get("role") == "user" for msg in messages_for_api):
-        if prompt_text: # chat_history がなくても prompt_text があればそれをユーザーメッセージとする
-            # ただし、この場合、messages_for_api に user メッセージが既に入っていないか確認する
-            is_prompt_text_already_in_messages = False
-            for msg_api in messages_for_api:
-                if msg_api.get("role") == "user" and msg_api.get("content") == prompt_text:
-                    is_prompt_text_already_in_messages = True
-                    break
-            if not is_prompt_text_already_in_messages:
-                messages_for_api.append({"role": "user", "content": prompt_text})
-        
-        # 再度ユーザーメッセージの存在を確認
-        if not any(msg.get("role") == "user" for msg in messages_for_api):
-            error_detail = f"APIリクエストに有効なユーザーメッセージが含まれていません。System: '{final_system_message_content}', History: {chat_history}, Prompt: {prompt_text}"
-            print(f"OpenAIデバッグ: {error_detail}")
+        if prompt_text:
+            messages_for_api.append({"role": "user", "content": prompt_text})
+        else:
+            error_detail = (
+                f"APIリクエストに有効なユーザーメッセージが含まれていません。System: '{final_system_message_content[:100]}...', "
+                f"History Len: {len(chat_history) if chat_history else 0}, Prompt: '{prompt_text}'"
+            )
+            print(f"OpenAIデバッグ (致命的): {error_detail}")
             return schemas.IndividualAIResponse(source=f"OpenAI ({model})", error=error_detail)
 
     try:
-        print(f"OpenAI API Request ({model}): System='{(messages_for_api[0]['content'][:100].strip() + '...' if messages_for_api and messages_for_api[0]['role'] == 'system' else 'N/A')}', Messages Count={len(messages_for_api)}")
+        print(
+            f"OpenAI API Request ({model}): System='{(messages_for_api[0]['content'][:100].strip() + '...' if messages_for_api and messages_for_api[0]['role'] == 'system' else 'N/A')}', "
+            f"UserMemories: {len(user_memories) if user_memories else 0}, Messages Count={len(messages_for_api)}"
+        )
         res = await openai_client.chat.completions.create(
             messages=messages_for_api,
             model=model,
@@ -260,81 +261,78 @@ async def get_claude_response(
     system_instruction: Optional[str] = None,
     model: str = "claude-3-opus-20240229",
     chat_history: Optional[List[Dict[str, str]]] = None,
-    initial_user_prompt: Optional[str] = None
+    initial_user_prompt: Optional[str] = None,
+    user_memories: Optional[List[schemas.UserMemoryResponse]] = None
 ) -> schemas.IndividualAIResponse:
     if not anthropic_aclient:
         return schemas.IndividualAIResponse(source=f"Claude ({model})", error="Anthropicクライアントが初期化されていません。")
 
     messages_for_api: List[Dict[str, str]] = []
-
     if chat_history:
         for msg in chat_history:
             role = msg.get("role")
             content = msg.get("content")
-            if role == "ai": role = "assistant"
+            if role == "ai":
+                role = "assistant"
             if role in ["user", "assistant"] and content is not None:
                 messages_for_api.append({"role": role, "content": str(content)})
-    elif prompt_text:
-        if not any(m.get("role") == "user" and m.get("content") == prompt_text for m in messages_for_api):
+
+    if prompt_text:
+        add_current_prompt = True
+        if messages_for_api and messages_for_api[-1].get("role") == "user" and messages_for_api[-1].get("content") == prompt_text:
+            add_current_prompt = False
+        if add_current_prompt:
             messages_for_api.append({"role": "user", "content": prompt_text})
 
     if not any(msg.get("role") == "user" for msg in messages_for_api):
         if prompt_text:
-            is_prompt_text_already_in_messages = False
-            for msg_api in messages_for_api:
-                if msg_api.get("role") == "user" and msg_api.get("content") == prompt_text:
-                    is_prompt_text_already_in_messages = True
-                    break
-            if not is_prompt_text_already_in_messages:
-                messages_for_api.append({"role": "user", "content": prompt_text})
-        
-        if not any(msg.get("role") == "user" for msg in messages_for_api):
-            error_detail = f"APIリクエストに有効なユーザーメッセージが含まれていません。System Instruction: {system_instruction}, History: {chat_history}, Prompt: {prompt_text}"
-            print(f"Claudeデバッグ: {error_detail}")
+             messages_for_api.append({"role": "user", "content": prompt_text})
+        else:
+            error_detail = f"Claude APIリクエストに有効なユーザーメッセージが含まれていません。History: {chat_history is not None}, Prompt: '{prompt_text}'"
+            print(f"Claudeデバッグ (致命的): {error_detail}")
             return schemas.IndividualAIResponse(source=f"Claude ({model})", error=error_detail)
 
     if messages_for_api and messages_for_api[0].get("role") == "assistant":
         print("警告: Claude APIのメッセージリストがassistantから始まっています。先頭にダミーのユーザーメッセージを挿入します。")
         messages_for_api.insert(0, {"role": "user", "content":"(会話の文脈を開始します)"})
 
-    # ...
+    formatted_memory_info = format_memories_for_prompt(user_memories)
     final_system_prompt_for_claude = ""
     is_search_formatting_step_claude = system_instruction and "PALEAI_SEARCH_FORMATTING_TASK_MARKER" in system_instruction
 
     if is_search_formatting_step_claude:
         final_system_prompt_for_claude = system_instruction.replace("PALEAI_SEARCH_FORMATTING_TASK_MARKER", "").strip()
+        if initial_user_prompt:
+             final_system_prompt_for_claude += f"\n\n[参考] ユーザーの当初の質問の文脈: 「{initial_user_prompt}」"
     else:
         final_system_prompt_for_claude = FRIENDLY_TONE_SYSTEM_PROMPT
+        if formatted_memory_info:
+            final_system_prompt_for_claude += f"\n\n{formatted_memory_info}"
         if system_instruction:
             final_system_prompt_for_claude += f"\n\n{system_instruction}"
-
-    if initial_user_prompt:
-        prefix = "\n\n" if final_system_prompt_for_claude.strip() else ""
-        if not is_search_formatting_step_claude:
+        if initial_user_prompt:
+            prefix = "\n\n" if final_system_prompt_for_claude.strip() else ""
             final_system_prompt_for_claude += f"{prefix}[重要] この会話全体の主要な目的は次の通りです: 「{initial_user_prompt}」\nこの目的を常に意識して回答してください。"
-        else:
-            final_system_prompt_for_claude += f"{prefix}[参考] ユーザーの当初の質問の文脈: 「{initial_user_prompt}」"
-
 
     api_params: Dict[str, Any] = {
         "model": model,
-        "max_tokens": 4000, # 必要に応じて調整
+        "max_tokens": 4000,
         "messages": messages_for_api,
-        "temperature": 0.6 # 検索整形では低め (0.2など) も検討
+        "temperature": 0.6
     }
     if final_system_prompt_for_claude.strip():
         api_params["system"] = final_system_prompt_for_claude.strip()
-    # ...
+
     try:
-        print(f"Claude API Request ({model}): System='{(api_params.get('system', 'N/A'))[:100].strip()}', Messages Count={len(messages_for_api)}")
+        print(f"Claude API Request ({model}): System='{(api_params.get('system', 'N/A'))[:100].strip()}', UserMemories: {len(user_memories) if user_memories else 0}, Messages Count={len(messages_for_api)}")
         res = await anthropic_aclient.messages.create(**api_params)
-        
+
         response_text = ""
         if res.content and isinstance(res.content, list):
             for block in res.content:
                 if hasattr(block, 'text'):
                     response_text += block.text
-        
+
         if not response_text.strip() and hasattr(res, 'stop_reason') and res.stop_reason is not None and res.stop_reason != "end_turn":
              return schemas.IndividualAIResponse(source=f"Claude ({model})", error=f"APIエラーまたは予期しない停止理由。Stop Reason: {res.stop_reason}, Response Content: {res.content}")
 
