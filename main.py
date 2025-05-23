@@ -35,6 +35,7 @@ from pydantic import BaseModel, Field  # Field は前回修正済みのはず
 from typing import Optional, Dict, Any, List  # List も前回修正済みのはず
 import schemas
 import shutil
+import subprocess
 import mimetypes
 import traceback
 from io import BytesIO
@@ -849,6 +850,65 @@ async def process_pptx_file(file_path: str) -> str:
     print(f"PPTX「{os.path.basename(file_path)}」からのテキスト抽出成功 (冒頭): {text_content[:200].strip()}...")
     return text_content.strip()
 
+
+async def convert_markdown_to_format_with_pandoc(
+    markdown_content: str,
+    output_filename_base: str,
+    output_format: str,
+    temp_dir: str = GENERATED_FILES_DIR
+) -> Optional[str]:
+    """Pandocを使用してMarkdownを指定された形式に変換し、一時ファイルに保存する。"""
+    input_md_path = os.path.join(temp_dir, f"{output_filename_base}_temp.md")
+    output_file_path = os.path.join(temp_dir, f"{output_filename_base}.{output_format}")
+
+    try:
+        async with aiofiles.open(input_md_path, "w", encoding="utf-8") as md_file:
+            await md_file.write(markdown_content)
+
+        PANDOC_EXECUTABLE_PATH = r"C:\\Program Files\\Pandoc\\pandoc.exe"
+
+        pandoc_cmd = [
+            PANDOC_EXECUTABLE_PATH,
+            input_md_path,
+            "-o",
+            output_file_path,
+        ]
+        if output_format == "pdf":
+            pass
+        elif output_format == "docx":
+            pass
+
+        print(f"Pandocコマンド実行準備: {' '.join(pandoc_cmd)}")
+
+        def run_pandoc_sync():
+            process = subprocess.run(pandoc_cmd, capture_output=True, text=True, check=False)
+            if process.returncode != 0:
+                error_message = f"Pandoc変換エラー (フォーマット: {output_format}):\nSTDOUT:\n{process.stdout}\nSTDERR:\n{process.stderr}"
+                print(error_message)
+                raise Exception(f"Pandoc failed with exit code {process.returncode}. STDERR: {process.stderr[:500]}")
+            return True
+
+        await run_in_threadpool(run_pandoc_sync)
+
+        print(f"Pandocによるファイル「{output_file_path}」の生成に成功しました。")
+        return output_file_path
+
+    except Exception as e:
+        print(f"Pandoc変換処理中にエラー ({output_format} へ変換しようとしていました): {e}")
+        traceback.print_exc()
+        if os.path.exists(output_file_path):
+            try:
+                os.remove(output_file_path)
+            except OSError:
+                pass
+        return None
+    finally:
+        if os.path.exists(input_md_path):
+            try:
+                os.remove(input_md_path)
+            except OSError:
+                pass
+
 # --- (ここまでが新規挿入するヘルパー関数群) ---
 
 @app.post("/translate", response_model=schemas.TranslationResponse)
@@ -1412,20 +1472,32 @@ async def collaborative_answer_mode_endpoint(
                 traceback.print_exc()
                 # final_ai_response_content_for_db にエラーメッセージを追記または response_shell.overall_error に設定
 
-        # elif actual_extension in supported_conversion_extensions:
-            # print(f"「{actual_extension}」形式への変換処理は未実装です。")
-            # ここでPandocやライブラリを使った変換処理を呼び出す
-            # if actual_extension == "pdf":
-            #     try:
-            #         # output_pdf_path = await convert_markdown_to_pdf(final_ai_text_content_for_file, base_filename) # 仮の関数
-            #         # response_shell.generated_download_url = f"/download_generated_file/{os.path.basename(output_pdf_path)}"
-            #         # response_shell.generated_file_name = os.path.basename(output_pdf_path)
-            #         # output_file_generated = True
-            #     except Exception as e_pdf:
-            #         print(f"PDFへの変換中にエラー: {e_pdf}")
-            # elif actual_extension == "docx":
-            #     # DOCX変換処理
-            #     pass
+        elif actual_extension == "pdf" or actual_extension == "docx":
+            try:
+                session_prefix = f"s{active_session.id}_" if active_session and active_session.id else ""
+                user_prefix = f"u{current_user.id}_"
+                unique_id = str(uuid.uuid4())[:8]
+                base_filename_for_conversion = f"{user_prefix}{session_prefix}output_{unique_id}"
+
+                generated_file_full_path = await convert_markdown_to_format_with_pandoc(
+                    markdown_content=final_ai_text_content_for_file,
+                    output_filename_base=base_filename_for_conversion,
+                    output_format=actual_extension,
+                    temp_dir=GENERATED_FILES_DIR
+                )
+
+                if generated_file_full_path and os.path.exists(generated_file_full_path):
+                    generated_filename_only = os.path.basename(generated_file_full_path)
+                    response_shell.generated_download_url = f"/download_generated_file/{generated_filename_only}"
+                    response_shell.generated_file_name = generated_filename_only
+                    output_file_generated = True
+                    print(f"{actual_extension.upper()}ファイル生成成功: {generated_file_full_path}")
+                else:
+                    print(f"Pandocによる{actual_extension.upper()}ファイル生成に失敗しました。")
+
+            except Exception as e_conversion:
+                print(f"{actual_extension.upper()}への変換処理中にエラー: {e_conversion}")
+                traceback.print_exc()
 
         if not output_file_generated:
             if response_shell.step7_final_answer_v2_openai:
