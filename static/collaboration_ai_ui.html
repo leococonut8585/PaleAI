@@ -2180,15 +2180,20 @@ function highlightMessage(messageId) {
                         displayMessage(`ファイル処理エラー (${data.file_processing_step.source}): ${data.file_processing_step.error}`, 'system');
                     }
 
-                    if (data.generated_download_url) {
+                    // ダウンロードリンクの表示
+                    if (data.generated_download_url && data.generated_file_name) {
                         let fullDownloadUrl = data.generated_download_url;
-                        if (!data.generated_download_url.startsWith('http')) {
-                            fullDownloadUrl = `${API_BASE_URL}${data.generated_download_url}`;
+                        if (!data.generated_download_url.startsWith('http') && !data.generated_download_url.startsWith('/')) {
+                            fullDownloadUrl = `/${data.generated_download_url}`;
                         }
+                        if (!data.generated_download_url.startsWith('http')) {
+                            fullDownloadUrl = `${API_BASE_URL}${fullDownloadUrl.startsWith('/') ? '' : '/'}${data.generated_download_url.replace(/^\//, '')}`;
+                        }
+                        const downloadLinkHtml = `ファイル「${data.generated_file_name}」の準備ができました: <a href="${API_BASE_URL}${data.generated_download_url}" target="_blank" class="text-blue-600 underline hover:text-blue-800" download="${data.generated_file_name}">ここをクリックしてダウンロード</a>`;
                         displayMessage(
-                            `ファイル「${data.generated_file_name || 'output'}」の準備ができました: <a href="${fullDownloadUrl}" target="_blank" class="text-blue-600 underline" download="${data.generated_file_name || ''}">ダウンロード</a>`,
+                            downloadLinkHtml,
                             'ai',
-                            'ファイル出力システム'
+                            data.step7_final_answer_v2_openai?.source || 'ファイル生成システム'
                         );
                     }
                 }
