@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, conlist
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
@@ -114,9 +114,9 @@ class FolderResponse(FolderBase):
 
 # --- User Memory Schemas ---
 class UserMemoryBase(BaseModel):
-    title: str
-    content: str
-    priority: Optional[int] = 0
+    title: str = Field(..., min_length=1, max_length=100)
+    content: str = Field(..., min_length=1, max_length=5000)
+    priority: int = Field(0, ge=0, le=10)
 
 
 class UserMemoryCreate(UserMemoryBase):
@@ -124,9 +124,9 @@ class UserMemoryCreate(UserMemoryBase):
 
 
 class UserMemoryUpdate(BaseModel):
-    title: Optional[str] = None
-    content: Optional[str] = None
-    priority: Optional[int] = None
+    title: Optional[str] = Field(None, min_length=1, max_length=100)
+    content: Optional[str] = Field(None, min_length=1, max_length=5000)
+    priority: Optional[int] = Field(None, ge=0, le=10)
 
 
 class UserMemoryResponse(UserMemoryBase):
@@ -189,6 +189,7 @@ class PromptRequestWithHistory(BaseModel):
     mode: str
     session_id: Optional[int] = None
     char_count: Optional[int] = None
+    user_memories: Optional[List[UserMemoryResponse]] = None
 
 class CollaborativeResponseV2(BaseModel):
     prompt: str

@@ -2,7 +2,8 @@ from fastapi import FastAPI, HTTPException, Depends, status  # <<< status を追
 from fastapi.staticfiles import StaticFiles
 import os
 import models  # models.py 全体をインポート
-from routers import auth, users, chat, folders, upload, memory, templates, images
+from routers import auth, users, chat, folders, upload, templates, images, video
+from routers import memory as memory_router
 from database import engine, Base, get_db # SessionLocal はここでは直接使わないので削除、get_db を追加
 from sqlalchemy.orm import Session # SQLAlchemyのSession型をインポート
 from sqlalchemy.sql import func # SQLAlchemyのSQL関数(例: func.now())をインポート
@@ -53,11 +54,10 @@ app.include_router(users.router)
 app.include_router(chat.router)
 app.include_router(folders.router)
 app.include_router(upload.router)
-app.include_router(memory.router)
 app.include_router(templates.router)
 app.include_router(images.router)
-from routers import video
 app.include_router(video.router)
+app.include_router(memory_router.router)
 # --- 各AIクライアントの初期化 ---
 
 anthropic_aclient: Optional[AsyncAnthropic] = None
