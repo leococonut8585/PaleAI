@@ -2098,6 +2098,22 @@ function highlightMessage(messageId) {
             }
 
             try {
+                let userMemoriesForRequest = null;
+                try {
+                    const memoryRes = await makeAuthenticatedRequest(API_ENDPOINT_MEMORY, { method: 'GET' });
+                    if (memoryRes.ok) {
+                        userMemoriesForRequest = await memoryRes.json();
+                        if (userMemoriesForRequest.length === 0) {
+                            userMemoriesForRequest = null; // 空の場合はnullにする
+                        }
+                    } else {
+                        console.warn("ユーザーメモリの取得に失敗しました。メモリなしで続行します。");
+                    }
+                } catch (memError) {
+                    console.error("ユーザーメモリ取得中にエラー:", memError);
+                    // エラーが発生しても、メモリなしで処理は続行する
+                }
+
                 let response;
                 if (selectedMode === 'imagegen') {
                     const count = parseInt(imageCountSelect.value || '1');
@@ -2110,7 +2126,8 @@ function highlightMessage(messageId) {
                     const requestBody = {
                         prompt: sendPrompt,
                         mode: selectedMode,
-                        session_id: currentSessionId
+                        session_id: currentSessionId,
+                        user_memories: userMemoriesForRequest
                     };
                     if (selectedMode === 'longwriting') {
                         requestBody.char_count = parseInt(charCountInput.value || '0');
