@@ -638,6 +638,7 @@ async def collaborative_answer_mode_endpoint(
     mode = request.mode.lower()
     session_id = request.session_id
     desired_char_count = request.char_count
+    user_memories_from_request = request.user_memories
 
     print(f"\nリクエスト受信: UserID={current_user.id}, SessionID={session_id}, Prompt='{original_prompt[:50].strip()}...', Mode='{mode}'")
 
@@ -792,28 +793,32 @@ async def collaborative_answer_mode_endpoint(
                 original_prompt=original_prompt,
                 response_shell=response_shell,
                 chat_history_for_ai=list(chat_history_for_ai),
-                initial_user_prompt_for_session=initial_user_prompt_for_session
+                initial_user_prompt_for_session=initial_user_prompt_for_session,
+                user_memories=user_memories_from_request
             )
         elif mode in ("search6", "supersearch"):
             response_shell = await run_super_search_mode_flow(
                 original_prompt=original_prompt,
                 response_shell=response_shell,
                 chat_history_for_ai=list(chat_history_for_ai),
-                initial_user_prompt_for_session=initial_user_prompt_for_session
+                initial_user_prompt_for_session=initial_user_prompt_for_session,
+                user_memories=user_memories_from_request
             )
         elif mode == "code":
             response_shell = await run_code_mode_flow(
                 original_prompt=original_prompt,
                 response_shell=response_shell,
                 chat_history_for_ai=list(chat_history_for_ai),
-                initial_user_prompt_for_session=initial_user_prompt_for_session
+                initial_user_prompt_for_session=initial_user_prompt_for_session,
+                user_memories=user_memories_from_request
             )
         elif mode == "writing":
             response_shell = await run_writing_mode_flow(
                 original_prompt=original_prompt,
                 response_shell=response_shell,
                 chat_history_for_ai=list(chat_history_for_ai),
-                initial_user_prompt_for_session=initial_user_prompt_for_session
+                initial_user_prompt_for_session=initial_user_prompt_for_session,
+                user_memories=user_memories_from_request
             )
         elif mode == "longwriting":
             response_shell = await run_ultra_writing_mode_flow(
@@ -821,6 +826,7 @@ async def collaborative_answer_mode_endpoint(
                 response_shell=response_shell,
                 chat_history_for_ai=list(chat_history_for_ai),
                 initial_user_prompt_for_session=initial_user_prompt_for_session,
+                user_memories=user_memories_from_request,
                 desired_char_count=desired_char_count
             )
         elif mode == "fastchat":
@@ -828,7 +834,8 @@ async def collaborative_answer_mode_endpoint(
                 original_prompt=original_prompt,
                 response_shell=response_shell,
                 chat_history_for_ai=list(chat_history_for_ai),
-                initial_user_prompt_for_session=initial_user_prompt_for_session
+                initial_user_prompt_for_session=initial_user_prompt_for_session,
+                user_memories=user_memories_from_request
             )
         else:
             raise HTTPException(
@@ -937,7 +944,8 @@ async def run_super_search_mode_flow(
     response_shell: schemas.CollaborativeResponseV2,
     chat_history_for_ai: List[Dict[str, str]],
     initial_user_prompt_for_session: Optional[str],
-    max_refinement_loops: int = 1 # 初期検索 + 不足観点からの再検索1回 = 計2ループ相当
+    user_memories: Optional[List[schemas.UserMemoryResponse]] = None,
+    max_refinement_loops: int = 1
 ) -> schemas.CollaborativeResponseV2:
     print("\n--- 新・超検索特化モード（ペイルの叡智）開始 ---")
     response_shell.search_summary_text = None
@@ -975,7 +983,12 @@ async def run_super_search_mode_flow(
                     f"情報の網羅性と詳細度を最優先し、多様な視点からの情報を集めてください。"
                 )
                 search_tasks.append(
-                    get_perplexity_response(prompt_for_perplexity=perplexity_prompt, model="sonar-reasoning-pro") # 高性能モデル
+                    get_perplexity_response(
+                        prompt_for_perplexity=perplexity_prompt,
+                        model="sonar-reasoning-pro",
+                        user_memories=user_memories,
+                        initial_user_prompt=initial_user_prompt_for_session,
+                    )
                 )
 
                 # (オプション) Gemini Web Search など他の検索APIタスクも追加
@@ -1066,7 +1079,8 @@ async def run_super_search_mode_flow(
                         prompt_text=analysis_user_prompt,
                         system_instruction=analysis_system_prompt,
                         model="claude-3-opus-20240229",
-                        initial_user_prompt=initial_user_prompt_for_session
+                        initial_user_prompt=initial_user_prompt_for_session,
+                        user_memories=user_memories,
                     )
 
                     if analysis_res.response:
@@ -1181,7 +1195,8 @@ async def run_super_search_mode_flow(
             prompt_text=final_formatting_user_prompt,
             system_instruction=final_formatting_system_prompt,
             model_name="gemini-1.5-pro-latest",
-            initial_user_prompt=initial_user_prompt_for_session
+            initial_user_prompt=initial_user_prompt_for_session,
+            user_memories=user_memories,
         )
 
         if final_formatting_res.response:
@@ -2003,7 +2018,8 @@ async def run_code_mode_flow(
     original_prompt: str,
     response_shell: schemas.CollaborativeResponseV2,
     chat_history_for_ai: List[Dict[str, str]],
-    initial_user_prompt_for_session: Optional[str]
+    initial_user_prompt_for_session: Optional[str],
+    user_memories: Optional[List[schemas.UserMemoryResponse]] = None
 ) -> schemas.CollaborativeResponseV2:
 
     print("\n--- コード生成特化モード開始 ---")
@@ -2018,7 +2034,9 @@ async def run_code_mode_flow(
 
     current_chat_history_for_this_turn = list(chat_history_for_ai)
     current_chat_history_for_this_turn.append({"role": "user", "content": original_prompt})
-    print(f"Code Mode: このターンでAIに渡す完全な履歴は {len(current_chat_history_for_this_turn)} 件")
+    print(
+        f"Code Mode: このターンでAIに渡す完全な履歴は {len(current_chat_history_for_this_turn)} 件, メモリ: {len(user_memories) if user_memories else 0}件"
+    )
 
     try:
         # ステップC0: プロンプトの精密化
@@ -2038,7 +2056,8 @@ async def run_code_mode_flow(
             system_instruction=c0_system_instruction,
             model_name="gemini-1.5-pro-latest", # または "gemini-1.5-flash-latest"
             chat_history=list(current_chat_history_for_this_turn), # ここまでの全履歴
-            initial_user_prompt=initial_user_prompt_for_session
+            initial_user_prompt=initial_user_prompt_for_session,
+            user_memories=user_memories,
         )
         steps_executed.append(c0_res)
         if c0_res.error or not c0_res.response:
@@ -2063,7 +2082,8 @@ async def run_code_mode_flow(
             system_instruction=c1_system_instruction,
             model="claude-3-opus-20240229",
             chat_history=list(current_chat_history_for_this_turn), # C0の結果を含む履歴
-            initial_user_prompt=initial_user_prompt_for_session
+            initial_user_prompt=initial_user_prompt_for_session,
+            user_memories=user_memories,
         )
         steps_executed.append(c1_res)
         if c1_res.error or not c1_res.response:
@@ -2091,7 +2111,8 @@ async def run_code_mode_flow(
             system_role_description=c2_system_role_description,
             model="gpt-4o",
             chat_history=list(current_chat_history_for_this_turn), # C1の結果を含む履歴
-            initial_user_prompt=initial_user_prompt_for_session
+            initial_user_prompt=initial_user_prompt_for_session,
+            user_memories=user_memories,
         )
         steps_executed.append(c2_res)
         if c2_res.error or not c2_res.response:
@@ -2116,7 +2137,8 @@ async def run_code_mode_flow(
             system_instruction=c3_system_instruction,
             model="claude-3-opus-20240229",
             chat_history=list(current_chat_history_for_this_turn), # C2の結果を含む履歴
-            initial_user_prompt=initial_user_prompt_for_session
+            initial_user_prompt=initial_user_prompt_for_session,
+            user_memories=user_memories,
         )
         steps_executed.append(c3_res)
         if c3_res.error or not c3_res.response:
@@ -2144,7 +2166,8 @@ async def run_code_mode_flow(
             system_role_description=c4_system_role_description,
             model="gpt-4o",
             chat_history=list(current_chat_history_for_this_turn), # C3の結果を含む履歴
-            initial_user_prompt=initial_user_prompt_for_session
+            initial_user_prompt=initial_user_prompt_for_session,
+            user_memories=user_memories,
         )
         steps_executed.append(c4_res)
         if c4_res.error or not c4_res.response:
@@ -2169,7 +2192,8 @@ async def run_code_mode_flow(
             system_instruction=c5_system_instruction,
             model="claude-3-opus-20240229",
             chat_history=list(current_chat_history_for_this_turn), # C4の結果を含む履歴
-            initial_user_prompt=initial_user_prompt_for_session
+            initial_user_prompt=initial_user_prompt_for_session,
+            user_memories=user_memories,
         )
         steps_executed.append(c5_res)
         if c5_res.error or not c5_res.response:
@@ -2197,7 +2221,8 @@ async def run_code_mode_flow(
             system_role_description=c6_system_role_description,
             model="gpt-4o",
             chat_history=list(current_chat_history_for_this_turn), # C5の結果を含む履歴
-            initial_user_prompt=initial_user_prompt_for_session
+            initial_user_prompt=initial_user_prompt_for_session,
+            user_memories=user_memories,
         )
         steps_executed.append(c6_res)
         if c6_res.error or not c6_res.response:
@@ -2238,7 +2263,8 @@ async def run_writing_mode_flow(
     original_prompt: str,
     response_shell: schemas.CollaborativeResponseV2,
     chat_history_for_ai: List[Dict[str, str]],
-    initial_user_prompt_for_session: Optional[str]
+    initial_user_prompt_for_session: Optional[str],
+    user_memories: Optional[List[schemas.UserMemoryResponse]] = None
 ) -> schemas.CollaborativeResponseV2:
 
     print("\n--- 執筆特化モード開始 ---")
@@ -2253,7 +2279,9 @@ async def run_writing_mode_flow(
 
     current_chat_history_for_this_turn = list(chat_history_for_ai)
     current_chat_history_for_this_turn.append({"role": "user", "content": original_prompt})
-    print(f"Writing Mode: このターンでAIに渡す完全な履歴は {len(current_chat_history_for_this_turn)} 件")
+    print(
+        f"Writing Mode: このターンでAIに渡す完全な履歴は {len(current_chat_history_for_this_turn)} 件, メモリ: {len(user_memories) if user_memories else 0}件"
+    )
 
     try:
         # ステップW0: 要件確認とテーマ深掘り
@@ -2272,7 +2300,8 @@ async def run_writing_mode_flow(
             system_instruction=w0_system_instruction,
             model_name="gemini-1.5-pro-latest",
             chat_history=list(current_chat_history_for_this_turn),
-            initial_user_prompt=initial_user_prompt_for_session
+            initial_user_prompt=initial_user_prompt_for_session,
+            user_memories=user_memories,
         )
         steps_executed.append(w0_res)
         if w0_res.error or not w0_res.response:
@@ -2317,7 +2346,8 @@ async def run_writing_mode_flow(
             system_instruction=w1_system_instruction,
             model="claude-3-opus-20240229",
             chat_history=list(current_chat_history_for_this_turn), # W0の結果を含む履歴
-            initial_user_prompt=initial_user_prompt_for_session
+            initial_user_prompt=initial_user_prompt_for_session,
+            user_memories=user_memories,
         )
         steps_executed.append(w1_res)
         if w1_res.error or not w1_res.response:
@@ -2347,7 +2377,8 @@ async def run_writing_mode_flow(
             system_role_description=w2_system_role_description,
             model="gpt-4o",
             chat_history=list(current_chat_history_for_this_turn), # W1の結果を含む履歴
-            initial_user_prompt=initial_user_prompt_for_session
+            initial_user_prompt=initial_user_prompt_for_session,
+            user_memories=user_memories,
         )
         steps_executed.append(w2_res)
         if w2_res.error or not w2_res.response:
@@ -2374,7 +2405,8 @@ async def run_writing_mode_flow(
             system_instruction=w3_system_instruction,
             model="claude-3-opus-20240229",
             chat_history=list(current_chat_history_for_this_turn), # W2の結果を含む履歴
-            initial_user_prompt=initial_user_prompt_for_session
+            initial_user_prompt=initial_user_prompt_for_session,
+            user_memories=user_memories,
         )
         steps_executed.append(w3_res)
         if w3_res.error or not w3_res.response:
@@ -2402,7 +2434,8 @@ async def run_writing_mode_flow(
             preamble=w4_preamble_cohere,
             model="command-r-plus",
             chat_history=list(current_chat_history_for_this_turn), # W3の結果を含む履歴
-            initial_user_prompt=initial_user_prompt_for_session
+            initial_user_prompt=initial_user_prompt_for_session,
+            user_memories=user_memories,
         )
         steps_executed.append(w4_res)
         if w4_res.error or not w4_res.response:
@@ -2438,7 +2471,8 @@ async def run_writing_mode_flow(
             system_instruction=w5_final_system_instruction,
             model_name="gemini-1.5-pro-latest",
             chat_history=list(current_chat_history_for_this_turn), # W4の結果を含む履歴
-            initial_user_prompt=initial_user_prompt_for_session
+            initial_user_prompt=initial_user_prompt_for_session,
+            user_memories=user_memories,
         )
         steps_executed.append(w5_res)
         if w5_res.error or not w5_res.response:
@@ -2474,18 +2508,21 @@ async def run_ultra_writing_mode_flow(
     response_shell: schemas.CollaborativeResponseV2,
     chat_history_for_ai: List[Dict[str, str]],
     initial_user_prompt_for_session: Optional[str],
+    user_memories: Optional[List[schemas.UserMemoryResponse]] = None,
     desired_char_count: Optional[int] = None
 ) -> schemas.CollaborativeResponseV2:
 
     print("\n--- 超長文執筆モード開始 ---")
     steps_executed: List[schemas.IndividualAIResponse] = []
+    print(f"Ultra Writing Mode: メモリ: {len(user_memories) if user_memories else 0}件")
 
     try:
         outline_res = await get_openai_response(
             prompt_text=f"次の内容で章立てを提案してください:\n{original_prompt}",
             system_role_description="Long Form Outline Generator",
             chat_history=chat_history_for_ai,
-            initial_user_prompt=initial_user_prompt_for_session
+            initial_user_prompt=initial_user_prompt_for_session,
+            user_memories=user_memories,
         )
         steps_executed.append(outline_res)
         if outline_res.error or not outline_res.response:
@@ -2498,7 +2535,8 @@ async def run_ultra_writing_mode_flow(
                 prompt_text=f"{ch} を詳細に執筆してください。",
                 system_role_description="Chapter Writer: 本文のみを出力し、章タイトルや案内文は含めないでください。",
                 chat_history=chat_history_for_ai,
-                initial_user_prompt=initial_user_prompt_for_session
+                initial_user_prompt=initial_user_prompt_for_session,
+                user_memories=user_memories,
             )
             steps_executed.append(chapter_res)
             if chapter_res.response:
@@ -2510,7 +2548,8 @@ async def run_ultra_writing_mode_flow(
                     prompt_text=f"以下の文章を続けて詳しく書いてください。残り{desired_char_count - len(final_text)}文字以上必要です。",
                     system_role_description="Expansion Writer: 本文のみを続けて出力してください。コメントや案内は禁止です。",
                     chat_history=chat_history_for_ai,
-                    initial_user_prompt=initial_user_prompt_for_session
+                    initial_user_prompt=initial_user_prompt_for_session,
+                    user_memories=user_memories,
                 )
                 steps_executed.append(add_res)
                 if not add_res.response:
@@ -2544,17 +2583,20 @@ async def run_fast_chat_mode_flow(
     response_shell: schemas.CollaborativeResponseV2,
     chat_history_for_ai: List[Dict[str, str]],
     initial_user_prompt_for_session: Optional[str],
+    user_memories: Optional[List[schemas.UserMemoryResponse]] = None,
     model: str = "gpt-4o"
 ) -> schemas.CollaborativeResponseV2:
     print("\n--- 高速チャットモード開始 ---")
-    full_history = list(chat_history_for_ai)
-    full_history.append({"role": "user", "content": original_prompt})
+    full_history_for_this_turn = list(chat_history_for_ai)
+    full_history_for_this_turn.append({"role": "user", "content": original_prompt})
+    print(f"Fast Chat Mode: メモリ: {len(user_memories) if user_memories else 0}件")
     res = await get_openai_response(
         prompt_text=original_prompt,
         system_role_description="Fast Chat Mode",
         model=model,
-        chat_history=full_history,
+        chat_history=full_history_for_this_turn,
         initial_user_prompt=initial_user_prompt_for_session,
+        user_memories=user_memories,
     )
     response_shell.step7_final_answer_v2_openai = res
     print("--- 高速チャットモード終了 ---")
