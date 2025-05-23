@@ -345,18 +345,27 @@ async def get_claude_response(
 
 async def get_cohere_response(
     prompt_text: str,
-    preamble: Optional[str] = None,
+    preamble: Optional[str] = None, # タスク固有のプリアンブル
     model: str = "command-r-plus",
     chat_history: Optional[List[Dict[str, str]]] = None,
-    initial_user_prompt: Optional[str] = None
+    initial_user_prompt: Optional[str] = None, # 会話全体の目的
+    user_memories: Optional[List[schemas.UserMemoryResponse]] = None # ★ 追加
 ) -> schemas.IndividualAIResponse:
     if not cohere_aclient:
         return schemas.IndividualAIResponse(source=f"Cohere ({model})", error="Cohereクライアントが初期化されていません。")
 
-    final_preamble_for_cohere = FRIENDLY_TONE_SYSTEM_PROMPT
-    if preamble:
+    formatted_memory_info = format_memories_for_prompt(user_memories)
+
+    # Preamble の構築順: キャラクター口調 -> メモリ -> タスク指示 -> 会話目的
+    final_preamble_for_cohere = FRIENDLY_TONE_SYSTEM_PROMPT # 1. キャラクター口調
+
+    if formatted_memory_info: # 2. メモリ情報
+        final_preamble_for_cohere += f"\n\n{formatted_memory_info}"
+
+    if preamble: # 3. タスク固有のプリアンブル
         final_preamble_for_cohere += f"\n\n{preamble}"
-    if initial_user_prompt:
+
+    if initial_user_prompt: # 4. 会話全体の目的
         prefix = "\n\n" if final_preamble_for_cohere.strip() else ""
         final_preamble_for_cohere += f"{prefix}[重要] この会話全体の主要な目的は次の通りです: 「{initial_user_prompt}」\nこの目的を常に意識して回答を生成してください。"
 
@@ -371,7 +380,7 @@ async def get_cohere_response(
          return schemas.IndividualAIResponse(source=f"Cohere ({model})", error="現在のユーザープロンプトが空です。")
 
     try:
-        print(f"Cohere API Request ({model}): Preamble='{final_preamble_for_cohere[:100].strip() if final_preamble_for_cohere else 'N/A'}...', History Len={len(cohere_api_chat_history)}, Current Message='{prompt_text[:50].strip()}'")
+        print(f"Cohere API Request ({model}): Preamble='{final_preamble_for_cohere[:100].strip() if final_preamble_for_cohere else 'N/A'}...', UserMemories: {len(user_memories) if user_memories else 0}, History Len={len(cohere_api_chat_history)}, Current Message='{prompt_text[:50].strip()}'")
         res = await cohere_aclient.chat(
             message=prompt_text,
             model=model,
@@ -387,19 +396,35 @@ async def get_cohere_response(
         return schemas.IndividualAIResponse(source=f"Cohere ({model})", error=f"API呼び出し中にエラー: {str(e)}")
 
 async def get_perplexity_response(
-    prompt_for_perplexity: str, # 呼び出し元で整形済みの完全なプロンプト文字列
-    model: str = "sonar-pro", # sonar-pro に固定
+    prompt_for_perplexity: str, # これはAIへの主要な指示・質問
+    model: str = "sonar-pro",
+    user_memories: Optional[List[schemas.UserMemoryResponse]] = None, # ★ 追加
+    initial_user_prompt: Optional[str] = None # ★ 追加 (もしあれば文脈として有用)
 ) -> schemas.IndividualAIResponse:
     source_name = f"PerplexityAI ({model})"
     if not perplexity_client_sync:
         return schemas.IndividualAIResponse(source=source_name, error="Perplexityクライアントが初期化されていません。")
 
-    if not prompt_for_perplexity.strip():
+    # メモリ情報と会話目的をプロンプトに組み込む
+    formatted_memory_info = format_memories_for_prompt(user_memories)
+
+    # Perplexity 向けのプロンプト最終整形
+    final_prompt_for_perplexity_api = ""
+
+    if formatted_memory_info:
+        final_prompt_for_perplexity_api += f"{formatted_memory_info}\n\n---\n\n"
+
+    if initial_user_prompt:  # 会話全体の目的を参考情報として付加
+        final_prompt_for_perplexity_api += f"[この検索の背景にある会話全体の目的: 「{initial_user_prompt}」]\n\n"
+
+    final_prompt_for_perplexity_api += prompt_for_perplexity
+
+    if not final_prompt_for_perplexity_api.strip():
         return schemas.IndividualAIResponse(source=source_name, error="送信するクエリが空です。")
 
     try:
         print(
-            f"Perplexity AI Request ({model}): Query (first 150 chars)='{prompt_for_perplexity[:150].replace(chr(10), ' ')}...'"
+            f"Perplexity AI Request ({model}): Query (first 150 chars, UserMemories: {len(user_memories) if user_memories else 0})='{final_prompt_for_perplexity_api[:150].replace(chr(10), ' ')}...'"
         )
 
         def sync_perplexity_call(p_client: PerplexityClient, query: str, p_model_name: str):
@@ -433,7 +458,7 @@ async def get_perplexity_response(
                 traceback.print_exc()
                 return f"Perplexity APIエラー: {exc_inner}"
         response_text = await run_in_threadpool(
-            sync_perplexity_call, perplexity_client_sync, prompt_for_perplexity, model
+            sync_perplexity_call, perplexity_client_sync, final_prompt_for_perplexity_api, model
         )
 
         if isinstance(response_text, str) and response_text.strip() and \
@@ -458,27 +483,22 @@ async def get_perplexity_response(
 # main.py の get_gemini_response 関数
 async def get_gemini_response(
     prompt_text: str,
-    system_instruction: Optional[str] = None,
+    system_instruction: Optional[str] = None, # タスク固有指示
     model_name: str = 'gemini-1.5-pro-latest',
     chat_history: Optional[List[Dict[str, str]]] = None,
-    initial_user_prompt: Optional[str] = None
+    initial_user_prompt: Optional[str] = None, # 会話全体の目的
+    user_memories: Optional[List[schemas.UserMemoryResponse]] = None # ★ 追加
 ) -> schemas.IndividualAIResponse:
     source_name = f"Gemini ({model_name})"
-    
-    # APIキーの存在確認 (環境変数から取得したグローバル変数 GOOGLE_API_KEY を使用)
+
     if not GOOGLE_API_KEY:
         return schemas.IndividualAIResponse(source=source_name, error="Gemini APIキーが環境変数に設定されていません。")
 
     active_gemini_model: Optional[genai.GenerativeModel] = None
     try:
-        # genai.configure はアプリケーション起動時に一度だけ行うのが理想的。
-        # ここでは、configureが既に呼ばれていることを前提とし、モデルのインスタンス化を試みる。
-        # もし configure が未実行の場合、genai.GenerativeModel でエラーが発生する可能性がある。
-        # その場合は、アプリケーション起動時の初期化処理を見直す。
         active_gemini_model = genai.GenerativeModel(model_name)
     except Exception as e:
         print(f"Geminiモデル '{model_name}' の初期化に失敗: {e}")
-        # 起動時に configure されていなかった可能性を考慮し、ここで試みる
         if GOOGLE_API_KEY:
             try:
                 print("Gemini: genai.configure() を試行します...")
@@ -490,163 +510,75 @@ async def get_gemini_response(
                 import traceback
                 traceback.print_exc()
                 return schemas.IndividualAIResponse(source=source_name, error=f"Geminiモデルの初期化/設定に失敗: {str(e2)}")
-        else: # APIキーがない場合はここでエラー
+        else:
              return schemas.IndividualAIResponse(source=source_name, error="Gemini APIキーが設定されていません (再試行時)。")
-
-
     if not active_gemini_model:
          return schemas.IndividualAIResponse(source=source_name, error="Geminiモデルの取得に重大なエラーが発生しました（初期化後）。")
 
-    contents_for_api: List[Dict[str, Any]] = []
-    # ...
+    formatted_memory_info = format_memories_for_prompt(user_memories)
+
     effective_initial_instructions = ""
     is_search_formatting_step_gemini = system_instruction and "PALEAI_SEARCH_FORMATTING_TASK_MARKER" in system_instruction
 
     if is_search_formatting_step_gemini:
         effective_initial_instructions = system_instruction.replace("PALEAI_SEARCH_FORMATTING_TASK_MARKER", "").strip()
+        if initial_user_prompt:
+            effective_initial_instructions += f"\n\n[参考] ユーザーの当初の質問の文脈: 「{initial_user_prompt}」"
     else:
-        effective_initial_instructions = FRIENDLY_TONE_SYSTEM_PROMPT
-        if system_instruction:
+        effective_initial_instructions = FRIENDLY_TONE_SYSTEM_PROMPT # 1. キャラクター口調
+        if formatted_memory_info: # 2. メモリ情報
+            effective_initial_instructions += f"\n\n{formatted_memory_info}"
+        if system_instruction: # 3. タスク固有指示
             effective_initial_instructions += f"\n\n{system_instruction}"
-
-    if initial_user_prompt:
-        prefix = "\n\n" if effective_initial_instructions.strip() else ""
-        if not is_search_formatting_step_gemini:
+        if initial_user_prompt: # 4. 会話全体の目的
+            prefix = "\n\n" if effective_initial_instructions.strip() else ""
             effective_initial_instructions += f"{prefix}[重要] この会話全体の主要な目的は次の通りです: 「{initial_user_prompt}」です。"
-        else:
-            effective_initial_instructions += f"{prefix}[参考] ユーザーの当初の質問の文脈: 「{initial_user_prompt}」"
 
-
-    # Gemini APIでは、システム指示はcontentsの最初のuserロールの前に置くか、
-    # `GenerativeModel` の `system_instruction` パラメータ (beta) で渡す。
-    # ここでは、従来のcontentsに含める方法で、履歴の先頭か、単発プロンプトの先頭に挿入する。
-
-    # contents_for_api の生成ロジック
-    if effective_initial_instructions.strip():
-        # Geminiはsystemロールを直接サポートしないため、通常は最初のuserメッセージに含めるか、
-        # model.start_chat(history=[...], instruction=system_instruction) のように使う。
-        # ここでは、履歴の最初のユーザーメッセージにプレフィックスとしてシステム指示を追加するアプローチを試みる。
-        # もし履歴が空か、AIから始まる場合は、新しいユーザーメッセージを作成してシステム指示を先頭に置く。
-
-        # system_instruction を model インスタンスに設定する新しい方法 (genaiライブラリのバージョンによる)
-        # if hasattr(active_gemini_model, 'system_instruction'):
-        #    active_gemini_model.system_instruction = genai.types.Content(parts=[genai.types.Part(text=effective_initial_instructions.strip())])
-        # 上記が使えない場合は、従来通りメッセージリストに含める
-        pass # 下のロジックで処理
-
-
-    temp_chat_history = list(chat_history) if chat_history else []
-
-    # 履歴の先頭にシステム指示を組み込む (Geminiの推奨する形式に近づける)
-    # systemロールの代わりに、最初のユーザーメッセージの前に置くか、専用パラメータを使用
-    # ここでは、履歴のメッセージリストを直接操作して、最初の要素の前にシステム指示的なものをuserロールで追加する形は避ける
-    # 代わりに、generate_content_async の contents パラメータを工夫する
-
+    contents_for_api: List[Dict[str, Any]] = []
     processed_history_for_gemini: List[Dict[str, Any]] = []
-    if temp_chat_history:
-        for msg in temp_chat_history:
+    if chat_history:
+        for msg in chat_history:
             role = "model" if msg.get("role") in ["ai", "assistant"] else "user"
             processed_history_for_gemini.append({"role": role, "parts": [{"text": str(msg.get("content", ""))}]})
 
-    # 最終的なプロンプトをユーザーロールとして追加
-    # システム指示は、`generate_content_async` に渡す `contents` の構成で工夫するか、
-    # `active_gemini_model.start_chat(system_instruction=...)` を使う必要がある。
-    # `generate_content_async` に直接システムロールを渡すのは非推奨。
-    # 代わりに、`system_instruction` パラメータが利用可能ならそれを使うか、
-    # 履歴の最初のユーザーメッセージの前にコンテキストとして挿入する。
-
-    # ここでは、contents_for_api を直接構築する
-    # 1. system_instruction (もしあれば)
-    # 2. chat_history
-    # 3. prompt_text (現在のユーザー入力)
-
-    if effective_initial_instructions.strip() and not processed_history_for_gemini:
-        # 履歴がなく、システム指示とプロンプトのみの場合
-        # Geminiではシステムメッセージをユーザーメッセージの前に置くことが多い
+    if effective_initial_instructions.strip():
         contents_for_api.append({"role": "user", "parts": [{"text": effective_initial_instructions.strip()}]})
-        contents_for_api.append({"role": "model", "parts": [{"text": "承知いたしました。どのようなご用件でしょうか？"}]}) # システム指示に対するモデルの応答例
-        contents_for_api.append({"role": "user", "parts": [{"text": prompt_text}]})
-    elif effective_initial_instructions.strip() and processed_history_for_gemini:
-        # 履歴があり、システム指示もある場合
-        # 最初のユーザーメッセージの前にシステム指示を置く
-        # ただし、Googleのドキュメントでは system_instruction パラメータを推奨
-        # ここではcontentsを工夫する例:
-        # (注意: この方法はモデルの解釈に依存する可能性がある)
-        # contents_for_api.append({"role": "user", "parts": [{"text": effective_initial_instructions.strip() }]}) # システム指示をユーザーメッセージとして
-        # contents_for_api.append({"role": "model", "parts": [{"text": "はい、理解しました。"}]}) # それに対するダミーのモデル応答
-        # contents_for_api.extend(processed_history_for_gemini)
-        # contents_for_api.append({"role": "user", "parts": [{"text": prompt_text}]})
-        # より推奨されるのは、modelインスタンスのsystem_instructionに設定するか、
-        # generate_content_asyncのsystem_instruction引数 (利用可能なら)
+        contents_for_api.append({"role": "model", "parts": [{"text": "承知いたしました。指示に従い、記憶情報も考慮して回答します。"}]})
 
-        # 今回は、履歴をそのまま使い、最後のユーザープロンプトにシステム指示を付加する（やや苦肉の策）
-        contents_for_api.extend(processed_history_for_gemini)
-        final_user_prompt_with_instruction = prompt_text
-        if not any(item.get("role") == "user" for item in contents_for_api): # 履歴がAIから始まっている場合など
-            contents_for_api.insert(0, {"role": "user", "parts": [{"text": effective_initial_instructions.strip() + "\n\n" + prompt_text}]})
-        elif contents_for_api: # 履歴の最後のユーザーメッセージに付加、なければ新規追加
-            last_message_is_user = contents_for_api[-1]["role"] == "user"
-            if last_message_is_user:
-                # 最後のユーザーメッセージに結合するのは、そのメッセージの意図を変えてしまう可能性がある
-                # そのため、システム指示は別途考慮するか、履歴の先頭に置く設計が望ましい。
-                # ここでは、Gemini の場合、system_instruction を使うのがベストプラクティス。
-                # それが難しい場合の次善策として、履歴を整形する。
-                # 今回は、`active_gemini_model.generate_content_async` に `system_instruction` がないので、
-                # `contents` の先頭にユーザーロールでシステム指示を入れ、モデルロールでACKを入れ、その後履歴とプロンプトを入れる形にする。
-                contents_for_api = [] # 一旦クリア
-                contents_for_api.append({"role": "user", "parts": [{"text": effective_initial_instructions.strip()}]})
-                contents_for_api.append({"role": "model", "parts": [{"text": "承知いたしました。指示に従います。"}]}) # AIの受諾応答
-                contents_for_api.extend(processed_history_for_gemini) # その後の履歴
-                contents_for_api.append({"role": "user", "parts": [{"text": prompt_text}]}) # 最後のユーザープロンプト
-            else: # 履歴の最後がモデルの場合
-                contents_for_api.append({"role": "user", "parts": [{"text": effective_initial_instructions.strip() + "\n\n" + prompt_text}]})
-        else: # 履歴がない場合
-            contents_for_api.append({"role": "user", "parts": [{"text": effective_initial_instructions.strip() + "\n\n" + prompt_text}]})
+    contents_for_api.extend(processed_history_for_gemini)
 
-    elif processed_history_for_gemini: # システム指示なし、履歴あり
-        contents_for_api.extend(processed_history_for_gemini)
-        contents_for_api.append({"role": "user", "parts": [{"text": prompt_text}]})
-    else: # システム指示なし、履歴なし、プロンプトのみ
-        contents_for_api.append({"role": "user", "parts": [{"text": prompt_text}]})
+    if prompt_text:
+         contents_for_api.append({"role": "user", "parts": [{"text": prompt_text}]})
 
-    # ユーザーメッセージが必ず存在するように最終チェック
     if not any(item.get("role") == "user" for item in contents_for_api):
-        # 通常、ここには到達しないはずだが、フォールバック
-        contents_for_api.append({"role": "user", "parts": [{"text": prompt_text or "何か情報を教えてください。"}]})
-    # ...
-    if not any(item.get("role") == "user" for item in contents_for_api):
-        if prompt_text: # chat_history が空でも prompt_text があればそれを最後の砦としてユーザーメッセージとする
-             content_to_send_fallback = f"{effective_initial_instructions.strip()}\n\n---\n\n{prompt_text}" if effective_initial_instructions.strip() else prompt_text
-             contents_for_api.append({"role": "user", "parts": [{"text": content_to_send_fallback}]})
-        else:
-            error_detail = f"APIリクエストに有効なユーザーメッセージが含まれていません。Contents: {contents_for_api}, Prompt: {prompt_text}, History: {chat_history is not None}"
-            print(f"Geminiデバッグ: {error_detail}")
-            return schemas.IndividualAIResponse(source=source_name, error=error_detail)
-    
+        final_prompt_to_send = prompt_text or "何か情報を教えてください。"
+        if effective_initial_instructions.strip() and prompt_text:
+             final_prompt_to_send = f"{effective_initial_instructions.strip()}\n\n---\n\n{prompt_text}"
+        elif effective_initial_instructions.strip():
+             final_prompt_to_send = f"{effective_initial_instructions.strip()}\n\n---\n\n何か情報を教えてください。"
+
+        contents_for_api.append({"role": "user", "parts": [{"text": final_prompt_to_send}]})
+        print(f"Geminiデバッグ: ユーザーメッセージが不足していたため、フォールバックメッセージを追加しました。Content: {final_prompt_to_send[:100]}")
+
     try:
-        print(f"Gemini API Request ({active_gemini_model.model_name}): System/Initial Info (combined)='{effective_initial_instructions[:100].strip() if effective_initial_instructions else 'N/A'}...', Contents Len={len(contents_for_api)}")
-        # print(f"Gemini contents_for_api to be sent: {json.dumps(contents_for_api, indent=2, ensure_ascii=False)}")
-        
+        print(f"Gemini API Request ({active_gemini_model.model_name}): System/Initial Info (combined in first user msg)='{effective_initial_instructions[:100].strip() if effective_initial_instructions else 'N/A'}...', UserMemories: {len(user_memories) if user_memories else 0}, Contents Len={len(contents_for_api)}")
         res = await active_gemini_model.generate_content_async(
             contents=contents_for_api,
             generation_config={"temperature": 0.6}
         )
-        
+
         content_response = ""
         if res.candidates and res.candidates[0].content and res.candidates[0].content.parts:
             content_response = "".join(part.text for part in res.candidates[0].content.parts if hasattr(part, 'text'))
-        elif hasattr(res, 'prompt_feedback') and res.prompt_feedback and hasattr(res.prompt_feedback, 'block_reason') and res.prompt_feedback.block_reason: # type: ignore
-            block_reason_obj = getattr(res.prompt_feedback, 'block_reason', '不明な理由') # type: ignore
-            block_message = getattr(res.prompt_feedback, 'block_reason_message', str(block_reason_obj)) # type: ignore
+        elif hasattr(res, 'prompt_feedback') and res.prompt_feedback and hasattr(res.prompt_feedback, 'block_reason') and res.prompt_feedback.block_reason:
+            block_reason_obj = getattr(res.prompt_feedback, 'block_reason', '不明な理由')
+            block_message = getattr(res.prompt_feedback, 'block_reason_message', str(block_reason_obj))
             error_detail = f"コンテンツ生成がブロックされました: {block_message}"
             print(f"Gemini API: {error_detail}")
             return schemas.IndividualAIResponse(source=source_name, error=error_detail, response=None)
         else:
             print(f"Geminiから有効な応答パーツが見つかりませんでした。Full response: {res}")
-            # エラーではなく、単に応答が空、あるいは期待した形式でない場合
-            content_response = "" # 空の応答として扱う
-            # error メッセージを設定するかどうかは仕様による
-            # return schemas.IndividualAIResponse(source=source_name, response="", error="応答にテキストパーツが含まれていません。")
+            content_response = ""
 
         return schemas.IndividualAIResponse(source=source_name, response=content_response)
 
