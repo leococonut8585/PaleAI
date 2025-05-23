@@ -2539,11 +2539,14 @@ async def run_ultra_writing_mode_flow(
     steps_executed: List[schemas.IndividualAIResponse] = []
     print(f"Ultra Writing Mode: メモリ: {len(user_memories) if user_memories else 0}件")
 
+    current_context_history = list(chat_history_for_ai)
+    current_context_history.append({"role": "user", "content": original_prompt})
+
     try:
         outline_res = await get_openai_response(
             prompt_text=f"次の内容で章立てを提案してください:\n{original_prompt}",
             system_role_description="Long Form Outline Generator",
-            chat_history=chat_history_for_ai,
+            chat_history=current_context_history,
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
         )
@@ -2553,31 +2556,53 @@ async def run_ultra_writing_mode_flow(
 
         chapters = [c.strip() for c in outline_res.response.splitlines() if c.strip()]
         final_text = ""
-        for ch in chapters:
+        for ch_idx, ch_title in enumerate(chapters):
+            print(f"  章 {ch_idx+1}/{len(chapters)} 「{ch_title}」を執筆中...")
+            chapter_prompt = f"以下の章「{ch_title}」について、詳細な本文を執筆してください。"
+            if final_text:
+                chapter_prompt += f"\n\nこれまでのあらすじや主要な流れを簡単に振り返ると、『{final_text[-500:]}...』といった内容でした。\nこれを踏まえて執筆を続けてください。"
+
             chapter_res = await get_openai_response(
-                prompt_text=f"{ch} を詳細に執筆してください。",
-                system_role_description="Chapter Writer: 本文のみを出力し、章タイトルや案内文は含めないでください。",
-                chat_history=chat_history_for_ai,
+                prompt_text=chapter_prompt,
+                system_role_description="Chapter Writer: 本文のみを出力し、章タイトルや案内文は含めないでください。詳細かつ具体的に記述してください。",
+                chat_history=current_context_history,
                 initial_user_prompt=initial_user_prompt_for_session,
                 user_memories=user_memories,
             )
             steps_executed.append(chapter_res)
             if chapter_res.response:
-                final_text += f"\n{chapter_res.response}\n"
+                final_text += f"\n## {ch_title}\n\n{chapter_res.response.strip()}\n"
+                current_context_history.append({"role": "assistant", "content": chapter_res.response.strip()})
+                if ch_idx + 1 < len(chapters):
+                    current_context_history.append({"role": "user", "content": f"ありがとうございます。次の章『{chapters[ch_idx+1]}』に進んでください。"})
+                else:
+                    current_context_history.append({"role": "user", "content": "ありがとうございます。これで全ての章が完了しました。"})
 
-        if desired_char_count:
-            while len(final_text) < desired_char_count:
+        if desired_char_count and isinstance(desired_char_count, int) and desired_char_count > 0:
+            loop_count = 0
+            max_expansion_loops = 5
+            while len(final_text) < desired_char_count and loop_count < max_expansion_loops:
+                loop_count += 1
+                remaining_chars = desired_char_count - len(final_text)
+                print(f"  文字数調整ループ {loop_count}: 残り約{remaining_chars}文字...")
+                expansion_prompt = (
+                    f"現在の文章は以下の通りです。\n{final_text[-1000:]}...\n\n"
+                    f"この文章全体の内容をさらに詳細に、具体的に、物語であれば描写を豊かに、説明文であれば具体例や補足情報を加えて拡張してください。"
+                )
                 add_res = await get_openai_response(
-                    prompt_text=f"以下の文章を続けて詳しく書いてください。残り{desired_char_count - len(final_text)}文字以上必要です。",
-                    system_role_description="Expansion Writer: 本文のみを続けて出力してください。コメントや案内は禁止です。",
-                    chat_history=chat_history_for_ai,
+                    prompt_text=expansion_prompt,
+                    system_role_description="Expansion Writer: 提供された文章を自然な形で加筆・拡張し、詳細を豊かにしてください。本文のみを続けて出力してください。コメントや案内は禁止です。",
+                    chat_history=current_context_history,
                     initial_user_prompt=initial_user_prompt_for_session,
                     user_memories=user_memories,
                 )
                 steps_executed.append(add_res)
-                if not add_res.response:
+                if not add_res.response or not add_res.response.strip():
                     break
-                final_text += add_res.response
+                final_text += f"\n\n{add_res.response.strip()}\n"
+                current_context_history.append({"role": "assistant", "content": add_res.response.strip()})
+                if len(final_text) < desired_char_count:
+                    current_context_history.append({"role": "user", "content": "ありがとうございます。さらに内容を拡張してください。"})
 
         response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
             source="Ultra LongWriting Final",
@@ -2610,14 +2635,12 @@ async def run_fast_chat_mode_flow(
     model: str = "gpt-4o"
 ) -> schemas.CollaborativeResponseV2:
     print("\n--- 高速チャットモード開始 ---")
-    full_history_for_this_turn = list(chat_history_for_ai)
-    full_history_for_this_turn.append({"role": "user", "content": original_prompt})
-    print(f"Fast Chat Mode: メモリ: {len(user_memories) if user_memories else 0}件")
+    print(f"Fast Chat Mode: メモリ: {len(user_memories) if user_memories else 0}件, 履歴件数(AIへ): {len(chat_history_for_ai)}")
     res = await get_openai_response(
         prompt_text=original_prompt,
         system_role_description="Fast Chat Mode",
         model=model,
-        chat_history=full_history_for_this_turn,
+        chat_history=list(chat_history_for_ai),
         initial_user_prompt=initial_user_prompt_for_session,
         user_memories=user_memories,
     )
