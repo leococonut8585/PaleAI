@@ -205,6 +205,11 @@ class CollaborativeResponseV2(BaseModel):
     # --- 全モード共通の最終的な整形済み回答 (検索モードでは整形された断片リスト本体) ---
     step7_final_answer_v2_openai: Optional[IndividualAIResponse] = None
 
+    # --- ファイル処理・出力関連フィールド ---
+    file_processing_step: Optional[IndividualAIResponse] = None  # ステップ0の処理結果詳細
+    generated_download_url: Optional[str] = None  # 出力ファイルのダウンロードURL (例: /generated_files/output.pdf)
+    generated_file_name: Optional[str] = None  # 出力ファイル名 (例: report.pdf)
+
     # --- 検索モード専用フィールド ---
     search_fragments: List[IndividualAIResponse] = Field(default_factory=list) # 収集された全ての生の情報断片リスト
     search_summary_text: Optional[str] = None # 検索モードの最後に付与される非常に短いまとめ
