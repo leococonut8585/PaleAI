@@ -555,20 +555,6 @@
         </div>
     </div>
 
-    <div id="memoryModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
-        <div class="bg-white rounded-lg p-4 w-80 max-h-[80vh] overflow-y-auto">
-            <h3 class="text-sm font-semibold mb-2">メモリ管理</h3>
-            <div id="memoryList" class="mb-2 text-sm max-h-40 overflow-y-auto"></div>
-            <div class="mb-2">
-                <input id="memoryTitle" type="text" placeholder="タイトル" class="w-full p-1 border rounded text-sm mb-1" />
-                <textarea id="memoryContent" rows="3" placeholder="内容" class="w-full p-1 border rounded text-sm"></textarea>
-                <button id="addMemoryBtn" class="mt-1 px-2 py-1 bg-teal-500 hover:bg-teal-600 text-white rounded text-sm">追加</button>
-            </div>
-            <div class="flex justify-end mt-2">
-                <button id="memoryClose" class="px-2 py-1 bg-gray-300 hover:bg-gray-400 rounded text-sm">閉じる</button>
-            </div>
-        </div>
-    </div>
 
     <div id="templateModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
         <div class="bg-white rounded-lg p-4 w-80 max-h-[80vh] overflow-y-auto">
@@ -663,12 +649,6 @@
             pre.appendChild(btn);
         });
     }
-    const memoryModal = document.getElementById('memoryModal');
-    const memoryList = document.getElementById('memoryList');
-    const memoryClose = document.getElementById('memoryClose');
-    const memoryTitleInput = document.getElementById('memoryTitle');
-    const memoryContentInput = document.getElementById('memoryContent');
-    const addMemoryBtn = document.getElementById('addMemoryBtn');
     const templateBtn = document.getElementById('templateBtn');
     const templateModal = document.getElementById('templateModal');
     const templateList = document.getElementById('templateList');
@@ -2443,48 +2423,13 @@ function highlightMessage(messageId) {
             });
         }
 
-        async function loadMemory() {
-            if (!getToken()) { memoryList.innerHTML = '<p class="text-xs text-gray-500">ログインしてください</p>'; return; }
-            memoryList.innerHTML = '<p class="text-xs text-gray-500">読込中...</p>';
-            try {
-                const res = await makeAuthenticatedRequest(API_ENDPOINT_MEMORY, { method: 'GET' });
-                if (!res.ok) throw new Error('取得失敗');
-                const data = await res.json();
-                memoryList.innerHTML = '';
-                data.forEach(m => {
-                    const div = document.createElement('div');
-                    div.className = 'flex justify-between items-center border-b py-1';
-                    const span = document.createElement('span');
-                    span.textContent = m.title;
-                    const del = document.createElement('button');
-                    del.className = 'text-red-500 text-xs';
-                    del.textContent = '削除';
-                    del.addEventListener('click', async () => {
-                        await makeAuthenticatedRequest(`${API_ENDPOINT_MEMORY}/${m.id}`, { method: 'DELETE' });
-                        loadMemory();
-                    });
-                    div.appendChild(span);
-                    div.appendChild(del);
-                    memoryList.appendChild(div);
-                });
-            } catch (e) { memoryList.innerHTML = '<p class="text-xs text-red-500">読み込み失敗</p>'; }
-        }
-
         if(memoryManageButton){
-            memoryManageButton.addEventListener('click', () => { if(memoryModal) memoryModal.classList.remove('hidden'); loadMemory(); });
-        }
-        if(memoryClose){
-            memoryClose.addEventListener('click', () => { if(memoryModal) memoryModal.classList.add('hidden'); });
-        }
-        if(addMemoryBtn){
-            addMemoryBtn.addEventListener('click', async () => {
-                const title = memoryTitleInput.value.trim();
-                const content = memoryContentInput.value.trim();
-                if(!title || !content) return;
-                await makeAuthenticatedRequest(API_ENDPOINT_MEMORY, { method:'POST', body: JSON.stringify({ title, content }) });
-                memoryTitleInput.value = '';
-                memoryContentInput.value = '';
-                loadMemory();
+            memoryManageButton.addEventListener('click', () => {
+                if (!getToken()) {
+                    alert("この機能を利用するにはログインが必要です。");
+                    return;
+                }
+                window.location.href = "memory_management.html";
             });
         }
 
