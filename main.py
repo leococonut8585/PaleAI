@@ -818,7 +818,7 @@ async def collaborative_answer_mode_endpoint(
 
     active_session: Optional[models.ChatSession] = None
     initial_user_prompt_for_session: Optional[str] = None
-    # (この下の session_id_from_request を current_session_id_from_request に置き換える処理は不要になるか、確認)
+    # (この下の current_session_id_from_request を利用する処理は適切か確認)
     chat_history_for_ai: List[Dict[str, str]] = [] # AIヘルパーに渡す履歴リスト
 
     # --- 1. チャットセッションの特定または作成 ---
@@ -839,7 +839,7 @@ async def collaborative_answer_mode_endpoint(
         if first_user_message_db:
             initial_user_prompt_for_session = first_user_message_db.content
         else: # 既存セッションだが最初のユーザーメッセージがない場合（通常ありえないが）
-            initial_user_prompt_for_session = original_prompt # 現在のプロンプトで代用
+            initial_user_prompt_for_session = original_prompt_from_user # 現在のプロンプトで代用
 
         # 既存セッションの履歴を取得 (現在のプロンプトはまだ含めない)
         past_messages_db = db.query(models.ChatMessage).filter(
@@ -852,8 +852,8 @@ async def collaborative_answer_mode_endpoint(
 
     else: # 新規セッションの場合
         # ★★★ タイトル自動生成 (簡易版) ★★★
-        if original_prompt:
-            potential_title = original_prompt.splitlines()[0][:50].strip()  # 改行を考慮し、最初の行の先頭50文字
+        if original_prompt_from_user:
+            potential_title = original_prompt_from_user.splitlines()[0][:50].strip()  # 改行を考慮し、最初の行の先頭50文字
             if not potential_title:  # 空プロンプトや改行のみの場合
                 potential_title = "新しいチャット"
         else:
@@ -866,7 +866,7 @@ async def collaborative_answer_mode_endpoint(
         db.refresh(active_session)
         print(f"新規チャットセッション作成成功: ID={active_session.id}, Title='{active_session.title}'")
         response_shell.processed_session_id = active_session.id  # レスポンスシェルに確定IDを設定
-        initial_user_prompt_for_session = original_prompt  # 新規なので現在のプロンプトが最初のプロンプト
+        initial_user_prompt_for_session = original_prompt_from_user  # 新規なので現在のユーザー入力プロンプトが最初のプロンプト
 
     # --- 2. 過去のチャット履歴の取得 (AI送信用) ---
     #    (このステップは、ユーザーメッセージをDBに保存した後、かつ active_session.id が確定した後に行う方が、
@@ -886,7 +886,7 @@ async def collaborative_answer_mode_endpoint(
     # --- 3. ユーザーメッセージをDBに保存 ---
     if not active_session:  # 万が一ここでセッションが無い場合に備える
         session_title = (
-            original_prompt[:70].strip() + "..." if len(original_prompt) > 70 else original_prompt.strip()
+            original_prompt_from_user[:70].strip() + "..." if len(original_prompt_from_user) > 70 else original_prompt_from_user.strip()
         )
         active_session = models.ChatSession(user_id=current_user.id, title=session_title, status='loading')
         print(
@@ -906,7 +906,7 @@ async def collaborative_answer_mode_endpoint(
         chat_session_id=active_session.id,
         user_id=current_user.id,
         role="user",
-        content=original_prompt,
+        content=original_prompt_from_user,
     )
 
     db.add(user_message_db)
