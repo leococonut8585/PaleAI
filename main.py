@@ -31,6 +31,7 @@ import schemas
 import shutil
 import mimetypes
 import traceback
+from io import BytesIO
 load_dotenv()
 
 app = FastAPI()
@@ -726,21 +727,36 @@ async def process_pdf_with_ai(file: UploadFile) -> str:
 
 
 async def process_audio_with_speech_to_text(file: UploadFile) -> str:
-    # Whisper APIなどを呼び出す
-    # 例:
-    # audio_bytes = await file.read()
-    # await file.seek(0)
-    # # transcribed_text = await call_whisper_api(audio_bytes, file.filename) # 独自ヘルパー経由
-    # # 実際の Whisper API 呼び出し (例: OpenAI client を使う場合)
-    # # transcription = await openai_client.audio.transcriptions.create(
-    # #    model="whisper-1",
-    # #    file=(file.filename, audio_bytes, file.content_type)
-    # # )
-    # # return transcription.text
-    print(
-        "注意: process_audio_with_speech_to_text は現在プレースホルダーです。実際の音声認識API呼び出しを実装する必要があります。"
-    )
-    return f"音声ファイル「{file.filename}」から文字起こしされたテキストがここに入ります。(プレースホルダー)"
+    if not openai_client:
+        raise Exception("OpenAIクライアントが初期化されていません。")
+
+    try:
+        audio_bytes = await file.read()
+        await file.seek(0)  # 他の処理で再利用する場合に備えてポインタを戻す
+
+        print(
+            f"OpenAI Whisper API呼び出し準備 (モデル: whisper-1): ファイル名='{file.filename}', Content-Type='{file.content_type}'"
+        )
+
+        audio_file_for_api = BytesIO(audio_bytes)
+
+        transcription_response = await openai_client.audio.transcriptions.create(
+            model="whisper-1",
+            file=(file.filename, audio_file_for_api, file.content_type)
+        )
+
+        transcribed_text = transcription_response.text
+
+        if not transcribed_text or transcribed_text.strip() == "":
+            return f"音声ファイル「{file.filename}」から文字を認識できませんでした。"
+
+        print(f"OpenAI Whisper APIからの文字起こし成功 (冒頭): {transcribed_text[:100].strip()}...")
+        return transcribed_text.strip()
+
+    except Exception as e:
+        print(f"OpenAI Whisper APIでの音声処理中にエラー: {e}")
+        traceback.print_exc()
+        raise Exception(f"音声ファイル「{file.filename}」の処理中にエラーが発生しました: {str(e)}")
 
 # --- (ここまでが新規挿入するヘルパー関数群) ---
 
@@ -865,6 +881,10 @@ async def collaborative_answer_mode_endpoint(
                 mime_type, _ = mimetypes.guess_type(file.filename)
             print(f"ファイル処理開始: {file.filename}, MIMEタイプ: {mime_type}")
 
+            SUPPORTED_AUDIO_MIMES = [
+                "audio/mpeg", "audio/mp4", "audio/x-m4a", "audio/wav", "audio/webm", "audio/mp3",
+            ]
+
             if mime_type:
                 if mime_type == "text/plain" or mime_type == "text/markdown" or mime_type.endswith(".py") or mime_type.endswith(".js") or mime_type.endswith(".html") or mime_type.endswith(".css"):
                     processed_file_text_for_ai = await process_text_file(file)
@@ -875,7 +895,7 @@ async def collaborative_answer_mode_endpoint(
                 elif mime_type == "application/pdf":
                     processed_file_text_for_ai = await process_pdf_with_ai(file)
                     file_processing_log = schemas.IndividualAIResponse(source="ファイル処理(PDF)", response=f"PDFファイル「{file.filename}」からテキスト情報を抽出しました。")
-                elif mime_type.startswith("audio/"):
+                elif mime_type in SUPPORTED_AUDIO_MIMES or (file.filename and any(file.filename.lower().endswith(ext) for ext in [".mp3", ".mp4", ".m4a", ".wav", ".webm", ".mpeg"])):
                     processed_file_text_for_ai = await process_audio_with_speech_to_text(file)
                     file_processing_log = schemas.IndividualAIResponse(source="ファイル処理(音声認識)", response=f"音声ファイル「{file.filename}」を文字起こししました。")
                 else:
