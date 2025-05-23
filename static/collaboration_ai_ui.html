@@ -666,8 +666,13 @@
     const templateContentInput = document.getElementById('templateContent');
     const templateCategoryInput = document.getElementById('templateCategory');
     const addTemplateBtn = document.getElementById('addTemplateBtn');
-    const autoTranslateCheckbox = document.getElementById('autoTranslate');
-    const languageModeCheckbox = document.getElementById('languageMode');
+    // const autoTranslateCheckbox = document.getElementById('autoTranslate'); // 該当IDがない場合はコメントアウトまたは削除
+    // const languageModeCheckbox = document.getElementById('languageMode'); // 該当IDがない場合はコメントアウトまたは削除
+
+    // ファイルアップロード関連のDOM要素
+    const fileUploadBtn = document.getElementById('fileUploadBtn');
+    const fileInput = document.getElementById('fileInput');
+    let selectedFile = null;
 
     const videoModeContainer = document.getElementById('videoModeContainer');
     const chatInputRow = document.getElementById('chatInputRow');
@@ -2051,197 +2056,161 @@ function highlightMessage(messageId) {
     }
     
     // --- プロンプト送信処理 ---
+
     if (submitBtn) {
         submitBtn.addEventListener('click', async () => {
-            const promptValue = promptTextarea.value.trim();
-            let sendPrompt = promptValue;
-            if (languageModeCheckbox && languageModeCheckbox.checked) {
-                try {
-                    const trRes = await makeAuthenticatedRequest(API_ENDPOINT_TRANSLATE, {
-                        method: 'POST',
-                        body: JSON.stringify({ text: promptValue, target_lang: 'EN' })
-                    });
-                    if (trRes.ok) { const d = await trRes.json(); sendPrompt = d.translated_text; }
-                } catch (e) { console.error('翻訳失敗', e); }
+            const promptValue = promptTextarea.value.trim(); // ユーザーが直接入力したプロンプト
+            let sendPrompt = promptValue; // AIに送る基本プロンプト (翻訳などが適用される可能性あり)
+
+            // (中略: 翻訳処理 (languageModeCheckbox) などがあれば、sendPrompt を更新)
+
+            if (!promptValue && !selectedFile) { // プロンプトもファイルも無い場合は送信しない
+                alert('プロンプトを入力するか、ファイルを指定してください。');
+                return;
             }
-            if (!promptValue) { alert('プロンプトを入力してください。'); return; }
             if (!getToken()) { alert('チャット機能を利用するにはログインが必要です。'); return; }
 
             const selectedMode = aiModeSelect.value;
-            displayMessage(promptValue, 'user'); // ユーザーのメッセージを先に表示
-            promptTextarea.value = ''; // 入力欄をクリア
+
+            // ユーザーの入力(プロンプトまたはファイル名)を先に表示
+            if (promptValue) {
+                displayMessage(promptValue, 'user');
+            } else if (selectedFile && selectedFile.name) {
+                // プロンプトが空でファイルのみの場合、ファイル名をユーザーメッセージとして表示する例
+                displayMessage(`ファイル「${selectedFile.name}」を送信します。`, 'user');
+            }
+            promptTextarea.value = '';
 
             await ensureSessionReady();
 
-            if (currentSessionId === null) {
+            if (currentSessionId === null) { // 新規セッションの場合
                 try {
-                    const provisional = promptValue.split(/\n/)[0].substring(0, 20) || '新しいチャット';
+                    let provisionalTitle = "新しいチャット";
+                    if (promptValue) {
+                        provisionalTitle = promptValue.split(/\n/)[0].substring(0, 30) || '新しいチャット';
+                    } else if (selectedFile && selectedFile.name) {
+                        provisionalTitle = `ファイル: ${selectedFile.name.substring(0,20)}`;
+                    }
                     const createRes = await makeAuthenticatedRequest(API_ENDPOINT_CHAT_SESSIONS, {
                         method: 'POST',
-                        body: JSON.stringify({ title: provisional, status: 'loading' })
+                        body: JSON.stringify({ title: provisionalTitle, mode: selectedMode, status: 'loading' })
                     });
                     if (createRes.ok) {
                         const newS = await createRes.json();
                         currentSessionId = newS.id;
-                        await loadChatSessions();
-                    }
-                } catch(e) { console.error('session create error', e); }
-            }
-
-            const requestSessionId = currentSessionId;
-            const targetKey = requestSessionId !== null ? String(requestSessionId) : 'new';
-            if (sessionLoading[targetKey]) { alert('このチャットは応答待ちです。'); return; }
-            sessionLoading[targetKey] = true;
-            const container = document.querySelector(`.session-element[data-session-id="${requestSessionId}"]`);
-            if (container) {
-                container.dataset.status = 'loading';
-                if (!container.querySelector('.session-loading-spinner')) {
-                    const sp = document.createElement('span');
-                    sp.className = 'session-loading-spinner';
-                    container.querySelector('button').appendChild(sp);
-                }
-            }
-            if (currentSessionId === requestSessionId && requestSessionId !== null) {
-                loadingIndicator.classList.remove('hidden');
-                showThinkingVideo();
-            }
-
-            try {
-                let userMemoriesForRequest = null;
-                try {
-                    const memoryRes = await makeAuthenticatedRequest(API_ENDPOINT_MEMORY, { method: 'GET' });
-                    if (memoryRes.ok) {
-                        userMemoriesForRequest = await memoryRes.json();
-                        if (userMemoriesForRequest.length === 0) {
-                            userMemoriesForRequest = null; // 空の場合はnullにする
-                        }
-                    } else {
-                        console.warn("ユーザーメモリの取得に失敗しました。メモリなしで続行します。");
-                    }
-                } catch (memError) {
-                    console.error("ユーザーメモリ取得中にエラー:", memError);
-                    // エラーが発生しても、メモリなしで処理は続行する
-                }
-
-                let response;
-                if (selectedMode === 'imagegen') {
-                    const count = parseInt(imageCountSelect.value || '1');
-                    const selectedImageApi = imageApiSelect.value; // 追加
-                    response = await makeAuthenticatedRequest(API_ENDPOINT_IMAGE_GEN, {
-                        method: 'POST',
-                        body: JSON.stringify({ prompt: sendPrompt, count: count, api: selectedImageApi }) // api パラメータを追加
-                    });
-                } else {
-                    const requestBody = {
-                        prompt: sendPrompt,
-                        mode: selectedMode,
-                        session_id: currentSessionId,
-                        user_memories: userMemoriesForRequest
-                    };
-                    if (selectedMode === 'longwriting') {
-                        requestBody.char_count = parseInt(charCountInput.value || '0');
-                    }
-                    response = await makeAuthenticatedRequest(API_ENDPOINT_COLLABORATIVE_ANSWER, {
-                        method: 'POST',
-                        body: JSON.stringify(requestBody)
-                    });
-                }
-
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({ detail: `サーバーエラーが発生しました (${response.status})` }));
-                    throw new Error(errorData.detail || `サーバーエラー (${response.status})`);
-                }
-                const data = await response.json();
-                if (selectedMode === 'imagegen') {
-                    console.log('image data:', data);
-                    if (data.urls && data.urls.length > 0) {
-                        const imgs = data.urls.map(u => `<img src="${u}" class="max-w-xs mr-2 mb-2">`).join('');
-                        if (currentSessionId === requestSessionId) displayMessage(imgs, 'ai', 'Image');
-                    } else {
-                        if (currentSessionId === requestSessionId) displayMessage(data.error || '画像生成に失敗しました', 'ai', 'AIError');
-                    }
-                } else {
-                    console.log("サーバーからの応答 (/collaborative_answer_v2):", data); // デバッグ用
-
-                    if (data.overall_error) {
-                        if (currentSessionId === requestSessionId) displayMessage(`全体エラー: ${data.overall_error}`, 'ai', 'SystemError');
-                    } else if (data.search_mode_details && data.search_mode_details.length > 0) {
-                        const fragments = data.search_mode_details.filter(i => i.source !== 'Search Summary (Gemini)');
-                        const summaryItem = data.search_mode_details.find(i => i.source === 'Search Summary (Gemini)');
-                        if (fragments.length > 0) {
-                            if (currentSessionId === requestSessionId) displayMessage('<h3>断片情報一覧</h3>', 'system');
-                            fragments.forEach((item) => {
-                                let header = `<strong>${item.source}</strong>`;
-                                if (item.query) header += `<br>クエリ: ${item.query}`;
-                                if (item.intent) header += `<br>観点: ${item.intent}`;
-                                if (item.response) {
-                                    let body = `${header}<br>${item.response}`;
-                                    if (item.links && item.links.length > 0) {
-                                        const linksHtml = item.links.map(l => `<a href="${l}" target="_blank" class="text-blue-600 underline break-all">${l}</a>`).join('<br>');
-                                        body += `<br><div class="mt-2 p-2 bg-gray-50 rounded">${linksHtml}</div>`;
-                                    }
-                                    if (currentSessionId === requestSessionId) displayMessage(body, 'ai', item.source);
-                                } else if (item.error) {
-                                    if (currentSessionId === requestSessionId) displayMessage(`エラー (${item.source}): ${item.error}`, 'ai', 'AIError');
-                                }
-                            });
-                        }
-                        if (summaryItem) {
-                            if (currentSessionId === requestSessionId) displayMessage('<h3>まとめ</h3>', 'system');
-                            let header = `<strong>${summaryItem.source}</strong>`;
-                            if (summaryItem.query) header += `<br>クエリ: ${summaryItem.query}`;
-                            if (summaryItem.intent) header += `<br>観点: ${summaryItem.intent}`;
-                            if (summaryItem.response) {
-                                let body = `${header}<br>${summaryItem.response}`;
-                                if (summaryItem.links && summaryItem.links.length > 0) {
-                                    const linksHtml = summaryItem.links.map(l => `<a href="${l}" target="_blank" class="text-blue-600 underline break-all">${l}</a>`).join('<br>');
-                                    body += `<br><div class="mt-2 p-2 bg-gray-50 rounded">${linksHtml}</div>`;
-                                }
-                                if (currentSessionId === requestSessionId) displayMessage(body, 'ai', summaryItem.source);
-                            } else if (summaryItem.error) {
-                                if (currentSessionId === requestSessionId) displayMessage(`エラー (${summaryItem.source}): ${summaryItem.error}`, 'ai', 'AIError');
-                            }
-                        }
-                    } else if (data.step7_final_answer_v2_openai && data.step7_final_answer_v2_openai.response) {
-                        if (currentSessionId === requestSessionId) displayMessage(data.step7_final_answer_v2_openai.response, 'ai', data.step7_final_answer_v2_openai.source || 'AI');
-                    } else if (data.step7_final_answer_v2_openai && data.step7_final_answer_v2_openai.error) {
-                    if (currentSessionId === requestSessionId) displayMessage(`エラー (${data.step7_final_answer_v2_openai.source || 'AI'}): ${data.step7_final_answer_v2_openai.error}`, 'ai', 'AIError');
-                } else {
-                    if (currentSessionId === requestSessionId) displayMessage('AIから有効な応答がありませんでした。レスポンスデータを確認してください。', 'ai', 'System');
-                }
-                    // セッションIDの更新とリスト再読み込み
-                    if (data.processed_session_id && currentSessionId !== data.processed_session_id) {
-                        currentSessionId = data.processed_session_id;
-                        console.log("新しいチャットセッションIDが設定されました:", currentSessionId);
+                        activeSessionOriginalMode = selectedMode;
                         await loadChatSessions();
                         const allSessionElements = chatSessionListDiv.querySelectorAll('.session-element > button');
                         allSessionElements.forEach(btn => btn.classList.remove('session-button-active'));
                         const newlyActiveButton = chatSessionListDiv.querySelector(`.session-element[data-session-id="${currentSessionId}"] > button`);
                         if (newlyActiveButton) newlyActiveButton.classList.add('session-button-active');
-                    } else if (currentSessionId) {
-                        await loadChatSessions();
-                    } else if (!currentSessionId && data.processed_session_id) {
-                        currentSessionId = data.processed_session_id;
-                        await loadChatSessions();
+
+                    } else {
+                         console.error('新規セッションの作成に失敗しました。');
+                         displayMessage('エラー: 新規チャットセッションを開始できませんでした。', 'system');
+                         return;
                     }
+                } catch(e) {
+                    console.error('新規セッション作成エラー:', e);
+                    displayMessage(`エラー: ${e.message || '新規セッションの作成に失敗しました。'}`, 'system');
+                    return;
+                }
+            }
+            loadingIndicator.classList.remove('hidden');
+            showThinkingVideo();
+
+            const requestSessionId = currentSessionId;
+
+            try {
+                const formData = new FormData();
+                formData.append('prompt', sendPrompt);
+                formData.append('mode', selectedMode);
+                if (requestSessionId !== null) {
+                    formData.append('session_id', String(requestSessionId));
+                }
+
+                if (selectedMode === 'longwriting' && charCountInput.value) {
+                    formData.append('char_count', charCountInput.value);
+                }
+                if (selectedMode === 'imagegen') {
+                    formData.append('image_count', imageCountSelect.value);
+                    formData.append('image_api', imageApiSelect.value);
+                }
+
+                if (selectedFile) {
+                    formData.append('file', selectedFile, selectedFile.name);
+                }
+
+                let response;
+                response = await makeAuthenticatedRequest(API_ENDPOINT_COLLABORATIVE_ANSWER, {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ detail: `サーバーエラー (${response.status})` }));
+                    throw new Error(errorData.detail || `サーバーエラー (${response.status})`);
+                }
+                const data = await response.json();
+
+                console.log("サーバーからの応答 (/collaborative_answer_v2):", data);
+
+                if (currentSessionId === requestSessionId || (currentSessionId === null && data.processed_session_id === requestSessionId )) {
+                    if (data.overall_error) {
+                        displayMessage(`全体エラー: ${data.overall_error}`, 'ai', 'SystemError');
+                    } else if (selectedMode === 'imagegen' && data.step7_final_answer_v2_openai && data.step7_final_answer_v2_openai.response && data.step7_final_answer_v2_openai.source === "Image Generation Result") {
+                        displayMessage(data.step7_final_answer_v2_openai.response, 'ai', 'ImageGen');
+                    } else if (data.step7_final_answer_v2_openai && (data.step7_final_answer_v2_openai.response || data.step7_final_answer_v2_openai.error)) {
+                        displayMessage(
+                            data.step7_final_answer_v2_openai.response || `エラー: ${data.step7_final_answer_v2_openai.error}`,
+                            'ai',
+                            data.step7_final_answer_v2_openai.source || 'AI',
+                            null,
+                            data.search_fragments,
+                            data.search_summary_text,
+                            data.search_mode_warnings
+                        );
+                    } else {
+                        displayMessage('AIから有効な応答がありませんでした。', 'ai', 'System');
+                    }
+
+                    if (data.file_processing_step && data.file_processing_step.response) {
+                        displayMessage(`ファイル処理結果 (${data.file_processing_step.source}): ${data.file_processing_step.response}`, 'system');
+                    } else if (data.file_processing_step && data.file_processing_step.error) {
+                        displayMessage(`ファイル処理エラー (${data.file_processing_step.source}): ${data.file_processing_step.error}`, 'system');
+                    }
+
+                    if (data.generated_download_url) {
+                        let fullDownloadUrl = data.generated_download_url;
+                        if (!data.generated_download_url.startsWith('http')) {
+                            fullDownloadUrl = `${API_BASE_URL}${data.generated_download_url}`;
+                        }
+                        displayMessage(
+                            `ファイル「${data.generated_file_name || 'output'}」の準備ができました: <a href="${fullDownloadUrl}" target="_blank" class="text-blue-600 underline" download="${data.generated_file_name || ''}">ダウンロード</a>`,
+                            'ai',
+                            'ファイル出力システム'
+                        );
+                    }
+                }
+                if (data.processed_session_id && (currentSessionId === null || currentSessionId !== data.processed_session_id)) {
+                    currentSessionId = data.processed_session_id;
+                    const newSessionData = allSessionsCache.find(s => s.id === currentSessionId);
+                    if (newSessionData) activeSessionOriginalMode = newSessionData.mode;
+
+                    await loadChatSessions();
+                } else if (requestSessionId) {
+                     await loadChatSessions();
                 }
 
 
             } catch (error) {
                 console.error('リクエストエラー:', error);
-                displayMessage(`リクエスト処理中にエラーが発生しました: ${error.message}`, 'ai', 'SystemError');
+                displayMessage(`リクエスト処理中にエラー: ${error.message || '不明なエラー'}`, 'ai', 'SystemError');
             } finally {
-                sessionLoading[targetKey] = false;
-                const c = document.querySelector(`.session-element[data-session-id="${requestSessionId}"]`);
-                if (c) {
-                    c.dataset.status = 'complete';
-                    const sp = c.querySelector('.session-loading-spinner');
-                    if (sp) sp.remove();
-                }
-                if (requestSessionId !== null && currentSessionId === requestSessionId) {
-                    hideThinkingVideo();
-                    loadingIndicator.classList.add('hidden');
-                }
+                selectedFile = null;
+                if (fileInput) fileInput.value = '';
+                loadingIndicator.classList.add('hidden');
+                hideThinkingVideo();
             }
         });
     }
@@ -2355,6 +2324,63 @@ function highlightMessage(messageId) {
 
     // --- 初期化処理 ---
     document.addEventListener('DOMContentLoaded', () => {
+        // --- ファイルアップロードボタンと実際のinput要素の連携 ---
+        if (fileUploadBtn) {
+            fileUploadBtn.addEventListener('click', () => {
+                if (fileInput) fileInput.click(); // 隠れたfile inputを起動
+            });
+        }
+
+        // --- ファイルが選択された際の処理 ---
+        if (fileInput) {
+            fileInput.addEventListener('change', (event) => {
+                if (event.target.files && event.target.files.length > 0) {
+                    selectedFile = event.target.files[0];
+                    if (selectedFile) {
+                        // UIに選択されたファイル名を表示するなどのフィードバック
+                        displayMessage(`ファイル「${selectedFile.name}」（サイズ: ${Math.round(selectedFile.size / 1024)}KB）を選択しました。プロンプトと一緒に送信されます。`, 'system');
+                    }
+                } else {
+                    selectedFile = null; // ファイル選択がキャンセルされた場合
+                }
+            });
+        }
+
+        // --- プロンプト入力エリアへのドラッグ＆ドロップ対応 ---
+        if (promptTextarea) { // promptTextarea は既に取得済みのはず
+            promptTextarea.addEventListener('dragover', (event) => {
+                event.preventDefault(); // デフォルトの動作をキャンセル
+                event.stopPropagation();
+                promptTextarea.classList.add('border-blue-400', 'border-2', 'border-dashed'); // ドラッグ中のスタイル
+            });
+
+            promptTextarea.addEventListener('dragleave', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                promptTextarea.classList.remove('border-blue-400', 'border-2', 'border-dashed');
+            });
+
+            promptTextarea.addEventListener('drop', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                promptTextarea.classList.remove('border-blue-400', 'border-2', 'border-dashed');
+
+                if (event.dataTransfer.files && event.dataTransfer.files.length > 0) {
+                    // 複数のファイルがドロップされた場合、最初のファイルのみを扱う
+                    selectedFile = event.dataTransfer.files[0];
+                    if (fileInput) { // 隠れたinputにもファイルをセット（一貫性のため）
+                        try {
+                            fileInput.files = event.dataTransfer.files;
+                        } catch (e) {
+                            // セキュリティ上の理由で直接 fileInput.files に DataTransfer.files を設定できない場合がある
+                            console.warn("直接的なファイルリスト設定に失敗:", e);
+                        }
+                    }
+                    displayMessage(`ファイル「${selectedFile.name}」（サイズ: ${Math.round(selectedFile.size / 1024)}KB）をドロップしました。プロンプトと一緒に送信されます。`, 'system');
+                    // event.dataTransfer.clearData(); // 通常は不要
+                }
+            });
+        }
         const prefill = sessionStorage.getItem('prefillEmail');
         if (prefill && loginEmailInput) {
             loginEmailInput.value = prefill;
