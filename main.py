@@ -931,57 +931,57 @@ async def collaborative_answer_mode_endpoint(
         # 各モード実行フロー関数に initial_user_prompt_for_session と chat_history_for_ai を渡す
         # chat_history_for_ai は現在の original_prompt を含まない「それ以前の」履歴
         # original_prompt は現在のユーザー入力として別途渡す
-        if mode == "balance":
+        if current_mode == "balance":
             response_shell = await run_balance_mode_flow(
-                original_prompt=original_prompt,
+                original_prompt=final_prompt_for_ai_flow,
                 response_shell=response_shell,
                 chat_history_for_ai=list(chat_history_for_ai), # 副作用を防ぐためコピーを渡す
                 initial_user_prompt_for_session=initial_user_prompt_for_session
             )
-        elif mode in ("search", "search3"):
+        elif current_mode in ("search", "search3"):
             response_shell = await run_search_mode_flow(
-                original_prompt=original_prompt,
+                original_prompt=final_prompt_for_ai_flow,
                 response_shell=response_shell,
                 chat_history_for_ai=list(chat_history_for_ai),
                 initial_user_prompt_for_session=initial_user_prompt_for_session,
                 user_memories=user_memories_from_request
             )
-        elif mode in ("search6", "supersearch"):
+        elif current_mode in ("search6", "supersearch"):
             response_shell = await run_super_search_mode_flow(
-                original_prompt=original_prompt,
+                original_prompt=final_prompt_for_ai_flow,
                 response_shell=response_shell,
                 chat_history_for_ai=list(chat_history_for_ai),
                 initial_user_prompt_for_session=initial_user_prompt_for_session,
                 user_memories=user_memories_from_request
             )
-        elif mode == "code":
+        elif current_mode == "code":
             response_shell = await run_code_mode_flow(
-                original_prompt=original_prompt,
+                original_prompt=final_prompt_for_ai_flow,
                 response_shell=response_shell,
                 chat_history_for_ai=list(chat_history_for_ai),
                 initial_user_prompt_for_session=initial_user_prompt_for_session,
                 user_memories=user_memories_from_request
             )
-        elif mode == "writing":
+        elif current_mode == "writing":
             response_shell = await run_writing_mode_flow(
-                original_prompt=original_prompt,
+                original_prompt=final_prompt_for_ai_flow,
                 response_shell=response_shell,
                 chat_history_for_ai=list(chat_history_for_ai),
                 initial_user_prompt_for_session=initial_user_prompt_for_session,
                 user_memories=user_memories_from_request
             )
-        elif mode == "longwriting":
+        elif current_mode == "longwriting":
             response_shell = await run_ultra_writing_mode_flow(
-                original_prompt=original_prompt,
+                original_prompt=final_prompt_for_ai_flow,
                 response_shell=response_shell,
                 chat_history_for_ai=list(chat_history_for_ai),
                 initial_user_prompt_for_session=initial_user_prompt_for_session,
                 user_memories=user_memories_from_request,
                 desired_char_count=desired_char_count
             )
-        elif mode == "fastchat":
+        elif current_mode == "fastchat":
             response_shell = await run_fast_chat_mode_flow(
-                original_prompt=original_prompt,
+                original_prompt=final_prompt_for_ai_flow,
                 response_shell=response_shell,
                 chat_history_for_ai=list(chat_history_for_ai),
                 initial_user_prompt_for_session=initial_user_prompt_for_session,
@@ -990,7 +990,7 @@ async def collaborative_answer_mode_endpoint(
         else:
             raise HTTPException(
                 status_code=400,
-                detail=f"無効なモード「{mode}」が指定されました。"
+                detail=f"無効なモード「{current_mode}」が指定されました。"
             )
 
         # --- 5. AIの応答をDBに保存 ---
@@ -1075,6 +1075,68 @@ async def collaborative_answer_mode_endpoint(
         # 開発中は詳細なエラーを返すことも検討（本番ではセキュリティ上非推奨）
         # response_shell.overall_error = error_message
         return response_shell
+
+    # --- 最終ステップ: ファイル出力処理 (もしあれば) ---
+    # original_prompt_from_user (ユーザーの生の入力) を解析して出力形式の指示があるか確認
+    output_format_match = re.search(r"「(.+?)形式で出力」|「(.+?)として出力」|出力形式は(.+)", original_prompt_from_user, re.IGNORECASE)
+    requested_output_format = None
+    if output_format_match:
+        # マッチしたグループから最初の非Noneの値を取得
+        for group in output_format_match.groups():
+            if group:
+                requested_output_format = group.strip().lower()
+                break
+
+    if requested_output_format and response_shell.step7_final_answer_v2_openai and response_shell.step7_final_answer_v2_openai.response:
+        final_ai_text_content = response_shell.step7_final_answer_v2_openai.response
+        # output_file_path: Optional[str] = None # 生成されたファイルのサーバー上のパス
+        # download_route = "/generated_files" # FastAPIで静的ファイル配信または専用エンドポイント
+        # os.makedirs(download_route.lstrip("/"), exist_ok=True)
+
+        # output_file_basename = f"pale_ai_output_{active_session.id if active_session else 'temp'}_{int(datetime.now().timestamp())}"
+        # output_file_name_with_ext = f"{output_file_basename}.{requested_output_format}"
+        # full_output_path = os.path.join(download_route.lstrip("/"), output_file_name_with_ext)
+
+        print(f"ファイル出力リクエスト検知: 形式 = {requested_output_format}")
+
+        can_process_output = False
+        unsupported_message_suffix = f"\n\n（システムより追記: ご指定の「{requested_output_format}」形式での直接的なファイル出力は現在実装準備中です。テキストでの回答となります。）"
+
+        if requested_output_format in ["txt", "md", "markdown", "json", "py", "html", "css", "js", "csv"]: # テキストベース
+            # try:
+            #     with open(full_output_path, "w", encoding="utf-8") as f:
+            #         f.write(final_ai_text_content)
+            #     response_shell.generated_download_url = f"{download_route}/{output_file_name_with_ext}"
+            #     response_shell.generated_file_name = output_file_name_with_ext
+            #     can_process_output = True
+            #     print(f"テキストファイル生成成功: {full_output_path}")
+            # except Exception as e:
+            #     print(f"テキストファイル「{output_file_name_with_ext}」の書き出しに失敗: {e}")
+            #     if response_shell.step7_final_answer_v2_openai.response: # 既存の応答に追記
+            #         response_shell.step7_final_answer_v2_openai.response += unsupported_message_suffix
+            pass # 実際のファイル書き出しとURL設定処理を実装
+        elif requested_output_format == "pdf":
+            # 例: Pandoc や ReportLab を使った変換処理 (別途実装が必要)
+            # try:
+            #    await convert_text_to_pdf(final_ai_text_content, full_output_path) # 仮の非同期関数
+            #    response_shell.generated_download_url = f"{download_route}/{output_file_name_with_ext}"
+            #    response_shell.generated_file_name = output_file_name_with_ext
+            #    can_process_output = True
+            # except Exception as e:
+            #    print(f"PDF変換失敗: {e}")
+            #    if response_shell.step7_final_answer_v2_openai.response:
+            #        response_shell.step7_final_answer_v2_openai.response += unsupported_message_suffix
+            pass # PDF変換処理を実装
+        elif requested_output_format == "docx":
+            # 例: Pandoc や python-docx を使った変換処理 (別途実装が必要)
+            pass # DOCX変換処理を実装
+
+        if not can_process_output and response_shell.step7_final_answer_v2_openai.response:
+             # response_shell.step7_final_answer_v2_openai.response += unsupported_message_suffix
+             # DB保存前にこのメッセージがAI応答に反映されるようにする
+             # 例えば、final_ai_response_content_for_db にこのメッセージを追加する
+             # (AI応答保存ロジックの部分で調整が必要)
+             print(f"未対応または失敗した出力形式: {requested_output_format}")
 
     print(f"Endpoint (normal path) is about to return response_shell.")
     if response_shell:
