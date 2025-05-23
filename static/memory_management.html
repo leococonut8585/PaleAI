@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-नामी">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PaleAI - メモリ管理</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'M PLUS Rounded 1c', sans-serif; background-color: #f0f4f8; }
+        .memory-item { background-color: white; border: 1px solid #e2e8f0; border-radius: 0.375rem; padding: 0.75rem; margin-bottom: 0.75rem; }
+        .memory-title { font-weight: 600; color: #2d3748; margin-bottom: 0.25rem; }
+        .memory-content { font-size: 0.875rem; color: #4a5568; white-space: pre-wrap; word-break: break-word; }
+        .priority-label { font-size: 0.75rem; color: #718096; }
+        .btn { padding: 0.5rem 1rem; border-radius: 0.25rem; font-size: 0.875rem; cursor: pointer; transition: background-color 0.2s; }
+        .btn-primary { background-color: #4299e1; color: white; }
+        .btn-primary:hover { background-color: #3182ce; }
+        .btn-secondary { background-color: #e2e8f0; color: #2d3748; }
+        .btn-secondary:hover { background-color: #cbd5e0; }
+        .btn-danger { background-color: #f56565; color: white; }
+        .btn-danger:hover { background-color: #e53e3e; }
+        .limit-reached-msg { color: #c53030; font-size: 0.875rem; text-align: center; padding: 0.5rem; background-color: #fed7d7; border: 1px solid #f56565; border-radius: 0.25rem;}
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div class="max-w-2xl mx-auto bg-white shadow-lg rounded-lg p-6">
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-2xl font-bold text-teal-700">メモリ管理</h1>
+            <button id="backButton" class="btn btn-secondary">チャットに戻る</button>
+        </div>
+
+        <div id="authMessage" class="hidden text-center text-red-600 mb-4">ログインが必要です。</div>
+
+        <div id="memoryFormContainer" class="mb-6 hidden">
+            <h2 id="formTitle" class="text-lg font-semibold mb-3 text-gray-700">新しいメモリを追加</h2>
+            <input type="hidden" id="memoryIdInput">
+            <div class="mb-3">
+                <label for="memoryTitleInput" class="block text-sm font-medium text-gray-700 mb-1">タイトル (必須)</label>
+                <input type="text" id="memoryTitleInput" maxlength="100" class="w-full p-2 border border-gray-300 rounded-md focus:ring-teal-500 focus:border-teal-500">
+            </div>
+            <div class="mb-3">
+                <label for="memoryContentInput" class="block text-sm font-medium text-gray-700 mb-1">内容 (必須)</label>
+                <textarea id="memoryContentInput" rows="4" maxlength="5000" class="w-full p-2 border border-gray-300 rounded-md focus:ring-teal-500 focus:border-teal-500"></textarea>
+            </div>
+            <div class="mb-3">
+                <label for="memoryPriorityInput" class="block text-sm font-medium text-gray-700 mb-1">優先度 (0-10, 数値が大きいほど高優先)</label>
+                <input type="number" id="memoryPriorityInput" value="0" min="0" max="10" class="w-full p-2 border border-gray-300 rounded-md focus:ring-teal-500 focus:border-teal-500">
+            </div>
+            <div class="flex items-center justify-between">
+                <button id="saveMemoryButton" class="btn btn-primary">保存</button>
+                <button id="cancelEditButton" class="btn btn-secondary hidden">キャンセル</button>
+                <div id="memoryCountDisplay" class="text-sm text-gray-600"></div>
+            </div>
+             <div id="limitReachedMessage" class="hidden limit-reached-msg mt-3">メモリ上限 (100個) に達しているため、新しいメモリを追加できません。</div>
+        </div>
+
+        <div id="memoryListContainer">
+            <h2 class="text-lg font-semibold mb-3 text-gray-700">保存されたメモリ</h2>
+            <div id="memoryList" class="space-y-3">
+                <p class="text-gray-500">メモリを読み込み中...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://127.0.0.1:8000'; // chat.html と同じベースURL
+        const API_ENDPOINT_MEMORY = `${API_BASE_URL}/memory`;
+        const MAX_MEMORIES = 100;
+
+        const memoryListDiv = document.getElementById('memoryList');
+        const memoryFormContainer = document.getElementById('memoryFormContainer');
+        const formTitle = document.getElementById('formTitle');
+        const memoryIdInput = document.getElementById('memoryIdInput');
+        const memoryTitleInputEl = document.getElementById('memoryTitleInput');
+        const memoryContentInputEl = document.getElementById('memoryContentInput');
+        const memoryPriorityInputEl = document.getElementById('memoryPriorityInput');
+        const saveMemoryButton = document.getElementById('saveMemoryButton');
+        const cancelEditButton = document.getElementById('cancelEditButton');
+        const backButton = document.getElementById('backButton');
+        const authMessageDiv = document.getElementById('authMessage');
+        const memoryCountDisplay = document.getElementById('memoryCountDisplay');
+        const limitReachedMessageDiv = document.getElementById('limitReachedMessage');
+
+        function getToken() { return localStorage.getItem('paleio_token'); }
+
+        async function makeAuthRequest(url, options = {}) {
+            const token = getToken();
+            if (!token) {
+                authMessageDiv.classList.remove('hidden');
+                memoryFormContainer.classList.add('hidden');
+                memoryListDiv.innerHTML = '<p class="text-red-500">メモリ機能を利用するには、メインページでログインしてください。</p>';
+                throw new Error('Not authenticated');
+            }
+            authMessageDiv.classList.add('hidden');
+            memoryFormContainer.classList.remove('hidden');
+
+            const headers = { ...options.headers };
+            if (!(options.body instanceof FormData) && !headers['Content-Type']) {
+                headers['Content-Type'] = 'application/json';
+            }
+            if (!headers['accept']) {
+                headers['accept'] = 'application/json';
+            }
+            headers['Authorization'] = `Bearer ${token}`;
+
+            const response = await fetch(url, { ...options, headers });
+            if (response.status === 401) {
+                authMessageDiv.textContent = '認証エラー。メインページで再ログインしてください。';
+                authMessageDiv.classList.remove('hidden');
+                memoryFormContainer.classList.add('hidden');
+                throw new Error('Unauthorized');
+            }
+            return response;
+        }
+
+        async function loadMemories() {
+            memoryListDiv.innerHTML = '<p class="text-gray-500">メモリを読み込み中...</p>';
+            try {
+                const response = await makeAuthRequest(API_ENDPOINT_MEMORY, { method: 'GET' });
+                if (!response.ok) throw new Error('メモリの読み込みに失敗しました。');
+                const memories = await response.json();
+
+                memoryCountDisplay.textContent = `保存済み: ${memories.length} / ${MAX_MEMORIES} 個`;
+                if (memories.length >= MAX_MEMORIES) {
+                    limitReachedMessageDiv.classList.remove('hidden');
+                    // 新規追加フォームのタイトルとボタンテキストを更新（編集は可能なため）
+                    if (!memoryIdInput.value) { // 新規追加モードの場合のみ
+                        saveMemoryButton.disabled = true;
+                        saveMemoryButton.classList.add('opacity-50', 'cursor-not-allowed');
+                    }
+                } else {
+                    limitReachedMessageDiv.classList.add('hidden');
+                    saveMemoryButton.disabled = false;
+                    saveMemoryButton.classList.remove('opacity-50', 'cursor-not-allowed');
+                }
+
+                if (memories.length === 0) {
+                    memoryListDiv.innerHTML = '<p class="text-gray-500">保存されているメモリはありません。</p>';
+                    return;
+                }
+                memoryListDiv.innerHTML = '';
+                memories.forEach(memory => {
+                    const itemDiv = document.createElement('div');
+                    itemDiv.className = 'memory-item';
+                    itemDiv.innerHTML = `
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <h3 class="memory-title">${escapeHtml(memory.title)}</h3>
+                                <p class="memory-content">${escapeHtml(memory.content)}</p>
+                                <p class="priority-label mt-1">優先度: ${memory.priority}</p>
+                            </div>
+                            <div class="flex space-x-2 flex-shrink-0 ml-2">
+                                <button class="btn btn-secondary btn-sm edit-btn" data-id="${memory.id}">編集</button>
+                                <button class="btn btn-danger btn-sm delete-btn" data-id="${memory.id}">削除</button>
+                            </div>
+                        </div>
+                    `;
+                    memoryListDiv.appendChild(itemDiv);
+                });
+
+                document.querySelectorAll('.edit-btn').forEach(button => {
+                    button.addEventListener('click', async (e) => {
+                        const id = e.target.dataset.id;
+                        const memoryToEdit = memories.find(m => m.id == id);
+                        if (memoryToEdit) {
+                            formTitle.textContent = 'メモリを編集';
+                            memoryIdInput.value = memoryToEdit.id;
+                            memoryTitleInputEl.value = memoryToEdit.title;
+                            memoryContentInputEl.value = memoryToEdit.content;
+                            memoryPriorityInputEl.value = memoryToEdit.priority;
+                            saveMemoryButton.textContent = '更新';
+                            cancelEditButton.classList.remove('hidden');
+                            window.scrollTo({ top: memoryFormContainer.offsetTop - 20, behavior: 'smooth' });
+                            // 編集時はメモリ上限に関わらず保存ボタンを有効化
+                            saveMemoryButton.disabled = false;
+                            saveMemoryButton.classList.remove('opacity-50', 'cursor-not-allowed');
+                            limitReachedMessageDiv.classList.add('hidden');
+                        }
+                    });
+                });
+
+                document.querySelectorAll('.delete-btn').forEach(button => {
+                    button.addEventListener('click', async (e) => {
+                        if (!confirm('このメモリを削除してもよろしいですか？')) return;
+                        const id = e.target.dataset.id;
+                        try {
+                            const deleteResponse = await makeAuthRequest(`${API_ENDPOINT_MEMORY}/${id}`, { method: 'DELETE' });
+                            if (!deleteResponse.ok && deleteResponse.status !== 204) { // 204もOK
+                                 const errorData = await deleteResponse.json().catch(() => ({detail: '削除中にエラーが発生しました'}));
+                                 throw new Error(errorData.detail);
+                            }
+                            loadMemories(); // リストを再読み込み
+                        } catch (err) {
+                            alert(`削除失敗: ${err.message}`);
+                        }
+                    });
+                });
+            } catch (error) {
+                if (error.message !== 'Not authenticated' && error.message !== 'Unauthorized') {
+                    memoryListDiv.innerHTML = `<p class="text-red-500">エラー: ${error.message}</p>`;
+                }
+                console.error("Error loading memories:", error);
+            }
+        }
+
+        function resetForm() {
+            formTitle.textContent = '新しいメモリを追加';
+            memoryIdInput.value = '';
+            memoryTitleInputEl.value = '';
+            memoryContentInputEl.value = '';
+            memoryPriorityInputEl.value = '0';
+            saveMemoryButton.textContent = '保存';
+            cancelEditButton.classList.add('hidden');
+            // メモリ数チェックを再実行してボタン状態を更新
+            const currentCountText = memoryCountDisplay.textContent || "保存済み: 0 / 100 個";
+            const currentCountMatch = currentCountText.match(/(\d+)\s*\/\s*(\d+)/);
+            if (currentCountMatch && parseInt(currentCountMatch[1]) >= MAX_MEMORIES) {
+                saveMemoryButton.disabled = true;
+                saveMemoryButton.classList.add('opacity-50', 'cursor-not-allowed');
+                limitReachedMessageDiv.classList.remove('hidden');
+            } else {
+                saveMemoryButton.disabled = false;
+                saveMemoryButton.classList.remove('opacity-50', 'cursor-not-allowed');
+                limitReachedMessageDiv.classList.add('hidden');
+            }
+
+        }
+
+        function escapeHtml(unsafe) {
+            if (unsafe === null || typeof unsafe === 'undefined') return '';
+            return String(unsafe)
+                 .replace(/&/g, "&amp;")
+                 .replace(/</g, "&lt;")
+                 .replace(/>/g, "&gt;")
+                 .replace(/"/g, "&quot;")
+                 .replace(/'/g, "&#039;");
+        }
+
+        saveMemoryButton.addEventListener('click', async () => {
+            const id = memoryIdInput.value;
+            const title = memoryTitleInputEl.value.trim();
+            const content = memoryContentInputEl.value.trim();
+            const priority = parseInt(memoryPriorityInputEl.value);
+
+            if (!title || !content) {
+                alert('タイトルと内容は必須です。');
+                return;
+            }
+
+            const memoryData = { title, content, priority };
+            const url = id ? `${API_ENDPOINT_MEMORY}/${id}` : API_ENDPOINT_MEMORY;
+            const method = id ? 'PUT' : 'POST';
+
+            try {
+                const response = await makeAuthRequest(url, {
+                    method: method,
+                    body: JSON.stringify(memoryData)
+                });
+                const responseData = await response.json().catch(() => null);
+
+                if (!response.ok) {
+                    const detail = responseData && responseData.detail ? responseData.detail : `メモリの${id ? '更新' : '作成'}に失敗しました。`;
+                    throw new Error(detail);
+                }
+                resetForm();
+                loadMemories();
+            } catch (error) {
+                 if (error.message !== 'Not authenticated' && error.message !== 'Unauthorized') {
+                    alert(`エラー: ${error.message}`);
+                 }
+            }
+        });
+
+        cancelEditButton.addEventListener('click', () => {
+            resetForm();
+        });
+
+        backButton.addEventListener('click', () => {
+            window.location.href = 'collaboration_ai_ui.html'; // チャットページのファイル名
+        });
+
+        // 初期ロード
+        if (getToken()) {
+            memoryFormContainer.classList.remove('hidden');
+            loadMemories();
+        } else {
+            authMessageDiv.classList.remove('hidden');
+            memoryFormContainer.classList.add('hidden');
+            memoryListDiv.innerHTML = '<p class="text-red-500">メモリ機能を利用するには、メインページでログインしてください。</p>';
+        }
+    </script>
+</body>
+</html>
