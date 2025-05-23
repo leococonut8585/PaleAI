@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, status  # <<< status を追加
+from fastapi import FastAPI, HTTPException, Depends, status, File, UploadFile, Form
 from fastapi.staticfiles import StaticFiles
 import os
 import models  # models.py 全体をインポート
@@ -25,6 +25,9 @@ from datetime import datetime, timezone
 from pydantic import BaseModel, Field  # Field は前回修正済みのはず
 from typing import Optional, Dict, Any, List  # List も前回修正済みのはず
 import schemas
+import shutil
+import mimetypes
+import traceback
 load_dotenv()
 
 app = FastAPI()
@@ -607,8 +610,75 @@ async def translate_with_deepl(text: str, target_lang: str = "JA") -> str:
         print(f"DeepL翻訳エラー: {e}")
         raise
 
+# ファイル処理用のヘルパー関数群 (後で詳細を実装)
+async def process_text_file(file: UploadFile) -> str:
+    try:
+        contents = await file.read()
+        return contents.decode('utf-8', errors='replace')
+    except Exception as e:
+        print(f"テキストファイルの読み込みエラー: {e}")
+        raise
+    finally:
+        await file.seek(0)  # 再度読み込めるようにするため (必要な場合)
 
 
+async def process_image_with_vision_api(file: UploadFile, original_prompt: str, client_identifier: str = "openai") -> str:
+    # ここで実際にOpenAI Vision APIやGemini Vision APIを呼び出す
+    # 例:
+    # image_bytes = await file.read()
+    # await file.seek(0) # ファイルポインタをリセット
+    # vision_response = await get_openai_response( # または get_gemini_response など
+    #     prompt_text=f"この画像について説明してください。ユーザーの元の関心事は「{original_prompt}」です。",
+    #     # vision API用の特別なパラメータや画像データを渡す処理が必要
+    #     # model="gpt-4o" # vision対応モデル
+    # )
+    # if vision_response.error:
+    #     raise Exception(f"Vision APIエラー: {vision_response.error}")
+    # return vision_response.response or "AIによる画像認識結果がありませんでした。"
+    print(
+        "注意: process_image_with_vision_api は現在プレースホルダーです。実際のVision API呼び出しを実装する必要があります。"
+    )
+    return f"AIによる画像「{file.filename}」の詳細な説明がここに入ります。(プレースホルダー)"
+
+
+async def process_pdf_with_ai(file: UploadFile) -> str:
+    # PyMuPDFなどでテキスト抽出、またはClaudeに直接渡す場合の処理
+    # 例 (PyMuPDF):
+    # import fitz  # PyMuPDF
+    # text_content = ""
+    # try:
+    #     pdf_bytes = await file.read()
+    #     await file.seek(0)
+    #     with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+    #         for page in doc:
+    #             text_content += page.get_text()
+    # except Exception as e:
+    #     raise Exception(f"PDF処理エラー: {e}")
+    # return text_content if text_content.strip() else "PDFからテキストが抽出できませんでした。"
+    print(
+        "注意: process_pdf_with_ai は現在プレースホルダーです。実際のPDF処理を実装する必要があります。"
+    )
+    return f"PDF「{file.filename}」から抽出されたテキストコンテンツがここに入ります。(プレースホルダー)"
+
+
+async def process_audio_with_speech_to_text(file: UploadFile) -> str:
+    # Whisper APIなどを呼び出す
+    # 例:
+    # audio_bytes = await file.read()
+    # await file.seek(0)
+    # # transcribed_text = await call_whisper_api(audio_bytes, file.filename) # 独自ヘルパー経由
+    # # 実際の Whisper API 呼び出し (例: OpenAI client を使う場合)
+    # # transcription = await openai_client.audio.transcriptions.create(
+    # #    model="whisper-1",
+    # #    file=(file.filename, audio_bytes, file.content_type)
+    # # )
+    # # return transcription.text
+    print(
+        "注意: process_audio_with_speech_to_text は現在プレースホルダーです。実際の音声認識API呼び出しを実装する必要があります。"
+    )
+    return f"音声ファイル「{file.filename}」から文字起こしされたテキストがここに入ります。(プレースホルダー)"
+
+# --- (ここまでが新規挿入するヘルパー関数群) ---
 
 @app.post("/translate", response_model=schemas.TranslationResponse)
 async def translate_endpoint(request: schemas.TranslationRequest, current_user: models.User = Depends(get_current_active_user)):
