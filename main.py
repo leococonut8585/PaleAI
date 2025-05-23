@@ -709,51 +709,122 @@ async def translate_endpoint(request: schemas.TranslationRequest, current_user: 
 
 @app.post("/collaborative_answer_v2", response_model=schemas.CollaborativeResponseV2)
 async def collaborative_answer_mode_endpoint(
-    request: schemas.PromptRequestWithHistory, # schemas. を使用
+    prompt: str = Form(...),
+    mode: str = Form(...),
+    session_id: Optional[int] = Form(None),
+    char_count: Optional[int] = Form(None),
+    # user_memories_json: Optional[str] = Form(None), # ユーザーメモリはJSON文字列として受け取りパースする案
+    file: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_active_user)
-) -> schemas.CollaborativeResponseV2: # 戻り値の型ヒントを schemas.CollaborativeResponseV2 に
-    original_prompt = request.prompt.strip() # 前後の空白を除去
-    mode = request.mode.lower()
-    session_id = request.session_id
-    desired_char_count = request.char_count
-    user_memories_from_request = request.user_memories
+) -> schemas.CollaborativeResponseV2:
+    original_prompt_from_user = prompt.strip() # ユーザーが入力したプロンプト
+    current_mode = mode.lower()
+    current_session_id_from_request = session_id
+    desired_char_count = char_count # desired_char_count を使うように変数名を合わせる
 
-    print(f"\nリクエスト受信: UserID={current_user.id}, SessionID={session_id}, Prompt='{original_prompt[:50].strip()}...', Mode='{mode}'")
+    mode = current_mode
 
-    # レスポンスの骨格を先に準備
+    user_memories_from_request: Optional[List[schemas.UserMemoryResponse]] = None
+
+    # user_memories: Optional[List[schemas.UserMemoryResponse]] = None
+    # if user_memories_json:
+    #     try:
+    #         user_memories_data = json.loads(user_memories_json)
+    #         user_memories = [schemas.UserMemoryResponse.model_validate(mem) for mem in user_memories_data]
+    #     except json.JSONDecodeError:
+    #         print("ユーザーメモリのJSONデコードに失敗しました。")
+    #         # エラー処理または無視
+
+    print(f"\nリクエスト受信: UserID={current_user.id}, SessionID(Req)={current_session_id_from_request}, Prompt='{original_prompt_from_user[:50].strip()}...', Mode='{current_mode}', File: {file.filename if file else 'なし'}")
+
     response_shell = schemas.CollaborativeResponseV2(
-        prompt=original_prompt,
-        mode_executed=mode,
-        processed_session_id=session_id # session_id が None の場合も初期値として設定 (後で確定値に更新の可能性あり)
+        prompt=original_prompt_from_user, # 初期プロンプトはユーザー入力を保持
+        mode_executed=current_mode,
+        processed_session_id=current_session_id_from_request
     )
+
+    # ステップ0: ファイル処理
+    processed_file_text_for_ai: Optional[str] = None
+    file_processing_log: Optional[schemas.IndividualAIResponse] = None
+    # AIモードフローに渡す最終的なプロンプト。ファイル処理結果で拡張される可能性がある。
+    final_prompt_for_ai_flow = original_prompt_from_user
+
+    if file and file.filename:
+        try:
+            mime_type = file.content_type
+            if not mime_type and file.filename:
+                mime_type, _ = mimetypes.guess_type(file.filename)
+            print(f"ファイル処理開始: {file.filename}, MIMEタイプ: {mime_type}")
+
+            if mime_type:
+                if mime_type == "text/plain" or mime_type == "text/markdown" or mime_type.endswith(".py") or mime_type.endswith(".js") or mime_type.endswith(".html") or mime_type.endswith(".css"):
+                    processed_file_text_for_ai = await process_text_file(file)
+                    file_processing_log = schemas.IndividualAIResponse(source="ファイル処理(テキスト)", response=f"テキスト系ファイル「{file.filename}」の内容を読み込みました。")
+                elif mime_type.startswith("image/"):
+                    processed_file_text_for_ai = await process_image_with_vision_api(file, original_prompt_from_user)
+                    file_processing_log = schemas.IndividualAIResponse(source="ファイル処理(画像認識)", response=f"画像ファイル「{file.filename}」の内容をAIが認識しました。")
+                elif mime_type == "application/pdf":
+                    processed_file_text_for_ai = await process_pdf_with_ai(file)
+                    file_processing_log = schemas.IndividualAIResponse(source="ファイル処理(PDF)", response=f"PDFファイル「{file.filename}」からテキスト情報を抽出しました。")
+                elif mime_type.startswith("audio/"):
+                    processed_file_text_for_ai = await process_audio_with_speech_to_text(file)
+                    file_processing_log = schemas.IndividualAIResponse(source="ファイル処理(音声認識)", response=f"音声ファイル「{file.filename}」を文字起こししました。")
+                else:
+                    file_processing_log = schemas.IndividualAIResponse(source="ファイル処理", error=f"ファイル形式「{mime_type or '不明'}」は現在直接処理できません。ファイル名「{file.filename}」")
+            else:
+                file_processing_log = schemas.IndividualAIResponse(source="ファイル処理", error=f"ファイル「{file.filename}」の形式を特定できませんでした。")
+
+            if file_processing_log and file_processing_log.error:
+                response_shell.overall_error = file_processing_log.error
+                response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(source="ファイル処理エラー", error=file_processing_log.error)
+                return response_shell
+
+            response_shell.file_processing_step = file_processing_log
+
+            if processed_file_text_for_ai:
+                final_prompt_for_ai_flow = (
+                    f"ユーザーは次のファイルをアップロードしました。\n"
+                    f"ファイル名: {file.filename}\n"
+                    f"ファイルから抽出・認識された内容の要約または全文:\n```text\n{processed_file_text_for_ai[:2000].strip()}...\n```\n"
+                    f"(上記はアップロードされたファイルの内容です。これを踏まえて、以下のユーザーの指示に対応してください。)\n---\n"
+                    f"ユーザーの指示: 「{original_prompt_from_user}」"
+                )
+                response_shell.prompt = final_prompt_for_ai_flow
+            else:
+                final_prompt_for_ai_flow = (
+                    f"ユーザーはファイル「{file.filename}」をアップロードしましたが、そこからテキスト情報を抽出できませんでした。\n"
+                    f"ユーザーの指示: 「{original_prompt_from_user}」"
+                )
+                response_shell.prompt = final_prompt_for_ai_flow
+
+
+        except HTTPException as he:
+            print(f"ファイル処理HTTPエラー: {he.detail}")
+            response_shell.overall_error = he.detail
+            response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(source="ファイル処理エラー", error=he.detail)
+            return response_shell
+        except Exception as e:
+            print(f"ファイル処理中に予期せぬエラー: {e}\n{traceback.format_exc()}")
+            response_shell.overall_error = f"ファイルの処理中に予期せぬエラーが発生しました: {str(e)}"
+            response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(source="ファイル処理エラー", error=str(e))
+            return response_shell
+        finally:
+            if file:
+                await file.close()
+    # --- (ファイル処理ロジックここまで) ---
+
+    original_prompt = final_prompt_for_ai_flow
 
     active_session: Optional[models.ChatSession] = None
     initial_user_prompt_for_session: Optional[str] = None
-
-# main.py の /collaborative_answer_v2 内
-# ... (既存コード) ...
-
-# main.py の /collaborative_answer_v2 内
-# ... (既存コード) ...
-    session_id_from_request = request.session_id # 変数名を変更して明確化
-
-    print(f"\nリクエスト受信: UserID={current_user.id}, SessionID(Req)={session_id_from_request}, Prompt='{original_prompt[:50].strip()}...', Mode='{mode}'")
-
-    response_shell = schemas.CollaborativeResponseV2( # レスポンスシェルの初期化を先に
-        prompt=original_prompt,
-        mode_executed=mode,
-        processed_session_id=session_id_from_request # 初期値としてリクエスト時のIDを設定
-    )
-
-    active_session: Optional[models.ChatSession] = None
-    initial_user_prompt_for_session: Optional[str] = None
+    # (この下の session_id_from_request を current_session_id_from_request に置き換える処理は不要になるか、確認)
     chat_history_for_ai: List[Dict[str, str]] = [] # AIヘルパーに渡す履歴リスト
 
     # --- 1. チャットセッションの特定または作成 ---
-    if session_id_from_request:
+    if current_session_id_from_request:
         active_session = db.query(models.ChatSession).filter(
-            models.ChatSession.id == session_id_from_request,
+            models.ChatSession.id == current_session_id_from_request,
             models.ChatSession.user_id == current_user.id
         ).first()
         if not active_session:
