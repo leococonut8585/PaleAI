@@ -2030,6 +2030,21 @@ async def run_code_mode_flow(
     initial_user_prompt_for_session: Optional[str],
     user_memories: Optional[List[schemas.UserMemoryResponse]] = None
 ) -> schemas.CollaborativeResponseV2:
+    """Run the multi-step code generation flow.
+
+    Parameters
+    ----------
+    original_prompt: str
+        The latest user request driving this turn.
+    response_shell: schemas.CollaborativeResponseV2
+        Object used to accumulate outputs and metadata.
+    chat_history_for_ai: List[Dict[str, str]]
+        Conversation history provided to every model call.
+    initial_user_prompt_for_session: Optional[str]
+        The very first user prompt for overall context.
+    user_memories: Optional[List[schemas.UserMemoryResponse]]
+        Previously stored memory snippets sent to the models.
+    """
 
     print("\n--- コード生成特化モード開始 ---")
     steps_executed: List[schemas.IndividualAIResponse] = []
