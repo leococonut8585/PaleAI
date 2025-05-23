@@ -23,6 +23,10 @@ import fitz  # PyMuPDF
 import uuid
 from fastapi.responses import FileResponse  # ファイルダウンロード用
 import aiofiles  # 非同期ファイル書き込み用
+# オフィス文書処理用ライブラリ
+from docx import Document as DocxDocument  # python-docx
+from openpyxl import load_workbook  # openpyxl
+from pptx import Presentation  # python-pptx
 import json # 今回の修正では直接使用していませんが、一般的に役立つため残します
 import asyncio # 今回の修正では直接使用していませんが、一般的に役立つため残します
 from datetime import datetime, timezone
@@ -764,6 +768,87 @@ async def process_audio_with_speech_to_text(file: UploadFile) -> str:
         traceback.print_exc()
         raise Exception(f"音声ファイル「{file.filename}」の処理中にエラーが発生しました: {str(e)}")
 
+
+async def process_docx_file(file_path: str) -> str:
+    """DOCXファイルからテキストを抽出します。"""
+
+    def extract_text_sync(path: str) -> str:
+        try:
+            doc = DocxDocument(path)
+            full_text = []
+            for para in doc.paragraphs:
+                full_text.append(para.text)
+            return '\n'.join(full_text)
+        except Exception as e:
+            print(f"DOCX処理エラー (同期処理内, path: {path}): {e}")
+            raise Exception(f"DOCXファイルからのテキスト抽出中にエラー: {str(e)}")
+
+    print(f"python-docxによるDOCXファイル「{os.path.basename(file_path)}」のテキスト抽出処理を開始します...")
+    text_content = await run_in_threadpool(extract_text_sync, file_path)
+    if not text_content or text_content.strip() == "":
+        return f"DOCXファイル「{os.path.basename(file_path)}」からテキストを抽出できませんでした。"
+    print(f"DOCX「{os.path.basename(file_path)}」からのテキスト抽出成功 (冒頭): {text_content[:200].strip()}...")
+    return text_content.strip()
+
+
+async def process_xlsx_file(file_path: str) -> str:
+    """XLSXファイルから各セルのテキスト情報を抽出します。"""
+
+    def extract_text_sync(path: str) -> str:
+        try:
+            workbook = load_workbook(filename=path, read_only=True, data_only=True)
+            full_text = []
+            for sheet_name in workbook.sheetnames:
+                sheet = workbook[sheet_name]
+                full_text.append(f"\n--- シート: {sheet_name} ---\n")
+                for row in sheet.iter_rows():
+                    row_text = []
+                    for cell in row:
+                        if cell.value is not None:
+                            row_text.append(str(cell.value))
+                    if row_text:
+                        full_text.append('\t'.join(row_text))
+            return '\n'.join(full_text)
+        except Exception as e:
+            print(f"XLSX処理エラー (同期処理内, path: {path}): {e}")
+            raise Exception(f"XLSXファイルからのテキスト抽出中にエラー: {str(e)}")
+
+    print(f"openpyxlによるXLSXファイル「{os.path.basename(file_path)}」のテキスト抽出処理を開始します...")
+    text_content = await run_in_threadpool(extract_text_sync, file_path)
+    if not text_content or text_content.strip() == "":
+        return f"XLSXファイル「{os.path.basename(file_path)}」からテキストを抽出できませんでした。"
+    print(f"XLSX「{os.path.basename(file_path)}」からのテキスト抽出成功 (冒頭): {text_content[:200].strip()}...")
+    return text_content.strip()
+
+
+async def process_pptx_file(file_path: str) -> str:
+    """PPTXファイルから各スライドのテキスト情報を抽出します。"""
+
+    def extract_text_sync(path: str) -> str:
+        try:
+            presentation = Presentation(path)
+            full_text = []
+            for i, slide in enumerate(presentation.slides):
+                full_text.append(f"\n--- スライド {i + 1} ---\n")
+                for shape in slide.shapes:
+                    if hasattr(shape, "text_frame") and shape.text_frame:
+                        for paragraph in shape.text_frame.paragraphs:
+                            for run in paragraph.runs:
+                                full_text.append(run.text)
+                    elif hasattr(shape, "text") and shape.text:
+                        full_text.append(shape.text)
+            return '\n'.join(full_text)
+        except Exception as e:
+            print(f"PPTX処理エラー (同期処理内, path: {path}): {e}")
+            raise Exception(f"PPTXファイルからのテキスト抽出中にエラー: {str(e)}")
+
+    print(f"python-pptxによるPPTXファイル「{os.path.basename(file_path)}」のテキスト抽出処理を開始します...")
+    text_content = await run_in_threadpool(extract_text_sync, file_path)
+    if not text_content or text_content.strip() == "":
+        return f"PPTXファイル「{os.path.basename(file_path)}」からテキストを抽出できませんでした。"
+    print(f"PPTX「{os.path.basename(file_path)}」からのテキスト抽出成功 (冒頭): {text_content[:200].strip()}...")
+    return text_content.strip()
+
 # --- (ここまでが新規挿入するヘルパー関数群) ---
 
 @app.post("/translate", response_model=schemas.TranslationResponse)
@@ -922,10 +1007,32 @@ async def collaborative_answer_mode_endpoint(
                 elif mime_type in SUPPORTED_AUDIO_MIMES or (file.filename and any(file.filename.lower().endswith(ext) for ext in [".mp3", ".mp4", ".m4a", ".wav", ".webm", ".mpeg"])):
                     processed_file_text_for_ai = await process_audio_with_speech_to_text(file)
                     file_processing_log = schemas.IndividualAIResponse(source="ファイル処理(音声認識)", response=f"音声ファイル「{file.filename}」を文字起こししました。")
+                elif mime_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" or (original_filename and original_filename.lower().endswith(".docx")):
+                    processed_file_text_for_ai = await process_docx_file(temp_file_path)
+                    file_processing_log = schemas.IndividualAIResponse(source="ファイル処理(DOCX)", response=f"DOCXファイル「{original_filename}」からテキスト情報を抽出しました。")
+                elif mime_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" or (original_filename and original_filename.lower().endswith(".xlsx")):
+                    processed_file_text_for_ai = await process_xlsx_file(temp_file_path)
+                    file_processing_log = schemas.IndividualAIResponse(source="ファイル処理(XLSX)", response=f"XLSXファイル「{original_filename}」からテキスト情報を抽出しました。")
+                elif mime_type == "application/vnd.openxmlformats-officedocument.presentationml.presentation" or (original_filename and original_filename.lower().endswith(".pptx")):
+                    processed_file_text_for_ai = await process_pptx_file(temp_file_path)
+                    file_processing_log = schemas.IndividualAIResponse(source="ファイル処理(PPTX)", response=f"PPTXファイル「{original_filename}」からテキスト情報を抽出しました。")
                 else:
-                    file_processing_log = schemas.IndividualAIResponse(source="ファイル処理", error=f"ファイル形式「{mime_type or '不明'}」は現在直接処理できません。ファイル名「{file.filename}」")
+                    file_processing_log = schemas.IndividualAIResponse(source="ファイル処理", error=f"ファイル形式「{mime_type or '不明'}」は現在直接処理できません。ファイル名「{original_filename}」")
             else:
-                file_processing_log = schemas.IndividualAIResponse(source="ファイル処理", error=f"ファイル「{file.filename}」の形式を特定できませんでした。")
+                if original_filename:
+                    if original_filename.lower().endswith(".docx"):
+                        processed_file_text_for_ai = await process_docx_file(temp_file_path)
+                        file_processing_log = schemas.IndividualAIResponse(source="ファイル処理(DOCX拡張子判断)", response=f"DOCXファイル「{original_filename}」からテキスト情報を抽出しました。")
+                    elif original_filename.lower().endswith(".xlsx"):
+                        processed_file_text_for_ai = await process_xlsx_file(temp_file_path)
+                        file_processing_log = schemas.IndividualAIResponse(source="ファイル処理(XLSX拡張子判断)", response=f"XLSXファイル「{original_filename}」からテキスト情報を抽出しました。")
+                    elif original_filename.lower().endswith(".pptx"):
+                        processed_file_text_for_ai = await process_pptx_file(temp_file_path)
+                        file_processing_log = schemas.IndividualAIResponse(source="ファイル処理(PPTX拡張子判断)", response=f"PPTXファイル「{original_filename}」からテキスト情報を抽出しました。")
+                    else:
+                        file_processing_log = schemas.IndividualAIResponse(source="ファイル処理", error=f"ファイル「{original_filename}」の形式をMIMEタイプおよび拡張子から特定できませんでした。")
+                else:
+                    file_processing_log = schemas.IndividualAIResponse(source="ファイル処理", error=f"アップロードされたファイルの形式を特定できませんでした。")
 
             if file_processing_log and file_processing_log.error:
                 response_shell.overall_error = file_processing_log.error
@@ -952,11 +1059,23 @@ async def collaborative_answer_mode_endpoint(
 
 
         except HTTPException as he:
+            if 'temp_file_path' in locals() and temp_file_path and os.path.exists(temp_file_path):
+                try:
+                    os.remove(temp_file_path)
+                    print(f"HTTPException発生のため一時ファイル {temp_file_path} を削除しました。")
+                except Exception as e_remove:
+                    print(f"HTTPException発生後の一次ファイル削除エラー: {e_remove}")
             print(f"ファイル処理HTTPエラー: {he.detail}")
             response_shell.overall_error = he.detail
             response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(source="ファイル処理エラー", error=he.detail)
             return response_shell
         except Exception as e:
+            if 'temp_file_path' in locals() and temp_file_path and os.path.exists(temp_file_path):
+                try:
+                    os.remove(temp_file_path)
+                    print(f"予期せぬエラー発生のため一時ファイル {temp_file_path} を削除しました。")
+                except Exception as e_remove:
+                    print(f"予期せぬエラー発生後の一次ファイル削除エラー: {e_remove}")
             print(f"ファイル処理中に予期せぬエラー: {e}\n{traceback.format_exc()}")
             response_shell.overall_error = f"ファイルの処理中に予期せぬエラーが発生しました: {str(e)}"
             response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(source="ファイル処理エラー", error=str(e))
@@ -964,6 +1083,12 @@ async def collaborative_answer_mode_endpoint(
         finally:
             if file:
                 await file.close()
+            if 'temp_file_path' in locals() and temp_file_path and os.path.exists(temp_file_path) and not response_shell.overall_error:
+                try:
+                    os.remove(temp_file_path)
+                    print(f"処理完了のため一時ファイル {temp_file_path} を削除しました。")
+                except Exception as e_remove_finally:
+                    print(f"正常処理後の一次ファイル削除エラー: {e_remove_finally}")
     # --- (ファイル処理ロジックここまで) ---
 
     original_prompt = final_prompt_for_ai_flow
