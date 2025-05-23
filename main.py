@@ -18,6 +18,9 @@ from cohere import AsyncClient as AsyncCohereClient
 from perplexipy import PerplexityClient # 同期クライアントなので注意
 import deepl
 from fastapi.concurrency import run_in_threadpool # 同期処理を非同期で実行するため
+import base64
+import fitz  # PyMuPDF
+import uuid
 import json # 今回の修正では直接使用していませんが、一般的に役立つため残します
 import asyncio # 今回の修正では直接使用していませんが、一般的に役立つため残します
 from datetime import datetime, timezone
@@ -623,42 +626,103 @@ async def process_text_file(file: UploadFile) -> str:
 
 
 async def process_image_with_vision_api(file: UploadFile, original_prompt: str, client_identifier: str = "openai") -> str:
-    # ここで実際にOpenAI Vision APIやGemini Vision APIを呼び出す
-    # 例:
-    # image_bytes = await file.read()
-    # await file.seek(0) # ファイルポインタをリセット
-    # vision_response = await get_openai_response( # または get_gemini_response など
-    #     prompt_text=f"この画像について説明してください。ユーザーの元の関心事は「{original_prompt}」です。",
-    #     # vision API用の特別なパラメータや画像データを渡す処理が必要
-    #     # model="gpt-4o" # vision対応モデル
-    # )
-    # if vision_response.error:
-    #     raise Exception(f"Vision APIエラー: {vision_response.error}")
-    # return vision_response.response or "AIによる画像認識結果がありませんでした。"
-    print(
-        "注意: process_image_with_vision_api は現在プレースホルダーです。実際のVision API呼び出しを実装する必要があります。"
-    )
-    return f"AIによる画像「{file.filename}」の詳細な説明がここに入ります。(プレースホルダー)"
+    if not openai_client:
+        raise Exception("OpenAIクライアントが初期化されていません。")
+
+    try:
+        image_bytes = await file.read()
+        await file.seek(0)  # 他の処理で再利用する場合に備えてポインタを戻す
+
+        base64_image = base64.b64encode(image_bytes).decode("utf-8")
+        mime_type = file.content_type or "image/jpeg"  # 不明な場合はJPEGと仮定
+
+        user_image_prompt = "この画像の内容を詳細に説明してください。"
+        if original_prompt:
+            user_image_prompt += (
+                f"\nユーザーの主な関心事や、この画像をアップロードした背景にある質問は「{original_prompt}」です。これを踏まえて説明に関連性を持たせてください。"
+            )
+
+        messages_for_api = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": user_image_prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime_type};base64,{base64_image}"},
+                    },
+                ],
+            }
+        ]
+
+        if FRIENDLY_TONE_SYSTEM_PROMPT:
+            messages_for_api.insert(
+                0,
+                {
+                    "role": "system",
+                    "content": FRIENDLY_TONE_SYSTEM_PROMPT
+                    + "\n\nあなたはアップロードされた画像を分析し、ユーザーの関心事を考慮して内容を説明するAIです。",
+                },
+            )
+
+        print(
+            f"OpenAI Vision API呼び出し準備 (モデル: gpt-4o): プロンプト='{user_image_prompt[:100]}...'"
+        )
+        api_response = await openai_client.chat.completions.create(
+            model="gpt-4o",
+            messages=messages_for_api,
+            max_tokens=1000,
+            temperature=0.5,
+        )
+
+        description = api_response.choices[0].message.content
+        if not description or description.strip() == "":
+            return f"画像「{file.filename}」の内容を認識できませんでした。"
+
+        print(f"OpenAI Vision APIからの応答 (冒頭): {description[:100].strip()}...")
+        return description.strip()
+
+    except Exception as e:
+        print(f"OpenAI Vision APIでの画像処理中にエラー: {e}")
+        traceback.print_exc()
+        raise Exception(f"画像「{file.filename}」の処理中にエラーが発生しました: {str(e)}")
 
 
 async def process_pdf_with_ai(file: UploadFile) -> str:
-    # PyMuPDFなどでテキスト抽出、またはClaudeに直接渡す場合の処理
-    # 例 (PyMuPDF):
-    # import fitz  # PyMuPDF
-    # text_content = ""
-    # try:
-    #     pdf_bytes = await file.read()
-    #     await file.seek(0)
-    #     with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
-    #         for page in doc:
-    #             text_content += page.get_text()
-    # except Exception as e:
-    #     raise Exception(f"PDF処理エラー: {e}")
-    # return text_content if text_content.strip() else "PDFからテキストが抽出できませんでした。"
-    print(
-        "注意: process_pdf_with_ai は現在プレースホルダーです。実際のPDF処理を実装する必要があります。"
-    )
-    return f"PDF「{file.filename}」から抽出されたテキストコンテンツがここに入ります。(プレースホルダー)"
+    text_content = ""
+    try:
+        pdf_bytes = await file.read()
+        await file.seek(0)  # ファイルポインタをリセット
+
+        def extract_text_from_pdf_sync(pdf_data: bytes) -> str:
+            extracted_text = ""
+            try:
+                with fitz.open(stream=pdf_data, filetype="pdf") as doc:
+                    for page_num in range(len(doc)):
+                        page = doc.load_page(page_num)
+                        extracted_text += page.get_text("text")
+                        if page_num < len(doc) - 1:
+                            extracted_text += "\n\n--- (次のページ) ---\n\n"
+                return extracted_text
+            except Exception as sync_e:
+                print(f"PyMuPDF (同期処理内) エラー: {sync_e}")
+                raise Exception(
+                    f"PDFからのテキスト抽出中にエラー (同期処理内): {str(sync_e)}"
+                )
+
+        print(f"PyMuPDFによるPDF「{file.filename}」のテキスト抽出処理を開始します...")
+        text_content = await run_in_threadpool(extract_text_from_pdf_sync, pdf_bytes)
+
+        if not text_content or text_content.strip() == "":
+            return f"PDFファイル「{file.filename}」からテキストを抽出できませんでした。"
+
+        print(f"PDF「{file.filename}」からのテキスト抽出成功 (冒頭): {text_content[:200].strip()}...")
+        return text_content.strip()
+
+    except Exception as e:
+        print(f"PDF「{file.filename}」の処理中にエラー: {e}")
+        traceback.print_exc()
+        raise Exception(f"PDFファイル「{file.filename}」の処理中にエラーが発生しました: {str(e)}")
 
 
 async def process_audio_with_speech_to_text(file: UploadFile) -> str:
@@ -752,6 +816,50 @@ async def collaborative_answer_mode_endpoint(
 
     if file and file.filename:
         try:
+            MAX_FILE_SIZE_MB = 50  # 例: 50MBを上限とする
+            MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
+
+            temp_file_path = None
+            try:
+                base_temp_dir = "temp_uploads"
+                os.makedirs(base_temp_dir, exist_ok=True)
+                original_filename = file.filename
+                file_ext = os.path.splitext(original_filename)[1]
+                safe_filename = f"{uuid.uuid4()}{file_ext}"
+
+                temp_file_path = os.path.join(base_temp_dir, safe_filename)
+
+                current_size = 0
+                with open(temp_file_path, "wb") as f:
+                    while chunk := await file.read(1024 * 1024):
+                        current_size += len(chunk)
+                        if current_size > MAX_FILE_SIZE_BYTES:
+                            f.close()
+                            os.remove(temp_file_path)
+                            raise HTTPException(
+                                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                                detail=f"ファイル「{original_filename}」のサイズが大きすぎます (最大{MAX_FILE_SIZE_MB}MB)。",
+                            )
+                        f.write(chunk)
+
+                print(
+                    f"ファイル「{original_filename}」を一時保存しました: {temp_file_path}, サイズ: {current_size / (1024*1024):.2f}MB"
+                )
+
+                await file.seek(0)
+
+            except HTTPException as he_size:
+                raise he_size
+            except Exception as e_size_check:
+                if temp_file_path and os.path.exists(temp_file_path):
+                    os.remove(temp_file_path)
+                print(f"ファイルサイズのチェックまたは一時保存中にエラー: {e_size_check}")
+                traceback.print_exc()
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="ファイル処理の準備中にエラーが発生しました。",
+                )
+
             mime_type = file.content_type
             if not mime_type and file.filename:
                 mime_type, _ = mimetypes.guess_type(file.filename)
