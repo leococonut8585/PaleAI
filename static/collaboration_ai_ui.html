@@ -1827,7 +1827,26 @@ async function handleMoveSession(sessionId, currentFolder) {
             if (!res.ok) {
                 const err = await res.json().catch(() => ({ detail: 'フォルダ一覧取得失敗' }));
                 throw new Error(err.detail);
-}
+            }
+            const folders = await res.json();
+            let promptMsg = '移動先フォルダIDを入力:\n0: すべて\n-1: 未分類\n';
+            folders.forEach(f => { promptMsg += `${f.id}: ${f.name}\n`; });
+            const input = prompt(promptMsg, currentFolder !== null ? currentFolder : -1);
+            if (input === null) return;
+            const target = parseInt(input);
+            if (isNaN(target)) { alert('無効な入力です'); return; }
+            const moveRes = await makeAuthenticatedRequest(`${API_ENDPOINT_FOLDERS}/${target}/sessions/${sessionId}`, { method: 'PUT' });
+            if (!moveRes.ok) {
+                const err2 = await moveRes.json().catch(() => ({ detail: '移動失敗' }));
+                throw new Error(err2.detail);
+            }
+            await loadChatSessions();
+        } catch (error) {
+            if (error.message !== 'auth') {
+                alert(`フォルダ移動エラー: ${error.message}`);
+            }
+        }
+    }
 
 async function handleToggleStar(sessionId, value) {
     try {
@@ -1866,26 +1885,6 @@ async function handleEditTags(sessionId, currentTags) {
         }
     }
 }
-            const folders = await res.json();
-            let promptMsg = '移動先フォルダIDを入力:\n0: すべて\n-1: 未分類\n';
-            folders.forEach(f => { promptMsg += `${f.id}: ${f.name}\n`; });
-            const input = prompt(promptMsg, currentFolder !== null ? currentFolder : -1);
-            if (input === null) return;
-            const target = parseInt(input);
-            if (isNaN(target)) { alert('無効な入力です'); return; }
-            const moveRes = await makeAuthenticatedRequest(`${API_ENDPOINT_FOLDERS}/${target}/sessions/${sessionId}`, { method: 'PUT' });
-            if (!moveRes.ok) {
-                const err2 = await moveRes.json().catch(() => ({ detail: '移動失敗' }));
-                throw new Error(err2.detail);
-            }
-            await loadChatSessions();
-        } catch (error) {
-            if (error.message !== 'auth') {
-                alert(`フォルダ移動エラー: ${error.message}`);
-            }
-        }
-    }
-
     async function moveSessionToFolder(sessionId, folderId) {
         try {
             const moveRes = await makeAuthenticatedRequest(`${API_ENDPOINT_FOLDERS}/${folderId}/sessions/${sessionId}`, { method: 'PUT' });
