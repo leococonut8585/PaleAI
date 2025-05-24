@@ -1060,20 +1060,24 @@ function resetChatUI() {
         if (!chatArea || !chatMessagesContainer) return;
         hideThinkingVideo();
         if (loadingIndicator) loadingIndicator.classList.add('hidden');
-        currentSessionId = null; // セッションIDをクリア
-        if (chatMessagesContainer) chatMessagesContainer.innerHTML = ''; // メッセージクリア
+        currentSessionId = null;
+        if (chatMessagesContainer) chatMessagesContainer.innerHTML = '';
 
-        // サイドバーのセッションリストのアクティブ表示を解除
         if (chatSessionListDiv) {
-            const activeBtns = chatSessionListDiv.querySelectorAll('.session-button-active');
-            activeBtns.forEach(btn => btn.classList.remove('session-button-active'));
+            const activeElements = chatSessionListDiv.querySelectorAll('.session-element.session-button-active');
+            activeElements.forEach(el => el.classList.remove('session-button-active'));
         }
 
-        // ★ 修正: 新規チャット開始のシステムメッセージ (モード名はaiModeSelectから取得)
-        const currentModeForNewChat = aiModeSelect ? aiModeSelect.value : 'balance';
-        displayMessage(`新しいチャットをモード「${getModeDisplayName(currentModeForNewChat)}」で開始しました。`, 'system');
-        if (chatArea) chatArea.classList.remove('hidden'); // チャットエリア表示
+        const newChatMode = aiModeSelect ? aiModeSelect.value : 'balance';
+        activeSessionOriginalMode = newChatMode;
+        previousAiMode = newChatMode;
+        talkModeConfirmed = (newChatMode === 'talk');
+
+        console.log(`resetChatUI: 新しいチャットのモードを「${getModeDisplayName(newChatMode)}」に設定。activeSessionOriginalMode は ${activeSessionOriginalMode}`);
+        displayMessage(`新しいチャットをモード「${getModeDisplayName(newChatMode)}」で開始しました。`, 'system');
+        if (chatArea) chatArea.classList.remove('hidden');
         if (promptTextarea) promptTextarea.focus();
+        toggleCharCountBox();
     }
 
 
@@ -1750,6 +1754,20 @@ function displayMessage(content, role, aiModelName = null, messageId = null, sea
                 chatSessionListDiv.innerHTML = `<p class="text-xs text-red-500 px-2">履歴の読み込みに失敗しました。</p>`;
             }
         }
+
+        if (currentSessionId !== null) {
+            const currentActiveSession = allSessionsCache.find(s => s.id === currentSessionId);
+            if (currentActiveSession && aiModeSelect) {
+                if (aiModeSelect.value !== currentActiveSession.mode) {
+                    console.log(`loadChatSessions後、アクティブセッション ${currentSessionId} のモード (${currentActiveSession.mode}) をaiModeSelectに再設定します。`);
+                    aiModeSelect.value = currentActiveSession.mode;
+                    activeSessionOriginalMode = currentActiveSession.mode;
+                    toggleCharCountBox();
+                }
+            } else if (currentActiveSession === undefined && aiModeSelect) {
+                console.warn(`loadChatSessions後、セッション ${currentSessionId} はキャッシュにありませんでした。モードの再設定は handleSessionSelection に委ねられます。`);
+            }
+        }
     }
 
     async function handleEditTitle(sessionId, currentTitle) {
@@ -1884,55 +1902,107 @@ async function handleEditTags(sessionId, currentTags) {
     }
 
 async function handleSessionSelection(sessionId, suppressMessages = false) {
-        hideThinkingVideo();
-        if (loadingIndicator) loadingIndicator.classList.add('hidden');
-
         if (isNaN(parseInt(sessionId))) {
             console.warn("無効なセッションIDが選択されました:", sessionId);
             return;
         }
         const newSelectedSessionId = parseInt(sessionId);
 
-        // 既に選択中のセッションをクリックした場合、何もしない (メッセージが既にある場合)
+        let forceModeUpdate = false;
         if (currentSessionId === newSelectedSessionId && chatMessagesContainer && chatMessagesContainer.childElementCount > 0 && !chatMessagesContainer.innerHTML.includes('読込中...')) {
-             // ただし、サイドバーのハイライトは確認する
-            const newlySelectedButtonContainer = chatSessionListDiv.querySelector(`.session-element[data-session-id="${newSelectedSessionId}"]`);
-            if (newlySelectedButtonContainer && !newlySelectedButtonContainer.classList.contains('session-button-active')) {
-                 const allSessionElements = chatSessionListDiv.querySelectorAll('.session-element.session-button-active');
-                 allSessionElements.forEach(el => el.classList.remove('session-button-active'));
-                 newlySelectedButtonContainer.classList.add('session-button-active');
+            const selectedSessionFromCacheCheck = allSessionsCache.find(s => s.id === newSelectedSessionId);
+            if (selectedSessionFromCacheCheck && aiModeSelect && aiModeSelect.value !== selectedSessionFromCacheCheck.mode) {
+                forceModeUpdate = true;
             }
-            return;
+            if (!forceModeUpdate) {
+                const newlySelectedButtonContainer = chatSessionListDiv.querySelector(`.session-element[data-session-id="${newSelectedSessionId}"]`);
+                if (newlySelectedButtonContainer && !newlySelectedButtonContainer.classList.contains('session-button-active')) {
+                    const allSessionElements = chatSessionListDiv.querySelectorAll('.session-element.session-button-active');
+                    allSessionElements.forEach(el => el.classList.remove('session-button-active'));
+                    newlySelectedButtonContainer.classList.add('session-button-active');
+                }
+                return;
+            }
         }
 
-        currentSessionId = newSelectedSessionId; // currentSessionId を先に更新
+        currentSessionId = newSelectedSessionId;
 
-        // ★ 修正: allSessionsCache から選択されたセッションの情報を取得し、モード関連のグローバル変数を更新
         const selectedSessionFromCache = allSessionsCache.find(s => s.id === currentSessionId);
+        let isLoadingSession = false;
+        const sessionStatusElement = chatSessionListDiv.querySelector(`.session-element[data-session-id="${currentSessionId}"]`);
 
         if (selectedSessionFromCache) {
+            console.log(`セッション ${currentSessionId} を選択。記録されているモード: ${selectedSessionFromCache.mode}`);
             activeSessionOriginalMode = selectedSessionFromCache.mode;
-            if (aiModeSelect) aiModeSelect.value = selectedSessionFromCache.mode;
-            previousAiMode = selectedSessionFromCache.mode; // talkStartModal用に現在のモードを記憶
+            if (aiModeSelect) {
+                aiModeSelect.value = selectedSessionFromCache.mode;
+                console.log(`aiModeSelect の値を ${selectedSessionFromCache.mode} に設定しました。`);
+            }
+            previousAiMode = selectedSessionFromCache.mode;
             talkModeConfirmed = (selectedSessionFromCache.mode === 'talk');
-            toggleCharCountBox(); // モードに合わせたUI要素の表示/非表示
+            toggleCharCountBox();
+            if (sessionStatusElement && sessionStatusElement.dataset.status === 'loading') {
+                isLoadingSession = true;
+            } else if (sessionLoading[currentSessionId]) {
+                isLoadingSession = true;
+            }
         } else {
-            console.warn("選択されたセッションがキャッシュに見つかりません:", currentSessionId);
-            // ここでサーバーから個別セッション情報を取得するフォールバックも検討可能
-            // 今は activeSessionOriginalMode などは変更せず、メッセージ取得に進む
+            console.warn(`選択されたセッション ${currentSessionId} が allSessionsCache に見つかりません。サーバーから詳細を取得試行...`);
+            try {
+                const res = await makeAuthenticatedRequest(`${API_ENDPOINT_CHAT_SESSIONS}/${currentSessionId}`, { method: 'GET' });
+                if (res.ok) {
+                    const sessionDetail = await res.json();
+                    console.log(`サーバーからセッション ${currentSessionId} の詳細を取得。モード: ${sessionDetail.mode}`);
+                    activeSessionOriginalMode = sessionDetail.mode;
+                    if (aiModeSelect) {
+                        aiModeSelect.value = sessionDetail.mode;
+                        console.log(`aiModeSelect の値を ${sessionDetail.mode} に設定しました（サーバーからの情報）。`);
+                    }
+                    previousAiMode = sessionDetail.mode;
+                    talkModeConfirmed = (sessionDetail.mode === 'talk');
+                    toggleCharCountBox();
+                    const cacheIndex = allSessionsCache.findIndex(s => s.id === currentSessionId);
+                    if (cacheIndex > -1) {
+                        allSessionsCache[cacheIndex] = sessionDetail;
+                    } else {
+                        allSessionsCache.push(sessionDetail);
+                    }
+                } else {
+                    console.error(`サーバーからのセッション ${currentSessionId} 詳細取得失敗。デフォルトモードにフォールバックします。`);
+                    if (aiModeSelect) aiModeSelect.value = 'balance';
+                    activeSessionOriginalMode = 'balance';
+                    toggleCharCountBox();
+                }
+            } catch (e) {
+                console.error(`サーバーからのセッション ${currentSessionId} 詳細取得中にエラー:`, e);
+                if (aiModeSelect) aiModeSelect.value = 'balance';
+                activeSessionOriginalMode = 'balance';
+                toggleCharCountBox();
+            }
         }
 
-        // サイドバーのセッションリストのハイライト更新
+        if (isLoadingSession) {
+            console.log(`セッション ${currentSessionId} はローディング中です。思考中表示を復元します。`);
+            if (loadingIndicator) loadingIndicator.classList.remove('hidden');
+            showThinkingVideo();
+        } else {
+            hideThinkingVideo();
+            if (loadingIndicator) loadingIndicator.classList.add('hidden');
+        }
+
         if (chatSessionListDiv) {
-            const allSessionElements = chatSessionListDiv.querySelectorAll('.session-element.session-button-active');
+            const allSessionElements = chatSessionListDiv.querySelectorAll('.session-element > button.session-button-active, .session-element.session-button-active');
             allSessionElements.forEach(el => el.classList.remove('session-button-active'));
             const newlySelectedButtonContainer = chatSessionListDiv.querySelector(`.session-element[data-session-id="${currentSessionId}"]`);
             if (newlySelectedButtonContainer) {
                 newlySelectedButtonContainer.classList.add('session-button-active');
+                const btnInside = newlySelectedButtonContainer.querySelector('button');
+                if (btnInside && !btnInside.classList.contains('session-button-active')) {
+                    // btnInside.classList.add('session-button-active');
+                }
             }
         }
 
-        // UIクリアとメッセージ読み込み
         if (chatMessagesContainer) chatMessagesContainer.innerHTML = '';
         if (!suppressMessages) displayMessage(`セッション ${currentSessionId} のメッセージを読込中...`, 'system');
 
@@ -1943,10 +2013,9 @@ async function handleSessionSelection(sessionId, suppressMessages = false) {
                 throw new Error(err.detail);
             }
             const messages = await response.json();
-            if (chatMessagesContainer) chatMessagesContainer.innerHTML = ''; // 再度クリア
+            if (chatMessagesContainer) chatMessagesContainer.innerHTML = '';
 
             if (messages && messages.length > 0) {
-                // 検索モードなどの詳細情報を渡せるように displayMessage を呼び出す
                 messages.forEach(msg => displayMessage(
                     msg.content,
                     msg.role,
@@ -2120,6 +2189,12 @@ function highlightMessage(messageId) {
             showThinkingVideo();
 
             const requestSessionId = currentSessionId;
+            const targetKey = requestSessionId !== null ? String(requestSessionId) : 'new';
+            sessionLoading[targetKey] = true;
+            const container = document.querySelector(`.session-element[data-session-id="${requestSessionId}"]`);
+            if (container) {
+                container.dataset.status = 'loading';
+            }
 
             try {
                 const formData = new FormData();
@@ -2142,6 +2217,7 @@ function highlightMessage(messageId) {
                 }
 
                 let response;
+                let data;
                 response = await makeAuthenticatedRequest(API_ENDPOINT_COLLABORATIVE_ANSWER, {
                         method: 'POST',
                         body: formData
@@ -2151,23 +2227,29 @@ function highlightMessage(messageId) {
                     const errorData = await response.json().catch(() => ({ detail: `サーバーエラー (${response.status})` }));
                     throw new Error(errorData.detail || `サーバーエラー (${response.status})`);
                 }
-                const data = await response.json();
+                data = await response.json();
 
                 console.log("サーバーからの応答 (/collaborative_answer_v2):", data);
 
-                // ★★★ ここから修正 ★★★
-                if (requestSessionId === currentSessionId || (currentSessionId === null && data.processed_session_id === requestSessionId)) {
-                    // 応答が現在アクティブなセッション、または新規作成直後のセッションに対するものの場合
-                    if (data.mode_executed && aiModeSelect) { // 応答にモード情報があればUIに反映
+                const responseCameForSessionId = data.processed_session_id;
+
+                if (responseCameForSessionId === currentSessionId || (currentSessionId === null && responseCameForSessionId === requestSessionId)) {
+                    console.log(`応答は現在アクティブなセッション ${currentSessionId} (または新規 ${responseCameForSessionId}) に対するものです。UIを更新します。`);
+                    if (data.mode_executed && aiModeSelect) {
+                        console.log(`応答データに mode_executed: ${data.mode_executed} が含まれています。aiModeSelect を更新します。`);
                         aiModeSelect.value = data.mode_executed;
-                        activeSessionOriginalMode = data.mode_executed; // アクティブセッションのモードも更新
-                        toggleCharCountBox(); // モード依存UIの更新
+                        activeSessionOriginalMode = data.mode_executed;
+                        toggleCharCountBox();
+                    } else if (aiModeSelect && selectedMode) {
+                        console.warn(`応答データに mode_executed がありません。リクエスト時のモード ${selectedMode} を使用します。`);
+                        aiModeSelect.value = selectedMode;
+                        activeSessionOriginalMode = selectedMode;
+                        toggleCharCountBox();
                     }
 
                     if (data.overall_error) {
                         displayMessage(`全体エラー: ${data.overall_error}`, 'ai', 'SystemError');
-                    } else if (selectedMode === 'imagegen' && data.step7_final_answer_v2_openai && data.step7_final_answer_v2_openai.response && data.step7_final_answer_v2_openai.source === "Image Generation Result") {
-                        // ... 画像生成モードの表示処理 ...
+                    } else if (data.mode_executed === 'imagegen' && data.step7_final_answer_v2_openai && data.step7_final_answer_v2_openai.response && data.step7_final_answer_v2_openai.source === "Image Generation Result") {
                         displayMessage(data.step7_final_answer_v2_openai.response, 'ai', 'ImageGen');
                     } else if (data.step7_final_answer_v2_openai && (data.step7_final_answer_v2_openai.response || data.step7_final_answer_v2_openai.error)) {
                         displayMessage(
@@ -2189,14 +2271,13 @@ function highlightMessage(messageId) {
                         displayMessage(`ファイル処理エラー (${data.file_processing_step.source}): ${data.file_processing_step.error}`, 'system');
                     }
 
-                    // ダウンロードリンクの表示
                     if (data.generated_download_url && data.generated_file_name) {
                         let fullDownloadUrl = data.generated_download_url;
                         if (!data.generated_download_url.startsWith('http') && !data.generated_download_url.startsWith('/')) {
                             fullDownloadUrl = `/${data.generated_download_url}`;
                         }
                         if (!data.generated_download_url.startsWith('http')) {
-                            fullDownloadUrl = `${API_BASE_URL}${fullDownloadUrl.startsWith('/') ? '' : '/'}${data.generated_download_url.replace(/^\//, '')}`;
+                            fullDownloadUrl = `${API_BASE_URL}${fullDownloadUrl.startsWith('/') ? '' : '/'}${data.generated_download_url.replace(/^\\//, '')}`;
                         }
                         const downloadLinkHtml = `ファイル「${data.generated_file_name}」の準備ができました: <a href="${API_BASE_URL}${data.generated_download_url}" target="_blank" class="text-blue-600 underline hover:text-blue-800" download="${data.generated_file_name}">ここをクリックしてダウンロード</a>`;
                         displayMessage(
@@ -2206,26 +2287,26 @@ function highlightMessage(messageId) {
                         );
                     }
 
-                } else if (data.processed_session_id) {
-                    // 応答がバックグラウンドの（現在アクティブでない）セッションに対するものの場合
-                    console.log(`バックグラウンドセッション ${data.processed_session_id} に応答がありました。UIは直接更新せず、リストを更新します。`);
-                    // ここで、allSessionsCache の該当セッションに未読フラグなどを立てる処理を追加できると良い
-                    // 例: const sessionInCache = allSessionsCache.find(s => s.id === data.processed_session_id);
-                    //     if (sessionInCache) sessionInCache.hasUnread = true; // (hasUnreadプロパティをセッションオブジェクトに追加する必要あり)
+                } else if (responseCameForSessionId) {
+                    console.log(`バックグラウンドセッション ${responseCameForSessionId} に応答がありました。UIは直接更新せず、リストを更新します。`);
+                    const sessionInCache = allSessionsCache.find(s => s.id === responseCameForSessionId);
+                    if (sessionInCache) {
+                        sessionInCache.hasUnread = true;
+                        sessionInCache.status = data.overall_error ? 'error' : 'complete';
+                    }
                 }
 
-                // セッションIDの更新とリスト再読み込み (この部分は重要)
-                if (data.processed_session_id && (currentSessionId === null || currentSessionId !== data.processed_session_id) && requestSessionId !== data.processed_session_id) {
-                    // 新規セッションが作成された場合、またはバックグラウンドのセッションIDが返ってきた場合
-                    // (ただし、現在アクティブなセッションのIDでリクエストし、同じIDが返ってきた場合はここでは何もしない)
-                    // currentSessionId = data.processed_session_id; // currentSessionId は勝手に変えない方が良い場合も
-                    // const newSessionData = allSessionsCache.find(s => s.id === data.processed_session_id);
-                    // if (newSessionData) activeSessionOriginalMode = newSessionData.mode; // これもユーザーがセッションを切り替えた時に行う
-                    await loadChatSessions(); // サイドバーのリストを更新して、ステータスや未読状態を反映
-                } else if (requestSessionId) { // 同じセッションIDで完了した場合もリスト更新でステータス反映
-                     await loadChatSessions();
+                await loadChatSessions();
+
+                if (requestSessionId === null && data.processed_session_id) {
+                    currentSessionId = data.processed_session_id;
+                    if (data.mode_executed) {
+                        activeSessionOriginalMode = data.mode_executed;
+                        if (aiModeSelect) aiModeSelect.value = data.mode_executed;
+                        toggleCharCountBox();
+                    }
+                    console.log("新規チャットセッションIDがサーバーから割り振られました:", currentSessionId, "モード:", activeSessionOriginalMode);
                 }
-                // ★★★ ここまで ★★★
 
 
             } catch (error) {
@@ -2236,6 +2317,11 @@ function highlightMessage(messageId) {
                 if (fileInput) fileInput.value = '';
                 loadingIndicator.classList.add('hidden');
                 hideThinkingVideo();
+                sessionLoading[targetKey] = false;
+                const c = document.querySelector(`.session-element[data-session-id="${requestSessionId}"]`);
+                if (c) {
+                    c.dataset.status = data && data.overall_error ? 'error' : 'complete';
+                }
             }
         });
     }
