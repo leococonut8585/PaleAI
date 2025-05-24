@@ -735,11 +735,24 @@
 
     // ★ 新規追加: 旧バージョンのモード名を現在のモード名に正規化
     function normalizeMode(modeValue) {
-        if (!modeValue) return 'balance';
-        const lower = modeValue.toLowerCase();
+        if (modeValue === null || modeValue === undefined || modeValue === '') {
+            console.warn('normalizeMode: received empty modeValue -> returning as is');
+            return modeValue;
+        }
+
+        const lower = String(modeValue).toLowerCase();
         if (lower === 'chat') return 'balance';
         if (lower === 'search') return 'search3';
         if (lower === 'supersearch') return 'search6';
+
+        if (aiModeSelect) {
+            const validModes = Array.from(aiModeSelect.options).map(opt => opt.value);
+            if (!validModes.includes(lower)) {
+                console.warn(`normalizeMode: unknown mode '${modeValue}', returning as is`);
+                return modeValue;
+            }
+        }
+
         return lower;
     }
 
@@ -1078,7 +1091,7 @@ function resetChatUI() {
             activeElements.forEach(el => el.classList.remove('session-button-active'));
         }
 
-        const newChatMode = aiModeSelect ? aiModeSelect.value : 'balance';
+        const newChatMode = aiModeSelect ? normalizeMode(aiModeSelect.value) : 'balance';
         activeSessionOriginalMode = newChatMode;
         previousAiMode = newChatMode;
         talkModeConfirmed = (newChatMode === 'talk');
@@ -2596,7 +2609,7 @@ function highlightMessage(messageId) {
                 if (!getToken()) { alert('この機能を利用するにはログインが必要です。'); return; }
 
                 // ★ resetChatUIが呼ばれる前に、新しいチャットのデフォルトモードをaiModeSelectに基づいて設定
-                const newChatInitialMode = aiModeSelect ? aiModeSelect.value : 'balance';
+                const newChatInitialMode = aiModeSelect ? normalizeMode(aiModeSelect.value) : 'balance';
                 activeSessionOriginalMode = newChatInitialMode;
                 previousAiMode = newChatInitialMode;
                 talkModeConfirmed = (newChatInitialMode === 'talk');
