@@ -2155,10 +2155,19 @@ function highlightMessage(messageId) {
 
                 console.log("サーバーからの応答 (/collaborative_answer_v2):", data);
 
-                if (currentSessionId === requestSessionId || (currentSessionId === null && data.processed_session_id === requestSessionId )) {
+                // ★★★ ここから修正 ★★★
+                if (requestSessionId === currentSessionId || (currentSessionId === null && data.processed_session_id === requestSessionId)) {
+                    // 応答が現在アクティブなセッション、または新規作成直後のセッションに対するものの場合
+                    if (data.mode_executed && aiModeSelect) { // 応答にモード情報があればUIに反映
+                        aiModeSelect.value = data.mode_executed;
+                        activeSessionOriginalMode = data.mode_executed; // アクティブセッションのモードも更新
+                        toggleCharCountBox(); // モード依存UIの更新
+                    }
+
                     if (data.overall_error) {
                         displayMessage(`全体エラー: ${data.overall_error}`, 'ai', 'SystemError');
                     } else if (selectedMode === 'imagegen' && data.step7_final_answer_v2_openai && data.step7_final_answer_v2_openai.response && data.step7_final_answer_v2_openai.source === "Image Generation Result") {
+                        // ... 画像生成モードの表示処理 ...
                         displayMessage(data.step7_final_answer_v2_openai.response, 'ai', 'ImageGen');
                     } else if (data.step7_final_answer_v2_openai && (data.step7_final_answer_v2_openai.response || data.step7_final_answer_v2_openai.error)) {
                         displayMessage(
@@ -2196,16 +2205,27 @@ function highlightMessage(messageId) {
                             data.step7_final_answer_v2_openai?.source || 'ファイル生成システム'
                         );
                     }
-                }
-                if (data.processed_session_id && (currentSessionId === null || currentSessionId !== data.processed_session_id)) {
-                    currentSessionId = data.processed_session_id;
-                    const newSessionData = allSessionsCache.find(s => s.id === currentSessionId);
-                    if (newSessionData) activeSessionOriginalMode = newSessionData.mode;
 
-                    await loadChatSessions();
-                } else if (requestSessionId) {
+                } else if (data.processed_session_id) {
+                    // 応答がバックグラウンドの（現在アクティブでない）セッションに対するものの場合
+                    console.log(`バックグラウンドセッション ${data.processed_session_id} に応答がありました。UIは直接更新せず、リストを更新します。`);
+                    // ここで、allSessionsCache の該当セッションに未読フラグなどを立てる処理を追加できると良い
+                    // 例: const sessionInCache = allSessionsCache.find(s => s.id === data.processed_session_id);
+                    //     if (sessionInCache) sessionInCache.hasUnread = true; // (hasUnreadプロパティをセッションオブジェクトに追加する必要あり)
+                }
+
+                // セッションIDの更新とリスト再読み込み (この部分は重要)
+                if (data.processed_session_id && (currentSessionId === null || currentSessionId !== data.processed_session_id) && requestSessionId !== data.processed_session_id) {
+                    // 新規セッションが作成された場合、またはバックグラウンドのセッションIDが返ってきた場合
+                    // (ただし、現在アクティブなセッションのIDでリクエストし、同じIDが返ってきた場合はここでは何もしない)
+                    // currentSessionId = data.processed_session_id; // currentSessionId は勝手に変えない方が良い場合も
+                    // const newSessionData = allSessionsCache.find(s => s.id === data.processed_session_id);
+                    // if (newSessionData) activeSessionOriginalMode = newSessionData.mode; // これもユーザーがセッションを切り替えた時に行う
+                    await loadChatSessions(); // サイドバーのリストを更新して、ステータスや未読状態を反映
+                } else if (requestSessionId) { // 同じセッションIDで完了した場合もリスト更新でステータス反映
                      await loadChatSessions();
                 }
+                // ★★★ ここまで ★★★
 
 
             } catch (error) {
