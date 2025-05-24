@@ -1829,22 +1829,36 @@ async function handleMoveSession(sessionId, currentFolder) {
                 throw new Error(err.detail);
             }
             const folders = await res.json();
-            let promptMsg = '移動先フォルダIDを入力:\n0: すべて\n-1: 未分類\n';
+            let promptMsg = '移動先フォルダIDを入力してください:\n0: (ルート/未分類に戻す)\n';
             folders.forEach(f => { promptMsg += `${f.id}: ${f.name}\n`; });
-            const input = prompt(promptMsg, currentFolder !== null ? currentFolder : -1);
+            const input = prompt(promptMsg, currentFolder !== null ? String(currentFolder) : "0");
+
             if (input === null) return;
-            const target = parseInt(input);
-            if (isNaN(target)) { alert('無効な入力です'); return; }
-            const moveRes = await makeAuthenticatedRequest(`${API_ENDPOINT_FOLDERS}/${target}/sessions/${sessionId}`, { method: 'PUT' });
+
+            const targetFolderId = parseInt(input);
+            if (isNaN(targetFolderId)) {
+                alert('無効なフォルダIDが入力されました。');
+                return;
+            }
+
+            const requestBody = { folder_id: targetFolderId === 0 ? null : targetFolderId };
+
+            const moveRes = await makeAuthenticatedRequest(`${API_ENDPOINT_CHAT_SESSIONS}/${sessionId}/folder`, {
+                method: 'PUT',
+                body: JSON.stringify(requestBody)
+            });
+
             if (!moveRes.ok) {
-                const err2 = await moveRes.json().catch(() => ({ detail: '移動失敗' }));
+                const err2 = await moveRes.json().catch(() => ({ detail: 'セッションのフォルダ移動に失敗しました。' }));
                 throw new Error(err2.detail);
             }
+            alert('セッションをフォルダに移動しました。');
             await loadChatSessions();
         } catch (error) {
             if (error.message !== 'auth') {
                 alert(`フォルダ移動エラー: ${error.message}`);
             }
+            console.error('フォルダ移動エラー:', error);
         }
     }
 
