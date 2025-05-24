@@ -2290,7 +2290,7 @@ function highlightMessage(messageId) {
                             fullDownloadUrl = `/${data.generated_download_url}`;
                         }
                         if (!data.generated_download_url.startsWith('http')) {
-                            fullDownloadUrl = `${API_BASE_URL}${fullDownloadUrl.startsWith('/') ? '' : '/'}${data.generated_download_url.replace(/^\\//, '')}`;
+                            fullDownloadUrl = `${API_BASE_URL}${fullDownloadUrl.startsWith('/') ? '' : '/'}${data.generated_download_url.replace(/^\/+/, '')}`;
                         }
                         const downloadLinkHtml = `ファイル「${data.generated_file_name}」の準備ができました: <a href="${API_BASE_URL}${data.generated_download_url}" target="_blank" class="text-blue-600 underline hover:text-blue-800" download="${data.generated_file_name}">ここをクリックしてダウンロード</a>`;
                         displayMessage(
