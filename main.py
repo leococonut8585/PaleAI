@@ -865,7 +865,7 @@ async def convert_markdown_to_format_with_pandoc(
         async with aiofiles.open(input_md_path, "w", encoding="utf-8") as md_file:
             await md_file.write(markdown_content)
 
-        PANDOC_EXECUTABLE_PATH = r"C:\\Program Files\\Pandoc\\pandoc.exe"
+        PANDOC_EXECUTABLE_PATH = r"C:\Program Files\Pandoc\pandoc.exe"  # raw文字列でバックスラッシュは1つ
 
         pandoc_cmd = [
             PANDOC_EXECUTABLE_PATH,
