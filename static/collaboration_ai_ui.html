@@ -733,6 +733,16 @@
         return optionElement ? optionElement.textContent : modeValue;
     }
 
+    // ★ 新規追加: 旧バージョンのモード名を現在のモード名に正規化
+    function normalizeMode(modeValue) {
+        if (!modeValue) return 'balance';
+        const lower = modeValue.toLowerCase();
+        if (lower === 'chat') return 'balance';
+        if (lower === 'search') return 'search3';
+        if (lower === 'supersearch') return 'search6';
+        return lower;
+    }
+
     function populateLangSelect(select) {
         if (!select) return;
         select.innerHTML = '';
@@ -1758,10 +1768,11 @@ function displayMessage(content, role, aiModelName = null, messageId = null, sea
         if (currentSessionId !== null) {
             const currentActiveSession = allSessionsCache.find(s => s.id === currentSessionId);
             if (currentActiveSession && aiModeSelect) {
-                if (aiModeSelect.value !== currentActiveSession.mode) {
+                const normalizedMode = normalizeMode(currentActiveSession.mode);
+                if (aiModeSelect.value !== normalizedMode) {
                     console.log(`loadChatSessions後、アクティブセッション ${currentSessionId} のモード (${currentActiveSession.mode}) をaiModeSelectに再設定します。`);
-                    aiModeSelect.value = currentActiveSession.mode;
-                    activeSessionOriginalMode = currentActiveSession.mode;
+                    aiModeSelect.value = normalizedMode;
+                    activeSessionOriginalMode = normalizedMode;
                     toggleCharCountBox();
                 }
             } else if (currentActiveSession === undefined && aiModeSelect) {
@@ -1915,6 +1926,7 @@ async function handleEditTags(sessionId, currentTags) {
     }
 
 async function handleSessionSelection(sessionId, suppressMessages = false) {
+        console.log(`handleSessionSelection CALLED for session ID: ${sessionId}, current aiModeSelect.value: ${aiModeSelect ? aiModeSelect.value : 'N/A'}`);
         if (isNaN(parseInt(sessionId))) {
             console.warn("無効なセッションIDが選択されました:", sessionId);
             return;
@@ -1924,7 +1936,7 @@ async function handleSessionSelection(sessionId, suppressMessages = false) {
         let forceModeUpdate = false;
         if (currentSessionId === newSelectedSessionId && chatMessagesContainer && chatMessagesContainer.childElementCount > 0 && !chatMessagesContainer.innerHTML.includes('読込中...')) {
             const selectedSessionFromCacheCheck = allSessionsCache.find(s => s.id === newSelectedSessionId);
-            if (selectedSessionFromCacheCheck && aiModeSelect && aiModeSelect.value !== selectedSessionFromCacheCheck.mode) {
+            if (selectedSessionFromCacheCheck && aiModeSelect && aiModeSelect.value !== normalizeMode(selectedSessionFromCacheCheck.mode)) {
                 forceModeUpdate = true;
             }
             if (!forceModeUpdate) {
@@ -1945,14 +1957,15 @@ async function handleSessionSelection(sessionId, suppressMessages = false) {
         const sessionStatusElement = chatSessionListDiv.querySelector(`.session-element[data-session-id="${currentSessionId}"]`);
 
         if (selectedSessionFromCache) {
-            console.log(`セッション ${currentSessionId} を選択。記録されているモード: ${selectedSessionFromCache.mode}`);
-            activeSessionOriginalMode = selectedSessionFromCache.mode;
+            console.log(`Session ${currentSessionId} found in cache. Cached mode: ${selectedSessionFromCache.mode}`);
+            const normalizedMode = normalizeMode(selectedSessionFromCache.mode);
+            activeSessionOriginalMode = normalizedMode;
             if (aiModeSelect) {
-                aiModeSelect.value = selectedSessionFromCache.mode;
-                console.log(`aiModeSelect の値を ${selectedSessionFromCache.mode} に設定しました。`);
+                aiModeSelect.value = normalizedMode;
+                console.log(`Set aiModeSelect.value to: ${aiModeSelect.value} (from cache)`);
             }
-            previousAiMode = selectedSessionFromCache.mode;
-            talkModeConfirmed = (selectedSessionFromCache.mode === 'talk');
+            previousAiMode = normalizedMode;
+            talkModeConfirmed = (normalizedMode === 'talk');
             toggleCharCountBox();
             if (sessionStatusElement && sessionStatusElement.dataset.status === 'loading') {
                 isLoadingSession = true;
@@ -1965,14 +1978,15 @@ async function handleSessionSelection(sessionId, suppressMessages = false) {
                 const res = await makeAuthenticatedRequest(`${API_ENDPOINT_CHAT_SESSIONS}/${currentSessionId}`, { method: 'GET' });
                 if (res.ok) {
                     const sessionDetail = await res.json();
-                    console.log(`サーバーからセッション ${currentSessionId} の詳細を取得。モード: ${sessionDetail.mode}`);
-                    activeSessionOriginalMode = sessionDetail.mode;
+                    console.log(`Server response for session ${currentSessionId}: Mode is ${sessionDetail.mode}`);
+                    const normalizedMode = normalizeMode(sessionDetail.mode);
+                    activeSessionOriginalMode = normalizedMode;
                     if (aiModeSelect) {
-                        aiModeSelect.value = sessionDetail.mode;
-                        console.log(`aiModeSelect の値を ${sessionDetail.mode} に設定しました（サーバーからの情報）。`);
+                        aiModeSelect.value = normalizedMode;
+                        console.log(`Set aiModeSelect.value to: ${aiModeSelect.value} (from server)`);
                     }
-                    previousAiMode = sessionDetail.mode;
-                    talkModeConfirmed = (sessionDetail.mode === 'talk');
+                    previousAiMode = normalizedMode;
+                    talkModeConfirmed = (normalizedMode === 'talk');
                     toggleCharCountBox();
                     const cacheIndex = allSessionsCache.findIndex(s => s.id === currentSessionId);
                     if (cacheIndex > -1) {
@@ -1982,14 +1996,18 @@ async function handleSessionSelection(sessionId, suppressMessages = false) {
                     }
                 } else {
                     console.error(`サーバーからのセッション ${currentSessionId} 詳細取得失敗。デフォルトモードにフォールバックします。`);
-                    if (aiModeSelect) aiModeSelect.value = 'balance';
-                    activeSessionOriginalMode = 'balance';
+                    const fallbackMode = 'balance';
+                    if (aiModeSelect) aiModeSelect.value = fallbackMode;
+                    activeSessionOriginalMode = fallbackMode;
+                    console.log(`Set aiModeSelect.value to fallback mode ${fallbackMode}`);
                     toggleCharCountBox();
                 }
             } catch (e) {
                 console.error(`サーバーからのセッション ${currentSessionId} 詳細取得中にエラー:`, e);
-                if (aiModeSelect) aiModeSelect.value = 'balance';
-                activeSessionOriginalMode = 'balance';
+                const fallbackMode = 'balance';
+                if (aiModeSelect) aiModeSelect.value = fallbackMode;
+                activeSessionOriginalMode = fallbackMode;
+                console.log(`Set aiModeSelect.value to fallback mode ${fallbackMode} due to error`);
                 toggleCharCountBox();
             }
         }
@@ -2250,8 +2268,9 @@ function highlightMessage(messageId) {
                     console.log(`応答は現在アクティブなセッション ${currentSessionId} (または新規 ${responseCameForSessionId}) に対するものです。UIを更新します。`);
                     if (data.mode_executed && aiModeSelect) {
                         console.log(`応答データに mode_executed: ${data.mode_executed} が含まれています。aiModeSelect を更新します。`);
-                        aiModeSelect.value = data.mode_executed;
-                        activeSessionOriginalMode = data.mode_executed;
+                        const normalizedMode = normalizeMode(data.mode_executed);
+                        aiModeSelect.value = normalizedMode;
+                        activeSessionOriginalMode = normalizedMode;
                         toggleCharCountBox();
                     } else if (aiModeSelect && selectedMode) {
                         console.warn(`応答データに mode_executed がありません。リクエスト時のモード ${selectedMode} を使用します。`);
@@ -2314,8 +2333,9 @@ function highlightMessage(messageId) {
                 if (requestSessionId === null && data.processed_session_id) {
                     currentSessionId = data.processed_session_id;
                     if (data.mode_executed) {
-                        activeSessionOriginalMode = data.mode_executed;
-                        if (aiModeSelect) aiModeSelect.value = data.mode_executed;
+                        const normalizedMode = normalizeMode(data.mode_executed);
+                        activeSessionOriginalMode = normalizedMode;
+                        if (aiModeSelect) aiModeSelect.value = normalizedMode;
                         toggleCharCountBox();
                     }
                     console.log("新規チャットセッションIDがサーバーから割り振られました:", currentSessionId, "モード:", activeSessionOriginalMode);
@@ -2519,7 +2539,7 @@ function highlightMessage(messageId) {
         populateLangSelect(talkStartOutputLang);
 
         // ★ モード関連グローバル変数の初期化 (aiModeSelect の存在確認を追加)
-        const initialMode = aiModeSelect ? aiModeSelect.value : 'balance';
+        const initialMode = aiModeSelect ? normalizeMode(aiModeSelect.value) : 'balance';
         activeSessionOriginalMode = initialMode;
         previousAiMode = initialMode;
         talkModeConfirmed = (initialMode === 'talk');
