@@ -32,3 +32,27 @@ For details on output in the `ペイルの創造` code mode, see
 Set the `LOG_LEVEL` environment variable to control how verbose the
 application logs are. Supported values are the standard Python logging levels
 such as `DEBUG`, `INFO` and `WARNING`. If not set, `INFO` is used.
+
+## Installation
+
+The application targets **Python 3.11+**. Create a virtual environment with a
+compatible interpreter and install the Python dependencies:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Some features rely on system packages. Ensure the `pandoc` command line tool is
+available for PDF processing. On Debian/Ubuntu this can be installed with
+`apt-get install pandoc`.
+
+The automated browser tests require Playwright's browser binaries. After
+installing the Python package, run:
+
+```bash
+npx playwright install
+```
+
+or `playwright install` if the `playwright` command is on your PATH.
