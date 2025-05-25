@@ -1,10 +1,11 @@
 # routers/chat.py
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Request
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func # ★★★ func をインポート ★★★
 from typing import List
 
-from file_processors import stage0_process
+# from file_processors import stage0_process
+from file_processors import stage0_process_file
 
 import database
 import models
@@ -289,6 +290,7 @@ async def search_messages(
 
 @router.post("/upload/{session_id}", response_model=schemas.ChatMessageResponse)
 async def upload_file_to_chat(
+    request: Request,
     session_id: int,
     file: UploadFile = File(...),
     db: Session = Depends(database.get_db),
@@ -302,7 +304,7 @@ async def upload_file_to_chat(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat session not found or access denied")
 
     content = await file.read()
-    result = await stage0_process(file.filename, content)
+    result = await stage0_process_file(request, file.filename, content)
 
     new_message = models.ChatMessage(
         chat_session_id=session.id,
