@@ -6,7 +6,8 @@ import os
 
 import models
 import schemas
-from dependencies import get_current_active_user, get_db
+from dependencies import get_current_active_user
+from database import get_db
 
 from main import (
     run_quality_chat_mode_flow,
