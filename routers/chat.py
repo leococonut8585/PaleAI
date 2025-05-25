@@ -33,18 +33,22 @@ async def create_chat_session(
     if not title_to_set: # フロントエンドがタイトル未指定でAPIを叩くことも考慮
         title_to_set = "新しいチャット" # デフォルトの仮タイトル
 
+    print("--- create_chat_session (routers/chat.py) ---")
+    print(f"Received mode from request: '{chat_session_in.mode}'")
+
     new_session = models.ChatSession(
         user_id=current_user.id,
         title=title_to_set,
         starred=chat_session_in.starred if hasattr(chat_session_in, 'starred') else False,
         tags=chat_session_in.tags if hasattr(chat_session_in, 'tags') else None,
-        mode='chat',
+        mode=chat_session_in.mode.lower(),
         is_complete=True,
         status=chat_session_in.status if hasattr(chat_session_in, 'status') else 'complete',
     )
     db.add(new_session)
     db.commit()
     db.refresh(new_session)
+    print(f"ROUTER: New session created. ID: {new_session.id}, Mode from DB: '{new_session.mode}'")
     return new_session
 
 @router.get("/sessions", response_model=List[schemas.ChatSessionResponse])
