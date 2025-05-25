@@ -1,0 +1,327 @@
+PaleAIアプリケーション 
+
+目次
+
+PaleAIアプリケーション概要 1.1. コンセプトとミッション 1.2. 主要機能 1.3. 技術スタック
+機能詳細と現在の実装状況 2.1. ユーザー登録・認証・プロフィール 2.2. チャット機能・セッション管理 2.3. メモリ管理機能 2.4. AI連携/動作モード詳細 2.5. ファイルアップロード・解析機能 2.6. テンプレート管理機能
+システムアーキテクチャとディレクトリ構造 3.1. 全体構成 3.2. 主要ディレクトリとファイル 3.3. データベース
+主要APIエンドポイント (URL)
+開発の進捗サマリー
+現状の課題とスタックポイント 6.1. PDFからのテキスト抽出処理 6.2. AI連携フローの継続的な改善 6.3. フロントエンドUI/UXの改善 6.4. AIプロンプト・API仕様の最適化
+今後の開発予定・ロードマップ
+引継ぎにあたっての特記事項 8.1. 開発環境 8.2. APIキー管理 8.3. デバッグとログ
+1. PaleAIアプリケーション概要
+
+1.1. コンセプトとミッション
+PaleAIは、複数の最先端AI（OpenAI, Claude, Gemini, Perplexity, Cohere, ElevenLabsなど）を一元的に管理し、多様なAI機能を一つのプラットフォームで提供することを目指すアプリケーションです。チャット、画像生成、ファイル変換/解析、AIリサーチ、動画生成（予定）など、「ワンストップAI体験」の実現を目標としています。
+最大の特徴は「ユーザーごとに進化・記憶する」パーソナライズ機能であり、ユーザーが登録した「メモリ」情報をAIが応答生成時に考慮することで、よりユーザーに最適化された体験を提供します。
+
+1.2. 主要機能
+
+マルチAI統合: 複数のAIプロバイダーのAPIを連携させ、タスクに応じて最適なAIを自動選択・組み合わせて利用。
+パーソナライズ: ユーザー固有の情報を「メモリ」として最大100個まで登録・管理し、AIの応答生成に活用。
+多様なAIモード: チャット、検索特化リサーチ、超検索リサーチ、コード生成、文章執筆、画像生成、音声合成など、多岐にわたる専用モードを提供。
+ファイル処理: PDF、Word、Excel、画像、音声など多様なファイルをアップロードし、内容解析、要約、情報抽出などをAIで実行。処理結果をチャットのコンテキストとして利用可能。
+プロンプトテンプレート: よく使うプロンプトを保存・管理し、再利用を容易にする。
+1.3. 技術スタック
+
+バックエンド: Python, FastAPI
+データベース: SQLAlchemy (ORM), SQLite (開発用、設定によりPostgreSQL等も可能)
+フロントエンド: HTML, CSS (Tailwind CSS), JavaScript (Vanilla JS, marked.js, highlight.js)
+主要連携AI API:
+OpenAI (GPT-4o, DALL·E)
+Anthropic (Claude 3 Opus)
+Google (Gemini 1.5 Pro/Flash, Gemini Vision)
+Cohere (Command R+)
+Perplexity AI (Sonar Reasoning Pro)
+ElevenLabs (音声合成)
+DeepL (翻訳)
+AWS Textract (PDF/画像からのOCR、現在は部分的な組み込みとテスト段階)
+その他ライブラリ・ツール:
+python-dotenv (環境変数管理)
+uvicorn (ASGIサーバー)
+python-jose[cryptography] (JWT認証)
+passlib[bcrypt] (パスワードハッシュ)
+PyMuPDF (fitz), python-docx, openpyxl (ファイル形式処理)
+pandoc (コマンドラインツール、PDF処理のフォールバックとして利用)
+boto3 (AWS SDK for Python)
+2. 機能詳細と現在の実装状況
+
+2.1. ユーザー登録・認証・プロフィール
+
+仕様:
+ユーザー名、メールアドレス、パスワード、性別、好きな色2色で登録。
+登録情報に基づき、DALL·E/StableDiffusionでサイボーグ猿のプロフィール画像を自動生成（背景透過PNG）。
+実装状況:
+ユーザー登録（メール、パスワード、その他情報）、ログイン認証（JWTトークンベース）は実装済み。
+プロフィール画像自動生成機能は、初期構想段階。現在はデフォルト画像またはユーザーアップロード（未実装）を想定。
+auth_utils.py, dependencies.py に認証関連ロジック。routers/users.py にユーザー情報関連エンドポイント。
+2.2. チャット機能・セッション管理
+
+仕様:
+各チャットセッションは単一のAIモードに固定。
+履歴、タグ、フォルダ分け、スター管理が可能。DBで永続化。
+サイドバーにチャット履歴・一覧を常時表示。
+AI応答生成中でも新規チャット開始・別チャットへ移動可能（バックグラウンド動作、応答完了時に自動追記）。
+モード変更時は新規チャット開始を促すポップアップ。
+実装状況:
+チャットセッションの作成、メッセージの送受信、DBへの保存は実装済み。
+基本的な履歴表示（サイドバー）も collaboration_ai_ui.html で実装。
+AIモードはセッション作成時に固定。
+フォルダ分け機能 (routers/folders.py) は基本的なCRUDが実装済み。タグ、スター管理は未実装。
+バックグラウンド動作、応答自動追記は部分的に実装。フロントエンドでのポーリングやWebSocket（未実装）による非同期更新が必要。
+routers/chat.py にセッション・メッセージ関連エンドポイント。
+2.3. メモリ管理機能
+
+仕様:
+サイドバーから専用ページへ遷移。
+メモリの追加（タイトル、内容、優先度）、編集、削除が可能。ユーザーごとに最大100個。
+AIは全モードで応答生成時にこれらのメモリ情報を参照（ユーザープロンプト最優先）。
+実装状況:
+メモリのCRUD操作、専用ページ (/memory/) は基本的な機能が実装済み (routers/memory.py)。
+AI応答生成時にメモリ情報を統合するロジックは、ai_processing_flows.py 内の各フロー関数で user_memories 引数として受け取り、プロンプトに組み込む形で実装中。
+トークン数管理や関連度フィルタリングは未実装（現状は全件渡し、または簡易的なフィルタリングの可能性）。
+2.4. AI連携/動作モード詳細
+
+基本構成: 各モードは ai_processing_flows.py 内の run_..._flow 関数群で処理。main.py の /collaborative_answer_v2 エンドポイントや routers/upload.py の /process_file_and_chat/ エンドポイントから呼び出される。
+ペイルの声 (バランス/高品質):
+仕様: ElevenLabs APIを利用した音声合成。
+実装状況: config.py に ELEVENLABS_LANG_VOICE_MAP が定義。具体的な呼び出しフローは未確認だが、構想あり。
+ペイルの知恵 (検索特化): (Deepsearch型)
+仕様: Perplexity → Claudeで観点抽出 → 追加検索 → Geminiでグルーピングのみサマリー。
+実装状況: run_deep_search_flow (仮称) として ai_processing_flows.py で実装中。各AIの連携シーケンスは途上。「全件断片情報リスト化」「不足観点自動深掘り」は継続課題。UIでの「断片リスト」「まとめ」分割表示も未徹底。
+ペイルの叡智 (超検索):
+仕様: 複数検索AIパラレル活用＋矛盾/バイアス/不足観点の自動ループ＋分類・信頼性評価＋最小限まとめ。全件表示＋出典等。
+実装状況: run_ultra_search_flow (仮称) として実装中。API多重化、信頼性・バイアス自動判定は途上。
+ペイルの創造 (コード生成特化):
+仕様: コード枠付き、説明・注意点分離、コピーボタン。キャラ口調排除（冒頭・締めのみ）。
+実装状況: フロントエンド (collaboration_ai_ui.html) でmarked.jsとhighlight.jsによるコードブロック装飾は実装。説明文へのキャラ混入排除、表・リストの可読性向上は改善余地あり。
+ペイルの手紙 (執筆特化)、ペールの書 (長文/超長文執筆モード):
+実装状況: 専用のフロー関数 (run_writing_mode_flow, run_ultra_long_writing_mode_flow) が ai_processing_flows.py に存在するが、具体的なロジックの成熟度は不明。
+ペイルの絵 (画像生成):
+仕様: DALL·E/StableDiffusionでプロンプト変換＋全API横断。PNG保存、DL/プレビュー。
+実装状況: routers/images.py にDALL·E (OpenAI) とStable Diffusion (APIキー設定等からStability AIを想定) の呼び出しロジックあり。DeepLによるプロンプト翻訳機能も実装。複数API横断の最適化は途上。
+ペイルの像 (動画生成):
+実装状況: 未実装。構想段階。
+ペイルの対話 (高速・語学/雑談向け):
+実装状況: run_fast_chat_mode_flow が ai_processing_flows.py に存在。GPT-4oなどを直接呼び出すシンプルなチャットモード。
+2.5. ファイルアップロード・解析機能
+
+仕様:
+PDF, Word, Excel, 画像, 音声, コード等をアップロード。
+ファイル種類に応じて最適なAI (Gemini Vision, Whisper, Deepgram, Perplexity, ChatGPT, Claudeなど) を自動振り分け、内容を解析 (要約・全文抽出など)。
+解析結果をAI思考フローのコンテキストとして追加（0段階目）。
+扱えないファイル形式・容量の場合はエラー表示。
+「○○形式で出力」指示に対応。
+実装状況:
+ファイルアップロードの基本機能は routers/upload.py (/process_file_and_chat/ エンドポイント) で実装。
+ファイル処理ロジックは file_processors.py の stage0_process_file 関数に集約。
+PDF: process_pdf_file で PyMuPDF (_process_pdf_with_fitz) → Pandoc (_process_pdf_with_pandoc) → AWS Textract (_process_pdf_with_textract) の多段階戦略を実装中。Pandoc, AWS Textract (boto3クライアント初期化済み) の組み込みは進行中だが、特にTextractは本格的な処理実行とエラーハンドリングは途上。
+画像: process_image_file で Gemini Vision API を利用した解析を実装。
+音声: process_audio_file で Whisper API を利用した文字起こしを実装。
+DOCX, XLSX, TXT: それぞれ python-docx, openpyxl を使った基本的なテキスト抽出を実装。
+抽出されたテキストは、ユーザープロンプトと共にAI処理フローに渡される。
+ファイル形式ごとの容量制限チェックは file_processors.py の MAX_FILE_SIZES で定義。
+ファイル出力機能は構想段階。
+2.6. テンプレート管理機能
+
+仕様: プロンプトテンプレートの作成/保存/履歴/AI出力比較。
+実装状況: routers/templates.py にCRUDエンドポイントが実装済み。フロントエンド (collaboration_ai_ui.html) にもテンプレート管理用のモーダルと基本的な操作UIが存在。AI出力比較は未実装。
+3. システムアーキテクチャとディレクトリ構造
+
+3.1. 全体構成
+
+フロントエンド: シングルページのウェブアプリケーション (static/collaboration_ai_ui.html)。ユーザーインターフェースとAPI呼び出しを担当。
+バックエンド: FastAPIアプリケーション (main.py)。APIリクエストの処理、ビジネスロジック、AI連携、データベース操作を担当。
+データベース: 主にチャットセッション、メッセージ、ユーザー情報、メモリ、テンプレート等を永続化。
+3.2. 主要ディレクトリとファイル (filelist.txt およびこれまでの情報に基づく)
+
+C:\dev\multi_ai_app\ (プロジェクトルート)
+.env: 環境変数ファイル (APIキー、DB接続情報など。.gitignore 対象)
+main.py: FastAPIアプリケーションのエントリーポイント。ミドルウェア設定、ルーターのインクルード、AIクライアントの初期化 (app.stateへの格納)、一部エンドポイント定義 (旧 /collaborative_answer_mode_endpoint など)。
+ai_processing_flows.py: 各AIモードの具体的な処理フローを記述する関数群 (run_balance_mode_flow など)。
+file_processors.py: ファイルアップロード時のファイルタイプ別処理ロジック (stage0_process_file, process_pdf_file など)。
+config.py: 設定値、定数 (例: ELEVENLABS_LANG_VOICE_MAP)。
+database.py: SQLAlchemyエンジンの作成、SessionLocal の提供、Baseクラスの定義、get_db 依存関係関数。
+models.py: SQLAlchemyのデータベースモデル定義 (User, ChatSession, ChatMessage, UserMemory, Folder, PromptTemplateなど)。
+schemas.py: Pydanticモデル定義 (APIリクエスト/レスポンスのデータ検証・シリアライズ用)。
+dependencies.py: FastAPIの依存関係関数 (例: get_current_active_user)。
+auth_utils.py: 認証関連のユーティリティ関数。
+utils/: ユーティリティモジュール用ディレクトリ (例: openai_client.py, memory_retriever.py)。
+routers/: 各機能ごとのAPIルーターを格納。
+auth.py: 認証関連エンドポイント (/auth/tokenなど)。
+users.py: ユーザー情報関連エンドポイント (/users/meなど)。
+chat.py: チャットセッション・メッセージ関連エンドポイント。
+folders.py: フォルダ管理エンドポイント。
+upload.py: ファイルアップロード処理エンドポイント。
+templates.py: プロンプトテンプレート管理エンドポイント。
+images.py: 画像生成エンドポイント。
+video.py: 動画関連 (現状プレースホルダーの可能性)。
+memory.py: メモリ管理エンドポイント。
+static/: 静的ファイル (HTML, CSS, JS, 画像, 動画) を格納。
+collaboration_ai_ui.html: メインのフロントエンドUIファイル。
+pic/: 画像ファイル (例: Default.png, Ukiyozaru.png - ただし404のログあり)。
+movie/: 動画ファイル (例: ThinkMovie1.mp4, ThinkMovie2.mp4)。
+profile/: ユーザープロフィール画像 (例: 17.png)。
+temp_uploads/: ファイルアップロード時の一時保存ディレクトリ (.gitignore 対象推奨)。
+temp_pandoc_files/: PandocによるPDF処理時の一時作業ディレクトリ。
+uploaded_files_temp/: routers/upload.py で定義されているアップロードファイルの一時保存先。
+alembic/, alembic.ini: Alembicによるデータベースマイグレーション用ファイル (設定されていれば)。
+pale_ai.db: SQLiteデータベースファイル (デフォルト設定の場合)。
+3.3. データベース
+
+models.py に定義されたスキーマに基づき、SQLite (pale_ai.db) または .env で指定されたDBにデータが保存される。
+主要テーブル: users, chat_sessions, chat_messages, user_memories, folders, prompt_templates。
+4. 主要APIエンドポイント (URL)
+
+認証:
+POST /auth/token: ログイン、アクセストークン発行。
+POST /auth/register: 新規ユーザー登録。
+ユーザー:
+GET /users/me: 現在のユーザー情報取得。
+PUT /users/me: ユーザー情報更新。
+チャットセッション:
+POST /chat/sessions: 新規チャットセッション作成。
+GET /chat/sessions: ユーザーのチャットセッション一覧取得。
+GET /chat/sessions/{session_id}: 特定チャットセッション情報取得。
+DELETE /chat/sessions/{session_id}: チャットセッション削除。
+GET /chat/sessions/{session_id}/messages: 特定セッションのメッセージ一覧取得。
+POST /chat/sessions/{session_id}/messages: (現在は未使用か、/collaborative_answer_v2 に統合されている可能性)
+AI処理 (メイン):
+POST /collaborative_answer_v2: (ファイルなし)チャットメッセージ送信、AI応答生成。
+ファイル処理連携AI処理:
+POST /upload/process_file_and_chat/: ファイルアップロードと同時にプロンプトを送信し、AI応答を生成。
+メモリ管理:
+POST /memory/: 新規メモリ作成。
+GET /memory/: ユーザーのメモリ一覧取得。
+GET /memory/{memory_id}: 特定メモリ取得。
+PUT /memory/{memory_id}: メモリ更新。
+DELETE /memory/{memory_id}: メモリ削除。
+フォルダ管理:
+POST /folders/: 新規フォルダ作成。
+GET /folders/: フォルダ一覧取得。
+PUT /folders/{folder_id}: フォルダ更新。
+DELETE /folders/{folder_id}: フォルダ削除。
+テンプレート管理:
+POST /templates/: 新規テンプレート作成。
+GET /templates/: テンプレート一覧取得。
+(PUT, DELETEも同様に /templates/{template_id})
+画像生成:
+POST /images/generate: プロンプトに基づき画像生成。
+静的ファイル:
+GET /static/...: フロントエンドのHTML、CSS、JS、画像、動画ファイル配信。
+5. 開発の進捗サマリー (2025/05/26時点)
+
+実装済みコア機能:
+ユーザー認証、基本的なチャットセッション管理とメッセージ永続化。
+複数のAIモデル (OpenAI, Claude, Gemini, Cohere, Perplexity) をバックエンドで呼び出す基本的な枠組み。
+balance モードのような多段階AI連携フローのプロトタイプ実装。
+メモリ管理機能の基本的なCRUDとAIプロンプトへの統合の試み。
+ファイルアップロード機能と、一部ファイル形式 (PDF, 画像, 音声, テキスト系) の基本的な内容抽出処理。
+プロンプトテンプレート管理の基本的なCRUD。
+画像生成 (DALL·E, Stable Diffusion) の基本機能。
+現在注力・改善中の機能:
+ファイルアップロード機能の安定化、特にPDFからのテキスト抽出精度の向上 (多段階戦略の調整)。
+AWS Textractの本格的な組み込みとテスト。
+各AIモードにおけるAI連携ロジックの高度化と、仕様書にある要件の充足。
+エラーハンドリングの改善と、フロントエンドへのフィードバックの明確化。
+request オブジェクトやAIクライアントインスタンスの受け渡し方法の統一・安定化。
+
+
+6. 現状の課題とスタックポイント
+
+6.1. PDFからのテキスト抽出処理の不安定性
+
+現象: 特定のPDFファイル (例: Noble Gate 登記簿.pdf) でテキスト抽出に失敗し、AIには「テキストを抽出できませんでした」という情報が渡る。結果、AIはファイル内容に基づいた具体的な応答ができず、一般的なアドバイスに終始する。
+原因分析:
+PyMuPDF (fitz) やPandocでは対応できないスキャン画像ベースのPDFや、複雑なレイアウト、セキュリティ設定を持つPDFの存在。
+AWS Textractの連携がまだ完全ではなく、これらの困難なPDFに対するフォールバックとして機能していない可能性。
+file_processors.py 内の各PDF処理関数 (_process_pdf_with_fitz, _process_pdf_with_pandoc, _process_pdf_with_textract) での処理結果（成功/失敗、抽出テキスト、エラー内容）のログ出力が不足しており、問題の切り分けが難しい。
+stage0_process_file からAI処理フローへ抽出結果を渡す際のロジック（特にエラー時や抽出テキストが空の場合の扱い）に改善の余地がある可能性。
+最終レスポンスに含まれる file_processing_step.response のメッセージと、AIに渡されるプロンプト内の抽出結果メッセージに矛盾が見られる場合があり、デバッグを困難にしている。
+現在のスタックポイント: 上記PDFからのテキスト抽出がうまくいかないため、ファイルアップロード機能の価値が十分に発揮できていない。
+6.2. AI連携フローの継続的な改善 (初期仕様書からの継続課題)
+
+検索特化モード (ペイルの知恵/叡智):
+「全件断片情報リスト化」＋「不足観点自動深掘り」＋「グルーピングのみAI成形」フローの完全実装。
+複数観点・追加クエリによる深掘りサイクルの実装度合い。
+超検索モードにおける「信頼性・バイアス自動判定」「API多重化」の実装度合い。
+レスポンス形式が「まとめ一発」になっている場合があり、「fragment_list」「summary」での2分割形式への統一。
+これらの高度な連携ロジックは、まだ概念実証段階か、部分的な実装に留まっている可能性が高い。
+6.3. フロントエンドUI/UXの改善 (初期仕様書からの継続課題)
+
+Deepsearchモード表示: 「断片リスト」と「まとめ」の明確な分割表示の徹底。
+コード生成モード: 説明文へのキャラ混入の徹底排除、表・リストの可読性向上。
+大量断片情報の表示: UI/UX強化（折りたたみ/もっと見るなど）。
+メモリ管理UI: UI/UXのさらなる洗練（ソート、検索機能など）。
+Ukiyozaru.png が404エラーとなっており、表示されていない。
+6.4. AIプロンプト・API仕様の最適化 (初期仕様書からの継続課題)
+
+指示の強制: 「一切要約・省略・圧縮禁止」「断片情報全件出力」を全API/system promptで完全強制。
+整形指示: Gemini/GPT-4の「分類・整形のみ」「分野・時系列・種別グルーピング」指示の徹底。
+情報欠損: 出典/日付/発信者/種別の自動取得API（Perplexity等）が時に情報欠損する問題への対応。
+メモリ情報統合: 大量のメモリ情報（最大100件）をプロンプトに含める際のトークン数管理とコスト効率。関連度フィルタリングや要約などの高度な処理は未実装。
+AIがメモリ情報を効果的に活用し、かつユーザープロンプトとの優先順位を適切に守るためのプロンプトエンジニアリングの継続的な改善。
+7. 今後の開発予定・ロードマップ
+
+最優先課題の解決:
+PDFからのテキスト抽出処理の安定化と高精度化。
+file_processors.py のログ出力を強化し、各処理ステップでの動作を明確にする。
+PyMuPDF, Pandocでの抽出失敗原因を特定し、可能な範囲で改善。
+AWS Textract連携を本格稼働させ、困難なPDFへの対応を確立する。エラーハンドリングを強化。
+抽出結果のAIプロンプトへの正確な反映と、response_shell 内の関連情報の整合性を確保する。
+AI連携フローの改善・実装:
+初期仕様書にある各AIモード (特に検索系) の詳細な連携ロジックを段階的に実装・改善。
+レスポンス形式の標準化（fragment_list, summary）。
+フロントエンドの改善:
+仕様書にあるUI/UX改善項目への対応。
+不足している画像ファイル (Ukiyozaru.png) の配置。
+非同期処理のUX向上（ローディングインジケータの適切な表示、バックグラウンド処理完了通知など）。
+機能拡張:
+動画生成モード（ペイルの像）の設計・実装。
+ファイル出力機能の設計・実装。
+ユーザープロフィールの画像自動生成機能の実装。
+全体的な品質向上:
+AIプロンプトの継続的な最適化。
+トークン数管理とコスト効率の改善。
+包括的なテスト（単体テスト、結合テスト、E2Eテスト）の導入・拡充。
+パフォーマンスチューニング。
+セキュリティ対策の強化。
+ドキュメント整備（API仕様書、内部設計書など）。
+8. 引継ぎにあたっての特記事項
+
+8.1. 開発環境
+
+Pythonバージョン: Python 3.13 (エラーログより推測) を使用。
+仮想環境: .venv ディレクトリに構築されている。pip install -r requirements.txt (もしあれば) で依存関係をインストール。
+主要ライブラリ: fastapi, uvicorn, sqlalchemy, pydantic, python-jose[cryptography], passlib[bcrypt], python-dotenv, openai, anthropic, google-generativeai, cohere, perplexity-ai, deepl, boto3, PyMuPDF, python-docx, openpyxl。Pandocは別途システムへのインストールが必要。
+起動方法: プロジェクトルートで uvicorn main:app --reload。
+IDE: 特に指定はないが、VSCodeなどが一般的。
+8.2. APIキー管理
+
+OpenAI, Anthropic, Google AI, Cohere, Perplexity, ElevenLabs, DeepL, AWSなどのAPIキーが必要。
+これらはプロジェクトルートの .env ファイルに記述されている想定。以下はキーの例（実際のキー名に合わせてください）。
+コード スニペット
+
+OPENAI_API_KEY="sk-..."
+ANTHROPIC_API_KEY="sk-ant-..."
+GOOGLE_API_KEY="AIzaSy..." (Gemini用 - ただし現在はapp.state経由でのクライアント利用に移行)
+COHERE_API_KEY="..."
+PERPLEXITY_API_KEY="..."
+ELEVENLABS_API_KEY="..."
+DEEPL_AUTH_KEY="..."
+AWS_ACCESS_KEY_ID="..."
+AWS_SECRET_ACCESS_KEY="..."
+AWS_DEFAULT_REGION="ap-northeast-1" # Textract用
+DATABASE_URL="sqlite:///./pale_ai.db" # または "postgresql://user:password@host:port/database"
+SECRET_KEY="..." # JWT署名用
+ALGORITHM="HS256" # JWTアルゴリズム
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+.env.example ファイルがあれば、それを参考に .env ファイルを作成する。
+8.3. デバッグとログ
+
+FastAPIはデフォルトで詳細なログを出力。Uvicorn起動時のログレベルも調整可能。
+コード内の print() 文がデバッグの主な手がかりとなっている。必要に応じて追加・削除する。
+フロントエンドのデバッグはブラウザの開発者ツール (コンソール、ネットワークタブ) を使用。
+main.py で app.state にAIクライアントを格納しており、各エンドポイントやフロー関数では request.app.state 経由でアクセスする。
+データベースの内容確認は、SQLiteの場合DB Browser for SQLiteなどのツールが便利。
