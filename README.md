@@ -26,3 +26,9 @@ return to the login form.
 
 For details on output in the `ペイルの創造` code mode, see
 [CODE_MODE_OUTPUT_GUIDELINES.md](CODE_MODE_OUTPUT_GUIDELINES.md).
+
+## Logging
+
+Set the `LOG_LEVEL` environment variable to control how verbose the
+application logs are. Supported values are the standard Python logging levels
+such as `DEBUG`, `INFO` and `WARNING`. If not set, `INFO` is used.

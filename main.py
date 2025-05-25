@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends, status, File, UploadFile, Form, Request
 from fastapi.staticfiles import StaticFiles
 import os
+import logging
 import models  # models.py 全体をインポート
 from routers import auth, users, chat, folders, upload, templates, images, video
 from routers import memory as memory_router
@@ -12,6 +13,7 @@ from models import User, ChatSession, ChatMessage # ChatSession, ChatMessageも�
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
 from utils.openai_client import openai_client
+from utils.logging_config import configure_logging
 from anthropic import AsyncAnthropic
 import google.generativeai as genai
 from cohere import AsyncClient as AsyncCohereClient
@@ -42,6 +44,7 @@ import mimetypes
 import traceback
 from io import BytesIO
 load_dotenv()
+configure_logging()
 
 # 生成されたファイルを保存するディレクトリを準備
 GENERATED_FILES_DIR = "generated_files"
