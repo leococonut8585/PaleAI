@@ -305,12 +305,14 @@ async def upload_file_to_chat(
 
     content = await file.read()
     result = await stage0_process_file(request, file.filename, content)
+    if result["error"]:
+        raise HTTPException(status_code=result["status_code"], detail=result["error"])
 
     new_message = models.ChatMessage(
         chat_session_id=session.id,
         user_id=None,
         role="system",
-        content=result["summary"],
+        content=result.get("processed_content"),
         ai_model="stage0",
     )
     session.updated_at = func.now()
