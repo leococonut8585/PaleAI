@@ -977,6 +977,7 @@ async def download_generated_file(filename: str, current_user: models.User = Dep
 
 @app.post("/collaborative_answer_v2", response_model=schemas.CollaborativeResponseV2)
 async def collaborative_answer_mode_endpoint(
+    request: Request,
     prompt: str = Form(...),
     mode: str = Form(...),
     session_id: Optional[int] = Form(None),
