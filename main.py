@@ -523,38 +523,31 @@ async def get_perplexity_response(
 # --- ここまでが get_perplexity_response 関数の末尾 ---
 # main.py の get_gemini_response 関数
 async def get_gemini_response(
+    request: Request,
     prompt_text: str,
-    system_instruction: Optional[str] = None, # タスク固有指示
-    model_name: str = 'gemini-1.5-pro-latest',
+    system_instruction: Optional[str] = None,
+    model_name: str = "gemini-1.5-pro-latest",
     chat_history: Optional[List[Dict[str, str]]] = None,
-    initial_user_prompt: Optional[str] = None, # 会話全体の目的
-    user_memories: Optional[List[schemas.UserMemoryResponse]] = None # ★ 追加
+    initial_user_prompt: Optional[str] = None,
+    user_memories: Optional[List[schemas.UserMemoryResponse]] = None,
 ) -> schemas.IndividualAIResponse:
     source_name = f"Gemini ({model_name})"
 
-    if not GOOGLE_API_KEY:
-        return schemas.IndividualAIResponse(source=source_name, error="Gemini APIキーが環境変数に設定されていません。")
+    gemini_model_instance: Optional[genai.GenerativeModel] = None
+    if model_name in ("gemini-1.5-pro-latest", "gemini-pro"):
+        gemini_model_instance = request.app.state.gemini_pro_model
+    elif model_name == "gemini-1.5-flash-latest":
+        gemini_model_instance = request.app.state.gemini_flash_model
+    elif "vision" in model_name:
+        gemini_model_instance = request.app.state.gemini_vision_client
 
-    active_gemini_model: Optional[genai.GenerativeModel] = None
-    try:
-        active_gemini_model = genai.GenerativeModel(model_name)
-    except Exception as e:
-        print(f"Geminiモデル '{model_name}' の初期化に失敗: {e}")
-        if GOOGLE_API_KEY:
-            try:
-                print("Gemini: genai.configure() を試行します...")
-                genai.configure(api_key=GOOGLE_API_KEY)
-                active_gemini_model = genai.GenerativeModel(model_name)
-                print("Gemini: モデルの再初期化に成功しました。")
-            except Exception as e2:
-                print(f"Geminiモデル '{model_name}' の再初期化にも失敗: {e2}")
-                import traceback
-                traceback.print_exc()
-                return schemas.IndividualAIResponse(source=source_name, error=f"Geminiモデルの初期化/設定に失敗: {str(e2)}")
-        else:
-             return schemas.IndividualAIResponse(source=source_name, error="Gemini APIキーが設定されていません (再試行時)。")
-    if not active_gemini_model:
-         return schemas.IndividualAIResponse(source=source_name, error="Geminiモデルの取得に重大なエラーが発生しました（初期化後）。")
+    if not gemini_model_instance:
+        return schemas.IndividualAIResponse(
+            source=source_name,
+            error=f"Geminiモデル '{model_name}' が初期化されていません。",
+        )
+
+    active_gemini_model = gemini_model_instance
 
     formatted_memory_info = format_memories_for_prompt(user_memories)
 
@@ -1324,16 +1317,19 @@ async def collaborative_answer_mode_endpoint(
             response_shell = await run_balance_mode_flow(
                 original_prompt=final_prompt_for_ai_flow,
                 response_shell=response_shell,
-                chat_history_for_ai=list(chat_history_for_ai), # 副作用を防ぐためコピーを渡す
-                initial_user_prompt_for_session=initial_user_prompt_for_session
+                chat_history_for_ai=list(chat_history_for_ai),
+                initial_user_prompt_for_session=initial_user_prompt_for_session,
+                request=request,
+                user_memories=user_memories_from_request,
             )
         elif current_mode in ("search", "search3"):
             response_shell = await run_search_mode_flow(
                 original_prompt=final_prompt_for_ai_flow,
                 response_shell=response_shell,
                 chat_history_for_ai=list(chat_history_for_ai),
+                user_memories=user_memories_from_request,
+                request=request,
                 initial_user_prompt_for_session=initial_user_prompt_for_session,
-                user_memories=user_memories_from_request
             )
         elif current_mode in ("search6", "supersearch"):
             response_shell = await run_super_search_mode_flow(
@@ -1341,7 +1337,8 @@ async def collaborative_answer_mode_endpoint(
                 response_shell=response_shell,
                 chat_history_for_ai=list(chat_history_for_ai),
                 initial_user_prompt_for_session=initial_user_prompt_for_session,
-                user_memories=user_memories_from_request
+                user_memories=user_memories_from_request,
+                request=request,
             )
         elif current_mode == "code":
             response_shell = await run_code_mode_flow(
@@ -1349,7 +1346,8 @@ async def collaborative_answer_mode_endpoint(
                 response_shell=response_shell,
                 chat_history_for_ai=list(chat_history_for_ai),
                 initial_user_prompt_for_session=initial_user_prompt_for_session,
-                user_memories=user_memories_from_request
+                user_memories=user_memories_from_request,
+                request=request,
             )
         elif current_mode == "writing":
             response_shell = await run_writing_mode_flow(
@@ -1357,7 +1355,8 @@ async def collaborative_answer_mode_endpoint(
                 response_shell=response_shell,
                 chat_history_for_ai=list(chat_history_for_ai),
                 initial_user_prompt_for_session=initial_user_prompt_for_session,
-                user_memories=user_memories_from_request
+                user_memories=user_memories_from_request,
+                request=request,
             )
         elif current_mode == "longwriting":
             response_shell = await run_ultra_writing_mode_flow(
@@ -1366,7 +1365,8 @@ async def collaborative_answer_mode_endpoint(
                 chat_history_for_ai=list(chat_history_for_ai),
                 initial_user_prompt_for_session=initial_user_prompt_for_session,
                 user_memories=user_memories_from_request,
-                desired_char_count=desired_char_count
+                desired_char_count=desired_char_count,
+                request=request,
             )
         elif current_mode == "fastchat":
             response_shell = await run_fast_chat_mode_flow(
@@ -1374,7 +1374,8 @@ async def collaborative_answer_mode_endpoint(
                 response_shell=response_shell,
                 chat_history_for_ai=list(chat_history_for_ai),
                 initial_user_prompt_for_session=initial_user_prompt_for_session,
-                user_memories=user_memories_from_request
+                user_memories=user_memories_from_request,
+                request=request,
             )
         else:
             raise HTTPException(
@@ -1574,6 +1575,7 @@ async def run_super_search_mode_flow(
     chat_history_for_ai: List[Dict[str, str]],
     initial_user_prompt_for_session: Optional[str],
     user_memories: Optional[List[schemas.UserMemoryResponse]] = None,
+    request: Request,
     max_refinement_loops: int = 1
 ) -> schemas.CollaborativeResponseV2:
     print("\n--- 新・超検索特化モード（ペイルの叡智）開始 ---")
@@ -1821,6 +1823,7 @@ async def run_super_search_mode_flow(
 
         # GPT-4o や Claude Opus, Gemini 1.5 Pro など高性能モデル推奨
         final_formatting_res = await get_gemini_response(
+            request=request,
             prompt_text=final_formatting_user_prompt,
             system_instruction=final_formatting_system_prompt,
             model_name="gemini-1.5-pro-latest",
@@ -1901,7 +1904,9 @@ async def run_balance_mode_flow(
     original_prompt: str,                            # 現在のユーザーの具体的な質問
     response_shell: schemas.CollaborativeResponseV2,
     chat_history_for_ai: List[Dict[str, str]],     # これまでの会話履歴 (現在のプロンプトは含まない)
-    initial_user_prompt_for_session: Optional[str]   # このチャットセッション全体の最初のユーザーリクエスト
+    initial_user_prompt_for_session: Optional[str],   # このチャットセッション全体の最初のユーザーリクエスト
+    request: Request,
+    user_memories: Optional[List[schemas.UserMemoryResponse]] = None
 ) -> schemas.CollaborativeResponseV2:
 
     print("\n--- バランスモード開始 ---")
@@ -2060,11 +2065,13 @@ async def run_balance_mode_flow(
 これらの情報をすべて活用し、元のユーザープロンプトに対する「第1最終回答」を、上記のシステム指示に従って生成してください。
 """
         step5_res = await get_gemini_response(
+            request=request,
             prompt_text=step5_prompt_for_gemini,
             system_instruction=step5_system_instruction_gemini,
             model_name="gemini-1.5-pro-latest", # 推奨モデル
-            chat_history=list(current_chat_history_for_this_turn), # ここでは完全な履歴を渡すことも検討
-            initial_user_prompt=initial_user_prompt_for_session
+            chat_history=list(current_chat_history_for_this_turn),
+            initial_user_prompt=initial_user_prompt_for_session,
+            user_memories=user_memories,
         )
         response_shell.step5_final_answer_gemini = step5_res
         if step5_res.error or not step5_res.response:
@@ -2201,7 +2208,9 @@ async def run_search_mode_flow(
     original_prompt: str,
     response_shell: schemas.CollaborativeResponseV2,
     chat_history_for_ai: List[Dict[str, str]],
-    initial_user_prompt_for_session: Optional[str]
+    user_memories: Optional[List[schemas.UserMemoryResponse]],
+    request: Request,
+    initial_user_prompt_for_session: Optional[str] = None
 ) -> schemas.CollaborativeResponseV2:
     print("\n--- 新・検索特化モード（ペイルの知恵）開始 ---")
     # response_shell.search_fragments は [] で初期化されている想定 (pydanticのdefault_factory)
@@ -2381,11 +2390,13 @@ async def run_search_mode_flow(
             f"最後に1～2段落の「超短いまとめ」だけを「【最終まとめ】」という見出しで付与してください。"
         )
 
-        step4_formatting_res_gemini = await get_gemini_response( # または get_openai_response("gpt-4o")
+        step4_formatting_res_gemini = await get_gemini_response(
+            request=request,
             prompt_text=formatting_user_prompt_gemini,
-            system_instruction=formatting_system_prompt_gemini, # キャラ抑制マーカー含む
-            model_name="gemini-1.5-pro-latest", # 高度な長文処理能力を持つモデル推奨
-            initial_user_prompt=initial_user_prompt_for_session # 文脈として渡す
+            system_instruction=formatting_system_prompt_gemini,
+            model_name="gemini-1.5-pro-latest",
+            initial_user_prompt=initial_user_prompt_for_session,
+            user_memories=user_memories,
         )
 
         if step4_formatting_res_gemini.response:
@@ -2553,9 +2564,13 @@ Claudeによるレビューと改善提案:
 これらの情報をすべて活用し、元のユーザープロンプトに対する「第1最終回答」を生成してください。
 Claudeのレビューでの指摘を解消するために、Perplexity AIが提供した情報（もしあれば）を参考にし、Cohereの改善案を土台としてください。
 """
-        step5_res = await get_gemini_response( # ★★★ get_gemini_response を呼び出し ★★★
+        step5_res = await get_gemini_response(
+            request=request,
             prompt_text=step5_prompt_for_gemini,
-            system_instruction=step5_system_instruction_gemini
+            system_instruction=step5_system_instruction_gemini,
+            model_name="gemini-1.5-pro-latest",
+            user_memories=user_memories,
+            initial_user_prompt=initial_user_prompt_for_session,
         )
         response_shell.step5_final_answer_gemini = step5_res
         if step5_res.error or not step5_res.response:
@@ -2648,7 +2663,8 @@ async def run_code_mode_flow(
     response_shell: schemas.CollaborativeResponseV2,
     chat_history_for_ai: List[Dict[str, str]],
     initial_user_prompt_for_session: Optional[str],
-    user_memories: Optional[List[schemas.UserMemoryResponse]] = None
+    user_memories: Optional[List[schemas.UserMemoryResponse]] = None,
+    request: Request
 ) -> schemas.CollaborativeResponseV2:
     """Run the multi-step code generation flow.
 
@@ -2696,10 +2712,11 @@ async def run_code_mode_flow(
             # ... (C0の整理項目は変更なし) ...
         )
         c0_res = await get_gemini_response(
-            prompt_text=c0_user_prompt, # ユーザーへの質問形式のプロンプト
+            request=request,
+            prompt_text=c0_user_prompt,
             system_instruction=c0_system_instruction,
-            model_name="gemini-1.5-pro-latest", # または "gemini-1.5-flash-latest"
-            chat_history=list(current_chat_history_for_this_turn), # ここまでの全履歴
+            model_name="gemini-1.5-pro-latest",
+            chat_history=list(current_chat_history_for_this_turn),
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
         )
@@ -2907,7 +2924,8 @@ async def run_writing_mode_flow(
     response_shell: schemas.CollaborativeResponseV2,
     chat_history_for_ai: List[Dict[str, str]],
     initial_user_prompt_for_session: Optional[str],
-    user_memories: Optional[List[schemas.UserMemoryResponse]] = None
+    user_memories: Optional[List[schemas.UserMemoryResponse]] = None,
+    request: Request
 ) -> schemas.CollaborativeResponseV2:
 
     print("\n--- 執筆特化モード開始 ---")
@@ -2939,6 +2957,7 @@ async def run_writing_mode_flow(
             # ... (W0のユーザープロンプトの残りは変更なし) ...
         )
         w0_res = await get_gemini_response(
+            request=request,
             prompt_text=w0_user_prompt,
             system_instruction=w0_system_instruction,
             model_name="gemini-1.5-pro-latest",
@@ -3110,10 +3129,11 @@ async def run_writing_mode_flow(
             f"--- 推敲・リライトされた執筆物（第2稿） ---\n{revised_draft_content}\n--- 第2稿ここまで ---\n\n"
         )
         w5_res = await get_gemini_response(
+            request=request,
             prompt_text=w5_user_prompt,
             system_instruction=w5_final_system_instruction,
             model_name="gemini-1.5-pro-latest",
-            chat_history=list(current_chat_history_for_this_turn), # W4の結果を含む履歴
+            chat_history=list(current_chat_history_for_this_turn),
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
         )
@@ -3152,7 +3172,8 @@ async def run_ultra_writing_mode_flow(
     chat_history_for_ai: List[Dict[str, str]],
     initial_user_prompt_for_session: Optional[str],
     user_memories: Optional[List[schemas.UserMemoryResponse]] = None,
-    desired_char_count: Optional[int] = None
+    desired_char_count: Optional[int] = None,
+    request: Request = None
 ) -> schemas.CollaborativeResponseV2:
 
     print("\n--- 超長文執筆モード開始 ---")
@@ -3252,7 +3273,8 @@ async def run_fast_chat_mode_flow(
     chat_history_for_ai: List[Dict[str, str]],
     initial_user_prompt_for_session: Optional[str],
     user_memories: Optional[List[schemas.UserMemoryResponse]] = None,
-    model: str = "gpt-4o"
+    model: str = "gpt-4o",
+    request: Request = None
 ) -> schemas.CollaborativeResponseV2:
     print("\n--- 高速チャットモード開始 ---")
     print(f"Fast Chat Mode: メモリ: {len(user_memories) if user_memories else 0}件, 履歴件数(AIへ): {len(chat_history_for_ai)}")
