@@ -61,7 +61,8 @@ class ChatSessionBase(BaseModel):
     status: Optional[str] = "complete"
 
 class ChatSessionCreate(ChatSessionBase):
-    pass
+    # mode is required when creating a session
+    mode: str
 
 class ChatSessionTitleUpdate(BaseModel):
     title: str = Field(..., min_length=1)
