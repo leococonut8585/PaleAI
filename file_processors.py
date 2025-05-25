@@ -96,31 +96,42 @@ async def process_text_file(filename: str, content: bytes, extension: str, size_
         return create_error_response(f"テキストファイル処理エラー: {str(e)}", 500)
 
 
-async def _process_pdf_with_fitz(content: bytes) -> Tuple[Optional[str], str]:
+async def _process_pdf_with_fitz(content: bytes, filename: str) -> Tuple[Optional[str], str]:
+    logger.info("Starting PyMuPDF extraction for '%s'", filename)
     try:
         def extract_text_from_pdf_fitz_sync():
             doc = fitz.open("pdf", content)  # type: ignore
-            text = ""
+            text_parts = []
             for page_num in range(len(doc)):
                 page = doc.load_page(page_num)
-                text += page.get_text("text", sort=True)
-                if page_num < len(doc) - 1:
-                    text += "\n--- Page Break ---\n"
+                page_text = page.get_text("text", sort=True)
+                text_parts.append(page_text)
+                logger.debug(
+                    "PyMuPDF page %d extracted %d characters",
+                    page_num + 1,
+                    len(page_text),
+                )
             doc.close()
-            return text
+            return "\n--- Page Break ---\n".join(text_parts)
+
         extracted_text = await run_in_threadpool(extract_text_from_pdf_fitz_sync)
-        if extracted_text:
-            logger.debug(
-                "PyMuPDF extracted %d characters", len(extracted_text)
+        if extracted_text is not None:
+            logger.info(
+                "PyMuPDF finished for '%s' with %d characters",
+                filename,
+                len(extracted_text),
             )
+        else:
+            logger.info("PyMuPDF extraction for '%s' returned no text", filename)
         return extracted_text, "PyMuPDF (fitz)"
     except Exception as e:
-        logger.error("PyMuPDF (fitz) error during PDF processing: %s", e)
+        logger.error("PyMuPDF (fitz) error during PDF processing for '%s': %s", filename, e)
         return None, "PyMuPDF (fitz) - Error"
 
 
-async def _process_pdf_with_pandoc(content: bytes) -> Tuple[Optional[str], str]:
+async def _process_pdf_with_pandoc(content: bytes, filename: str) -> Tuple[Optional[str], str]:
     temp_pdf_path = None
+    logger.info("Starting Pandoc extraction for '%s'", filename)
     try:
         temp_dir = "temp_pandoc_files"
         os.makedirs(temp_dir, exist_ok=True)
@@ -132,6 +143,7 @@ async def _process_pdf_with_pandoc(content: bytes) -> Tuple[Optional[str], str]:
         cmd = ["pandoc", temp_pdf_path, "-t", "plain", "--wrap=none"]
 
         def run_pandoc_command_sync():
+            logger.debug("Running command: %s", " ".join(cmd))
             process = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=60)
             if process.returncode != 0:
                 logger.warning(
@@ -143,17 +155,23 @@ async def _process_pdf_with_pandoc(content: bytes) -> Tuple[Optional[str], str]:
             return process.stdout
 
         extracted_text = await run_in_threadpool(run_pandoc_command_sync)
-        if extracted_text:
-            logger.debug("Pandoc extracted %d characters", len(extracted_text))
+        if extracted_text is not None:
+            logger.info(
+                "Pandoc finished for '%s' with %d characters",
+                filename,
+                len(extracted_text),
+            )
+        else:
+            logger.info("Pandoc extraction for '%s' returned no text", filename)
         return extracted_text, "Pandoc"
     except subprocess.TimeoutExpired:
-        logger.error("Pandoc processing timed out.")
+        logger.error("Pandoc processing for '%s' timed out.", filename)
         return None, "Pandoc - Timeout"
     except FileNotFoundError:
         logger.error("Pandoc command not found. Ensure it's installed and in PATH.")
         return None, "Pandoc - Not Found"
     except Exception as e:
-        logger.error("Pandoc processing error: %s", e)
+        logger.error("Pandoc processing error for '%s': %s", filename, e)
         return None, "Pandoc - Error"
     finally:
         if temp_pdf_path and os.path.exists(temp_pdf_path):
@@ -172,12 +190,13 @@ async def _process_pdf_with_textract(filename: str, content: bytes, textract_cli
 
 
 async def process_pdf_file(filename: str, content: bytes, size_bytes: int, textract_client: Optional[Any]) -> Dict[str, Any]:
+    logger.info("Processing PDF file '%s' (%d bytes)", filename, size_bytes)
     if size_bytes > MAX_PDF_SIZE_MB * MB_TO_BYTES:
         return create_error_response(
             f"PDFファイルは {MAX_PDF_SIZE_MB}MB までしかアップロードできません。", 413
         )
 
-    extracted_text, method_used = await _process_pdf_with_fitz(content)
+    extracted_text, method_used = await _process_pdf_with_fitz(content, filename)
 
     if extracted_text and len(extracted_text.strip()) >= MIN_TEXT_LENGTH_FOR_RICH_EXTRACTION:
         return create_success_response(extracted_text, method_used, filename, "application/pdf", size_bytes)
@@ -189,7 +208,7 @@ async def process_pdf_file(filename: str, content: bytes, size_bytes: int, textr
     )
     current_best_text = extracted_text if extracted_text else ""
 
-    pandoc_text, pandoc_method = await _process_pdf_with_pandoc(content)
+    pandoc_text, pandoc_method = await _process_pdf_with_pandoc(content, filename)
     if pandoc_text and len(pandoc_text.strip()) > len(current_best_text.strip()):
         current_best_text = pandoc_text
         method_used = pandoc_method
