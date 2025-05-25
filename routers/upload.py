@@ -9,7 +9,7 @@ import schemas
 from dependencies import get_current_active_user
 from database import get_db
 
-from main import (
+from ai_processing_flows import (
     run_quality_chat_mode_flow,
     run_deep_search_flow,
     run_ultra_search_flow,
@@ -110,6 +110,7 @@ async def process_file_and_chat_endpoint(
                 chat_history_for_ai=chat_history_for_ai,
                 initial_user_prompt_for_session=initial_user_prompt_for_session,
                 user_memories=user_memories_list,
+                request=request,
             )
         elif current_ai_mode == "deepsearch":
             response_shell = await run_deep_search_flow(
@@ -117,6 +118,7 @@ async def process_file_and_chat_endpoint(
                 response_shell=response_shell,
                 chat_history_for_ai=chat_history_for_ai,
                 user_memories=user_memories_list,
+                request=request,
             )
         elif current_ai_mode == "ultrasearch":
             response_shell = await run_ultra_search_flow(
@@ -124,6 +126,7 @@ async def process_file_and_chat_endpoint(
                 response_shell=response_shell,
                 chat_history_for_ai=chat_history_for_ai,
                 user_memories=user_memories_list,
+                request=request,
             )
         else:
             error_msg = f"指定されたAIモード '{current_ai_mode}' はファイルアップロード処理に対応していません。"
