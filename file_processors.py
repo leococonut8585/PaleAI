@@ -1,11 +1,15 @@
 import mimetypes
 import os
+import logging
 from typing import Dict, Tuple, Optional, Any
 from fastapi.concurrency import run_in_threadpool
 from fastapi import Request
 import io
 import uuid
 import subprocess
+
+# 追加ログ用ロガー
+logger = logging.getLogger(__name__)
 
 import fitz  # PyMuPDF
 from docx import Document as DocxDocument
@@ -41,6 +45,7 @@ def get_file_details(filename: str, content: bytes) -> Tuple[str, str, Optional[
 
 
 def create_error_response(message: str, status_code: int = 400, ai_used: str = "N/A") -> Dict[str, Any]:
+    logger.debug("Error response: %s (AI: %s, status=%s)", message, ai_used, status_code)
     return {
         "processed_content": None,
         "original_filename": None,
@@ -53,6 +58,12 @@ def create_error_response(message: str, status_code: int = 400, ai_used: str = "
 
 
 def create_success_response(processed_content: str, ai_used: str, original_filename: str, content_type: Optional[str], size_bytes: int) -> Dict[str, Any]:
+    logger.debug(
+        "Success response (%s) len=%d bytes via %s",
+        original_filename,
+        len(processed_content) if processed_content else 0,
+        ai_used,
+    )
     return {
         "processed_content": processed_content,
         "original_filename": original_filename,
@@ -98,9 +109,13 @@ async def _process_pdf_with_fitz(content: bytes) -> Tuple[Optional[str], str]:
             doc.close()
             return text
         extracted_text = await run_in_threadpool(extract_text_from_pdf_fitz_sync)
+        if extracted_text:
+            logger.debug(
+                "PyMuPDF extracted %d characters", len(extracted_text)
+            )
         return extracted_text, "PyMuPDF (fitz)"
     except Exception as e:
-        print(f"PyMuPDF (fitz) error during PDF processing: {e}")
+        logger.error("PyMuPDF (fitz) error during PDF processing: %s", e)
         return None, "PyMuPDF (fitz) - Error"
 
 
@@ -119,34 +134,40 @@ async def _process_pdf_with_pandoc(content: bytes) -> Tuple[Optional[str], str]:
         def run_pandoc_command_sync():
             process = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=60)
             if process.returncode != 0:
-                print(f"Pandoc command error (code {process.returncode}): {process.stderr.strip()}")
+                logger.warning(
+                    "Pandoc command error (code %s): %s",
+                    process.returncode,
+                    process.stderr.strip(),
+                )
                 return None
             return process.stdout
 
         extracted_text = await run_in_threadpool(run_pandoc_command_sync)
+        if extracted_text:
+            logger.debug("Pandoc extracted %d characters", len(extracted_text))
         return extracted_text, "Pandoc"
     except subprocess.TimeoutExpired:
-        print("Pandoc processing timed out.")
+        logger.error("Pandoc processing timed out.")
         return None, "Pandoc - Timeout"
     except FileNotFoundError:
-        print("Pandoc command not found. Ensure it's installed and in PATH.")
+        logger.error("Pandoc command not found. Ensure it's installed and in PATH.")
         return None, "Pandoc - Not Found"
     except Exception as e:
-        print(f"Pandoc processing error: {e}")
+        logger.error("Pandoc processing error: %s", e)
         return None, "Pandoc - Error"
     finally:
         if temp_pdf_path and os.path.exists(temp_pdf_path):
             try:
                 os.remove(temp_pdf_path)
             except OSError as e_remove:
-                print(f"Error removing temp pandoc file {temp_pdf_path}: {e_remove}")
+                logger.warning("Error removing temp pandoc file %s: %s", temp_pdf_path, e_remove)
 
 
 async def _process_pdf_with_textract(filename: str, content: bytes, textract_client: Optional[Any]) -> Tuple[Optional[str], str]:
     if not textract_client:
-        print("AWS Textract client not configured.")
+        logger.warning("AWS Textract client not configured.")
         return None, "AWS Textract (Not Configured)"
-    print(f"AWS Textract processing for '{filename}' is a stub. Implement actual logic.")
+    logger.info("AWS Textract processing for '%s' is a stub.", filename)
     return "[AWS Textractによる処理は現在準備中です。スキャンされた画像や複雑なレイアウトのPDFの処理は後日対応予定です。]", "AWS Textract (Stub)"
 
 
@@ -161,32 +182,47 @@ async def process_pdf_file(filename: str, content: bytes, size_bytes: int, textr
     if extracted_text and len(extracted_text.strip()) >= MIN_TEXT_LENGTH_FOR_RICH_EXTRACTION:
         return create_success_response(extracted_text, method_used, filename, "application/pdf", size_bytes)
 
-    print(f"PyMuPDF for '{filename}' yielded short/empty text or error ({method_used}). Trying Pandoc.")
+    logger.info(
+        "PyMuPDF for '%s' yielded short/empty text or error (%s). Trying Pandoc.",
+        filename,
+        method_used,
+    )
     current_best_text = extracted_text if extracted_text else ""
 
     pandoc_text, pandoc_method = await _process_pdf_with_pandoc(content)
     if pandoc_text and len(pandoc_text.strip()) > len(current_best_text.strip()):
         current_best_text = pandoc_text
         method_used = pandoc_method
-        print(f"Pandoc yielded better result for '{filename}'.")
+        logger.info("Pandoc yielded better result for '%s'.", filename)
         if len(current_best_text.strip()) >= MIN_TEXT_LENGTH_FOR_RICH_EXTRACTION:
             return create_success_response(current_best_text, method_used, filename, "application/pdf", size_bytes)
     elif pandoc_text:
-        print(f"Pandoc result for '{filename}' was not better than PyMuPDF.")
+        logger.info("Pandoc result for '%s' was not better than PyMuPDF.", filename)
     else:
-        print(f"Pandoc failed or yielded empty text for '{filename}' ({pandoc_method}).")
+        logger.warning(
+            "Pandoc failed or yielded empty text for '%s' (%s).", filename, pandoc_method
+        )
 
     if len(current_best_text.strip()) < MIN_TEXT_LENGTH_FOR_RICH_EXTRACTION:
-        print(f"Text from PyMuPDF and Pandoc for '{filename}' is still short. Trying AWS Textract (Stub).")
+        logger.info(
+            "Text from PyMuPDF and Pandoc for '%s' is still short. Trying AWS Textract (Stub).",
+            filename,
+        )
         textract_text, textract_method = await _process_pdf_with_textract(filename, content, textract_client)
         if textract_text and len(textract_text.strip()) > len(current_best_text.strip()):
             current_best_text = textract_text
             method_used = textract_method
-            print(f"AWS Textract (Stub) yielded better result for '{filename}'.")
+            logger.info("AWS Textract (Stub) yielded better result for '%s'.", filename)
         elif textract_text:
-            print(f"AWS Textract (Stub) result for '{filename}' was not better.")
+            logger.info(
+                "AWS Textract (Stub) result for '%s' was not better.", filename
+            )
         else:
-            print(f"AWS Textract (Stub) failed or yielded empty text for '{filename}' ({textract_method}).")
+            logger.warning(
+                "AWS Textract (Stub) failed or yielded empty text for '%s' (%s).",
+                filename,
+                textract_method,
+            )
 
     if current_best_text and current_best_text.strip():
         return create_success_response(current_best_text, method_used, filename, "application/pdf", size_bytes)
@@ -256,7 +292,7 @@ async def process_image_file(filename: str, content: bytes, mime_type: Optional[
 
         return create_success_response(description, "Gemini Vision", filename, mime_type, size_bytes)
     except Exception as e:
-        print(f"Gemini Vision API error: {e}")
+        logger.error("Gemini Vision API error: %s", e)
         return create_error_response(f"画像処理エラー (Gemini Vision): {str(e)}", 500, "Gemini Vision")
 
 
@@ -283,7 +319,7 @@ async def process_audio_file(filename: str, content: bytes, mime_type: Optional[
 
         return create_success_response(transcript_text, "OpenAI Whisper", filename, mime_type, size_bytes)
     except Exception as e:
-        print(f"OpenAI Whisper API error: {e}")
+        logger.error("OpenAI Whisper API error: %s", e)
         return create_error_response(f"音声処理エラー (OpenAI Whisper): {str(e)}", 500, "OpenAI Whisper")
 
 
@@ -291,23 +327,33 @@ async def process_audio_file(filename: str, content: bytes, mime_type: Optional[
 async def stage0_process_file(request: Request, filename: str, content: bytes) -> Dict[str, Any]:
     name_no_ext, extension, mime_type, size_bytes = get_file_details(filename, content)
 
+    logger.debug(
+        "stage0: name=%s ext=%s mime=%s size=%d", name_no_ext, extension, mime_type, size_bytes
+    )
+
     openai_client_instance = request.app.state.openai_client
     gemini_vision_client_instance = request.app.state.gemini_vision_client
     textract_client_instance = request.app.state.textract_client
 
     if extension in SUPPORTED_TEXT_EXT:
+        logger.debug("Dispatching to text processor")
         return await process_text_file(filename, content, extension, size_bytes)
     elif extension in SUPPORTED_PDF_EXT:
+        logger.debug("Dispatching to PDF processor")
         return await process_pdf_file(filename, content, size_bytes, textract_client_instance)
     elif extension in SUPPORTED_DOCX_EXT:
+        logger.debug("Dispatching to DOCX processor")
         return await process_docx_file(filename, content, size_bytes)
     elif extension in SUPPORTED_XLSX_EXT:
+        logger.debug("Dispatching to XLSX processor")
         return await process_xlsx_file(filename, content, size_bytes)
 
     if mime_type:
         if mime_type in SUPPORTED_IMAGE_MIMETYPES:
+            logger.debug("Dispatching to image processor")
             return await process_image_file(filename, content, mime_type, size_bytes, gemini_vision_client_instance)
         elif mime_type in SUPPORTED_AUDIO_MIMETYPES:
+            logger.debug("Dispatching to audio processor")
             return await process_audio_file(filename, content, mime_type, size_bytes, openai_client_instance)
 
     unsupported_message = f"この形式のファイル ({extension if extension else mime_type if mime_type else '不明'}) は扱えません。"
