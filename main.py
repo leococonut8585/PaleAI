@@ -1574,8 +1574,8 @@ async def run_super_search_mode_flow(
     response_shell: schemas.CollaborativeResponseV2,
     chat_history_for_ai: List[Dict[str, str]],
     initial_user_prompt_for_session: Optional[str],
-    user_memories: Optional[List[schemas.UserMemoryResponse]] = None,
     request: Request,
+    user_memories: Optional[List[schemas.UserMemoryResponse]] = None,
     max_refinement_loops: int = 1
 ) -> schemas.CollaborativeResponseV2:
     print("\n--- 新・超検索特化モード（ペイルの叡智）開始 ---")
@@ -2663,8 +2663,8 @@ async def run_code_mode_flow(
     response_shell: schemas.CollaborativeResponseV2,
     chat_history_for_ai: List[Dict[str, str]],
     initial_user_prompt_for_session: Optional[str],
-    user_memories: Optional[List[schemas.UserMemoryResponse]] = None,
-    request: Request
+    request: Request,
+    user_memories: Optional[List[schemas.UserMemoryResponse]] = None
 ) -> schemas.CollaborativeResponseV2:
     """Run the multi-step code generation flow.
 
@@ -2924,8 +2924,8 @@ async def run_writing_mode_flow(
     response_shell: schemas.CollaborativeResponseV2,
     chat_history_for_ai: List[Dict[str, str]],
     initial_user_prompt_for_session: Optional[str],
-    user_memories: Optional[List[schemas.UserMemoryResponse]] = None,
-    request: Request
+    request: Request,
+    user_memories: Optional[List[schemas.UserMemoryResponse]] = None
 ) -> schemas.CollaborativeResponseV2:
 
     print("\n--- 執筆特化モード開始 ---")
