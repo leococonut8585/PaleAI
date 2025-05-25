@@ -7,7 +7,7 @@ psycopg2-binary
 alembic
 
 # Authentication
-passlib==1.7.4          # ← バージョン固定（bcrypt extrasは不要）
+passlib==1.7.4          # version pinned (bcrypt extras not required)
 bcrypt==4.0.1
 python-jose[cryptography]
 pyasn1>=0.4.1,<0.5.0
@@ -32,5 +32,5 @@ stability-sdk
 # assemblyai  # disabled: talk mode removed
 
 # Dev / Test
-pytest==8.2.2        # 例：インストールされたバージョンを固定
+pytest==8.2.2        # pinned pytest version for reproducible installs
 playwright
