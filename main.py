@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, status, File, UploadFile, Form
+from fastapi import FastAPI, HTTPException, Depends, status, File, UploadFile, Form, Request
 from fastapi.staticfiles import StaticFiles
 import os
 import models  # models.py 全体をインポート
@@ -17,6 +17,8 @@ import google.generativeai as genai
 from cohere import AsyncClient as AsyncCohereClient
 from perplexipy import PerplexityClient # 同期クライアントなので注意
 import deepl
+import boto3
+from botocore.exceptions import NoCredentialsError, PartialCredentialsError
 from fastapi.concurrency import run_in_threadpool # 同期処理を非同期で実行するため
 import base64
 import fitz  # PyMuPDF
@@ -77,55 +79,67 @@ app.include_router(templates.router)
 app.include_router(images.router)
 app.include_router(video.router)
 app.include_router(memory_router.router)
-# --- 各AIクライアントの初期化 ---
 
-anthropic_aclient: Optional[AsyncAnthropic] = None
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-if ANTHROPIC_API_KEY:
-    anthropic_aclient = AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
-else:
-    print("警告: ANTHROPIC_API_KEYが設定されていません。Anthropic (Claude)の機能は利用できません。")
+# --- AIクライアントと設定の初期化 ---
+# OpenAI (utils.openai_client で初期化済み)
+app.state.openai_client = openai_client
 
-gemini_model: Optional[genai.GenerativeModel] = None
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-if GOOGLE_API_KEY:
-    try:
-        genai.configure(api_key=GOOGLE_API_KEY)
-        gemini_model = genai.GenerativeModel('gemini-1.5-pro-latest')
-    except Exception as e:
-        print(f"エラー: Geminiモデルの初期化に失敗しました - {e}")
+# Anthropic
+anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
+if not anthropic_api_key:
+    print("警告: ANTHROPIC_API_KEY が設定されていません。Claude機能は利用できません。")
+    app.state.anthropic_client = None
 else:
-    print("警告: GOOGLE_API_KEYが設定されていません。Google (Gemini)の機能は利用できません。")
+    app.state.anthropic_client = AsyncAnthropic(api_key=anthropic_api_key)
 
-cohere_aclient: Optional[AsyncCohereClient] = None
-COHERE_API_KEY = os.getenv("COHERE_API_KEY")
-if COHERE_API_KEY:
-    cohere_aclient = AsyncCohereClient(api_key=COHERE_API_KEY)
+# Google Gemini
+google_api_key = os.getenv("GOOGLE_API_KEY")
+if not google_api_key:
+    print("警告: GOOGLE_API_KEY が設定されていません。Gemini機能は利用できません。")
+    app.state.gemini_vision_client = None
+    app.state.gemini_pro_model = None
+    app.state.gemini_flash_model = None
 else:
-    print("警告: COHERE_API_KEYが設定されていません。Cohereの機能は利用できません。")
+    genai.configure(api_key=google_api_key)
+    app.state.gemini_vision_client = genai.GenerativeModel('gemini-1.5-pro-latest')
+    app.state.gemini_pro_model = genai.GenerativeModel('gemini-1.5-pro-latest')
+    app.state.gemini_flash_model = genai.GenerativeModel('gemini-1.5-flash-latest')
 
-perplexity_client_sync: Optional[PerplexityClient] = None
-PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
-if PERPLEXITY_API_KEY:
-    try:
-        # PerplexityClientの初期化は同期的なので、そのまま行います。
-        # 実際のAPI呼び出しは run_in_threadpool を使います。
-        perplexity_client_sync = PerplexityClient(key=PERPLEXITY_API_KEY)
-        # perplexity_client_sync.model = "sonar-pro" # モデル名はAPI呼び出し時に指定する方が柔軟かもしれません
-    except Exception as e:
-        print(f"エラー: Perplexity AIクライアント(perplexipy)の初期化に失敗しました - {e}")
+# Cohere
+cohere_api_key = os.getenv("COHERE_API_KEY")
+if not cohere_api_key:
+    print("警告: COHERE_API_KEY が設定されていません。Cohere機能は利用できません。")
+    app.state.cohere_client = None
 else:
-    print("警告: PERPLEXITY_API_KEYが設定されていません。Perplexity AIの機能は利用できません。")
+    app.state.cohere_client = AsyncCohereClient(cohere_api_key)
 
-deepl_translator: Optional[deepl.Translator] = None
-DEEPL_API_KEY = os.getenv("DEEPL_API_KEY")
-if DEEPL_API_KEY:
-    try:
-        deepl_translator = deepl.Translator(DEEPL_API_KEY)
-    except Exception as e:
-        print(f"エラー: DeepLクライアントの初期化に失敗しました - {e}")
+# Perplexity (同期クライアント)
+perplexity_api_key = os.getenv("PERPLEXITY_API_KEY")
+if not perplexity_api_key:
+    print("警告: PERPLEXITY_API_KEY が設定されていません。Perplexity機能は利用できません。")
+    app.state.perplexity_sync_client = None
 else:
-    print("警告: DEEPL_API_KEYが設定されていません。DeepLの機能は利用できません。")
+    app.state.perplexity_sync_client = PerplexityClient(perplexity_api_key)
+
+# DeepL
+deepl_api_key = os.getenv("DEEPL_API_KEY")
+if not deepl_api_key:
+    print("警告: DEEPL_API_KEY が設定されていません。翻訳機能は利用できません。")
+    app.state.deepl_translator = None
+else:
+    app.state.deepl_translator = deepl.Translator(deepl_api_key)
+
+# AWS Textract
+aws_region = os.getenv("AWS_REGION", "ap-northeast-1")
+try:
+    app.state.textract_client = boto3.client("textract", region_name=aws_region)
+    print(f"AWS Textract client initialized for region: {aws_region}")
+except (NoCredentialsError, PartialCredentialsError) as e:
+    print(f"警告: AWS認証情報が見つからないか不完全です。Textract機能は利用できません。エラー: {e}")
+    app.state.textract_client = None
+except Exception as e:
+    print(f"警告: AWS Textractクライアントの初期化に失敗しました。エラー: {e}")
+    app.state.textract_client = None
 
 # --- 口調指定用システムプロンプト ---
 # 全モードのAI応答を、眠そうでのんびりしたサルのキャラクター
@@ -212,7 +226,7 @@ async def get_openai_response(
     initial_user_prompt: Optional[str] = None,
     user_memories: Optional[List[schemas.UserMemoryResponse]] = None
 ) -> schemas.IndividualAIResponse:
-    if not openai_client:
+    if not app.state.openai_client:
         return schemas.IndividualAIResponse(source=f"OpenAI ({model})", error="OpenAIクライアントが初期化されていません。")
 
     messages_for_api: List[Dict[str, str]] = []
@@ -271,7 +285,7 @@ async def get_openai_response(
             f"OpenAI API Request ({model}): System='{(messages_for_api[0]['content'][:100].strip() + '...' if messages_for_api and messages_for_api[0]['role'] == 'system' else 'N/A')}', "
             f"UserMemories: {len(user_memories) if user_memories else 0}, Messages Count={len(messages_for_api)}"
         )
-        res = await openai_client.chat.completions.create(
+        res = await app.state.openai_client.chat.completions.create(
             messages=messages_for_api,
             model=model,
             temperature=0.7
@@ -291,7 +305,7 @@ async def get_claude_response(
     initial_user_prompt: Optional[str] = None,
     user_memories: Optional[List[schemas.UserMemoryResponse]] = None
 ) -> schemas.IndividualAIResponse:
-    if not anthropic_aclient:
+    if not app.state.anthropic_client:
         return schemas.IndividualAIResponse(source=f"Claude ({model})", error="Anthropicクライアントが初期化されていません。")
 
     messages_for_api: List[Dict[str, str]] = []
@@ -352,7 +366,7 @@ async def get_claude_response(
 
     try:
         print(f"Claude API Request ({model}): System='{(api_params.get('system', 'N/A'))[:100].strip()}', UserMemories: {len(user_memories) if user_memories else 0}, Messages Count={len(messages_for_api)}")
-        res = await anthropic_aclient.messages.create(**api_params)
+        res = await app.state.anthropic_client.messages.create(**api_params)
 
         response_text = ""
         if res.content and isinstance(res.content, list):
@@ -378,7 +392,7 @@ async def get_cohere_response(
     initial_user_prompt: Optional[str] = None, # 会話全体の目的
     user_memories: Optional[List[schemas.UserMemoryResponse]] = None # ★ 追加
 ) -> schemas.IndividualAIResponse:
-    if not cohere_aclient:
+    if not app.state.cohere_client:
         return schemas.IndividualAIResponse(source=f"Cohere ({model})", error="Cohereクライアントが初期化されていません。")
 
     formatted_memory_info = format_memories_for_prompt(user_memories)
@@ -408,7 +422,7 @@ async def get_cohere_response(
 
     try:
         print(f"Cohere API Request ({model}): Preamble='{final_preamble_for_cohere[:100].strip() if final_preamble_for_cohere else 'N/A'}...', UserMemories: {len(user_memories) if user_memories else 0}, History Len={len(cohere_api_chat_history)}, Current Message='{prompt_text[:50].strip()}'")
-        res = await cohere_aclient.chat(
+        res = await app.state.cohere_client.chat(
             message=prompt_text,
             model=model,
             preamble=final_preamble_for_cohere.strip() if final_preamble_for_cohere.strip() else None,
@@ -429,7 +443,7 @@ async def get_perplexity_response(
     initial_user_prompt: Optional[str] = None # ★ 追加 (もしあれば文脈として有用)
 ) -> schemas.IndividualAIResponse:
     source_name = f"PerplexityAI ({model})"
-    if not perplexity_client_sync:
+    if not app.state.perplexity_sync_client:
         return schemas.IndividualAIResponse(source=source_name, error="Perplexityクライアントが初期化されていません。")
 
     # メモリ情報と会話目的をプロンプトに組み込む
@@ -485,7 +499,7 @@ async def get_perplexity_response(
                 traceback.print_exc()
                 return f"Perplexity APIエラー: {exc_inner}"
         response_text = await run_in_threadpool(
-            sync_perplexity_call, perplexity_client_sync, final_prompt_for_perplexity_api, model
+            sync_perplexity_call, app.state.perplexity_sync_client, final_prompt_for_perplexity_api, model
         )
 
         if isinstance(response_text, str) and response_text.strip() and \
@@ -616,10 +630,10 @@ async def get_gemini_response(
         return schemas.IndividualAIResponse(source=source_name, error=f"API呼び出し中にエラー: {str(e)}")
 
 async def translate_with_deepl(text: str, target_lang: str = "JA") -> str:
-    if not deepl_translator:
+    if not app.state.deepl_translator:
         raise ValueError("DeepL translator is not configured")
     try:
-        result = await run_in_threadpool(deepl_translator.translate_text, text, target_lang=target_lang)
+        result = await run_in_threadpool(app.state.deepl_translator.translate_text, text, target_lang=target_lang)
         return result.text
     except Exception as e:
         print(f"DeepL翻訳エラー: {e}")
@@ -638,7 +652,7 @@ async def process_text_file(file: UploadFile) -> str:
 
 
 async def process_image_with_vision_api(file: UploadFile, original_prompt: str, client_identifier: str = "openai") -> str:
-    if not openai_client:
+    if not app.state.openai_client:
         raise Exception("OpenAIクライアントが初期化されていません。")
 
     try:
@@ -680,7 +694,7 @@ async def process_image_with_vision_api(file: UploadFile, original_prompt: str, 
         print(
             f"OpenAI Vision API呼び出し準備 (モデル: gpt-4o): プロンプト='{user_image_prompt[:100]}...'"
         )
-        api_response = await openai_client.chat.completions.create(
+        api_response = await app.state.openai_client.chat.completions.create(
             model="gpt-4o",
             messages=messages_for_api,
             max_tokens=1000,
@@ -738,7 +752,7 @@ async def process_pdf_with_ai(file: UploadFile) -> str:
 
 
 async def process_audio_with_speech_to_text(file: UploadFile) -> str:
-    if not openai_client:
+    if not app.state.openai_client:
         raise Exception("OpenAIクライアントが初期化されていません。")
 
     try:
@@ -751,7 +765,7 @@ async def process_audio_with_speech_to_text(file: UploadFile) -> str:
 
         audio_file_for_api = BytesIO(audio_bytes)
 
-        transcription_response = await openai_client.audio.transcriptions.create(
+        transcription_response = await app.state.openai_client.audio.transcriptions.create(
             model="whisper-1",
             file=(file.filename, audio_file_for_api, file.content_type)
         )
