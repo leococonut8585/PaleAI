@@ -1,1 +1,1 @@
-# Pail AI package
+"""PaleAI root package."""
