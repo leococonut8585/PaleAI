@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from typing import Optional, List, Dict, Any
 import uuid
 import os
+import logging
 
 import models
 import schemas
@@ -29,6 +30,8 @@ router = APIRouter(
     prefix="/upload",
     tags=["Upload"],
 )
+
+logger = logging.getLogger(__name__)
 
 
 @router.post("/process_file_and_chat/", response_model=schemas.CollaborativeResponseV2)
@@ -139,7 +142,7 @@ async def process_file_and_chat_endpoint(
         raise
     except Exception as e:
         error_message = f"AI処理フロー ({current_ai_mode}) でエラーが発生しました: {str(e)}"
-        print(f"[Error] {error_message}")
+        logger.error("[Error] %s", error_message)
         response_shell.overall_error = error_message
         if not response_shell.step7_final_answer_v2_openai or not response_shell.step7_final_answer_v2_openai.response:
             response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(

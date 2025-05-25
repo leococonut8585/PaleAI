@@ -1,18 +1,24 @@
-﻿import os, replicate, sys
+import os
+import replicate
+import sys
+import logging
 
-# ▼ ここに実際の Replicate トークンを入れる
+# \u25BC ここに実際の Replicate トークンを入れる
 os.environ["REPLICATE_API_TOKEN"] = "r8_********************************"
 
 MODEL = "stability-ai/sdxl@7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc"
 
 prompt = "red and blue test"
 params = {"prompt": prompt}
-print("Replicate prompt:", prompt)
-print("Replicate request params:", params)
+
+logger = logging.getLogger(__name__)
+
+logger.debug("Replicate prompt: %s", prompt)
+logger.debug("Replicate request params: %s", params)
 try:
     url = replicate.Client().run(MODEL, input=params)
-    print("Replicate raw response:", url)
-    print("✅ 生成URL:", url)
+    logger.debug("Replicate raw response: %s", url)
+    logger.info("\u2705 \u751f\u6210URL: %s", url)
 except Exception as e:
-    print("❌ ERROR:", e.__class__.__name__, "-", e)
+    logger.error("\u274c ERROR: %s - %s", e.__class__.__name__, e)
     sys.exit(1)
