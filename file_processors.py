@@ -2,18 +2,8 @@ import mimetypes
 import os
 from typing import Dict, Tuple, Optional, Any
 from fastapi.concurrency import run_in_threadpool
+from fastapi import Request
 import io
-
-# main.py から各種クライアントやライブラリをインポート
-# (実際のプロジェクト構成に合わせてパスを調整してください)
-try:
-    from main import openai_client
-except Exception:  # pragma: no cover - fallback when main not fully loaded
-    openai_client = None
-try:
-    from main import gemini_model as gemini_client
-except Exception:
-    gemini_client = None
 
 import fitz  # PyMuPDF
 from docx import Document as DocxDocument
@@ -161,12 +151,13 @@ async def process_xlsx_file(filename: str, content: bytes, size_bytes: int) -> D
         return create_error_response(f"Excel (xlsx) ファイル処理エラー: {str(e)}", 500, "openpyxl")
 
 
-async def process_image_file(filename: str, content: bytes, mime_type: str, size_bytes: int) -> Dict[str, Any]:
+async def process_image_file(request: Request, filename: str, content: bytes, mime_type: str, size_bytes: int) -> Dict[str, Any]:
     if size_bytes > MAX_IMAGE_SIZE_MB * MB_TO_BYTES:
         return create_error_response(
             f"画像ファイルは {MAX_IMAGE_SIZE_MB}MB までしかアップロードできません。", 413
         )
     try:
+        gemini_client = request.app.state.gemini_vision_client
         if not gemini_client:
             return create_error_response("Gemini Visionクライアントが利用できません。", 503, "Gemini Vision")
 
@@ -186,12 +177,13 @@ async def process_image_file(filename: str, content: bytes, mime_type: str, size
         return create_error_response(f"画像処理エラー (Gemini Vision): {str(e)}", 500, "Gemini Vision")
 
 
-async def process_audio_file(filename: str, content: bytes, mime_type: str, size_bytes: int) -> Dict[str, Any]:
+async def process_audio_file(request: Request, filename: str, content: bytes, mime_type: str, size_bytes: int) -> Dict[str, Any]:
     if size_bytes > MAX_AUDIO_SIZE_MB * MB_TO_BYTES:
         return create_error_response(
             f"音声ファイルは {MAX_AUDIO_SIZE_MB}MB までしかアップロードできません。", 413
         )
     try:
+        openai_client = request.app.state.openai_client
         if not openai_client:
             return create_error_response("OpenAIクライアントが利用できません。", 503, "OpenAI Whisper")
 
@@ -213,7 +205,7 @@ async def process_audio_file(filename: str, content: bytes, mime_type: str, size
 
 
 # --- メイン処理関数 ---
-async def stage0_process_file(filename: str, content: bytes) -> Dict[str, Any]:
+async def stage0_process_file(request: Request, filename: str, content: bytes) -> Dict[str, Any]:
     """アップロードされたファイルを処理し、テキストコンテンツまたはエラー情報を返す。"""
     name_no_ext, extension, mime_type, size_bytes = get_file_details(filename, content)
 
@@ -228,9 +220,9 @@ async def stage0_process_file(filename: str, content: bytes) -> Dict[str, Any]:
 
     if mime_type:
         if mime_type in SUPPORTED_IMAGE_MIMETYPES:
-            return await process_image_file(filename, content, mime_type, size_bytes)
+            return await process_image_file(request, filename, content, mime_type, size_bytes)
         elif mime_type in SUPPORTED_AUDIO_MIMETYPES:
-            return await process_audio_file(filename, content, mime_type, size_bytes)
+            return await process_audio_file(request, filename, content, mime_type, size_bytes)
 
     unsupported_message = f"この形式のファイル ({extension if extension else mime_type if mime_type else '不明'}) は扱えません。"
     return create_error_response(unsupported_message, 415)

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Form
+from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Form, Request
 from sqlalchemy.orm import Session
 from typing import Optional, List, Dict, Any
 import uuid
@@ -32,6 +32,7 @@ router = APIRouter(
 
 @router.post("/process_file_and_chat/", response_model=schemas.CollaborativeResponseV2)
 async def process_file_and_chat_endpoint(
+    request: Request,
     file: UploadFile = File(...),
     current_chat_session_id: Optional[str] = Form(None),
     current_ai_mode: str = Form(...),
@@ -52,7 +53,7 @@ async def process_file_and_chat_endpoint(
     if not file.filename:
         raise HTTPException(status_code=400, detail="ファイル名がありません。")
 
-    stage0_result = await stage0_process_file(file.filename, file_content)
+    stage0_result = await stage0_process_file(request, file.filename, file_content)
 
     if stage0_result["error"]:
         raise HTTPException(status_code=stage0_result["status_code"], detail=stage0_result["error"])
