@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File,
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func # ★★★ func をインポート ★★★
 from typing import List
+import logging
 
 # from file_processors import stage0_process
 from file_processors import stage0_process_file
@@ -17,6 +18,8 @@ router = APIRouter(
     tags=["Chat"],
     dependencies=[Depends(get_current_active_user)]
 )
+
+logger = logging.getLogger(__name__)
 
 # --- チャットセッション関連 ---
 
@@ -34,8 +37,8 @@ async def create_chat_session(
     if not title_to_set: # フロントエンドがタイトル未指定でAPIを叩くことも考慮
         title_to_set = "新しいチャット" # デフォルトの仮タイトル
 
-    print("--- create_chat_session (routers/chat.py) ---")
-    print(f"Received mode from request: '{chat_session_in.mode}'")
+    logger.info("--- create_chat_session (routers/chat.py) ---")
+    logger.info("Received mode from request: '%s'", chat_session_in.mode)
 
     new_session = models.ChatSession(
         user_id=current_user.id,
@@ -49,7 +52,11 @@ async def create_chat_session(
     db.add(new_session)
     db.commit()
     db.refresh(new_session)
-    print(f"ROUTER: New session created. ID: {new_session.id}, Mode from DB: '{new_session.mode}'")
+    logger.info(
+        "ROUTER: New session created. ID: %s, Mode from DB: '%s'",
+        new_session.id,
+        new_session.mode,
+    )
     return new_session
 
 @router.get("/sessions", response_model=List[schemas.ChatSessionResponse])
@@ -68,10 +75,15 @@ async def get_user_chat_sessions(
         .limit(limit)
         .all()
     )
-    print(f"--- get_user_chat_sessions (user_id: {current_user.id}) ---")
+    logger.info("--- get_user_chat_sessions (user_id: %s) ---", current_user.id)
     response_list = []
     for s in db_sessions:
-        print(f"  Returning Session ID: {s.id}, Mode from DB: '{s.mode}', Title: '{s.title}'")
+        logger.debug(
+            "  Returning Session ID: %s, Mode from DB: '%s', Title: '%s'",
+            s.id,
+            s.mode,
+            s.title,
+        )
         response_list.append(schemas.ChatSessionResponse.from_orm(s))
     return response_list
 

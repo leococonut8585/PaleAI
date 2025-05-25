@@ -3,6 +3,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
+import logging
 
 # routers/users.py や routers/auth.py から見て、
 # これらのファイルがプロジェクトルートにあることを想定したインポート
@@ -16,8 +17,13 @@ import database
 # main.py で auth.router の prefix が "/auth" なので、フルパスは "/auth/login" になります。
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
+logger = logging.getLogger(__name__)
+
 async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(database.get_db)) -> models.User:
-    print(f"DEBUG: get_current_user called with token (first 10 chars): {token[:10]}...")
+    logger.debug(
+        "DEBUG: get_current_user called with token (first 10 chars): %s",
+        token[:10],
+    )
 
     # ↓↓↓ ここを修正 ↓↓↓
     credentials_exception = HTTPException(
@@ -29,22 +35,27 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
     try:
         payload = jwt.decode(token, auth_utils.SECRET_KEY, algorithms=[auth_utils.ALGORITHM])
         email: str = payload.get("sub")
-        print(f"DEBUG: Token decoded. Email from payload: {email}") # デコードされたメール確認
+        logger.debug("DEBUG: Token decoded. Email from payload: %s", email)
         if email is None:
-            print("DEBUG: Email is None in payload.")
+            logger.debug("DEBUG: Email is None in payload.")
             raise credentials_exception
         token_data = schemas.TokenData(email=email)
     except JWTError as e:
-        print(f"DEBUG: JWTError during token decoding: {e}") # JWTエラー詳細
+        logger.debug("DEBUG: JWTError during token decoding: %s", e)
         raise credentials_exception
 
     user = db.query(models.User).filter(models.User.email == token_data.email).first()
     if user is None:
-        print(f"DEBUG: User not found in DB for email: {token_data.email}") # ユーザーが見つからない場合
+        logger.debug("DEBUG: User not found in DB for email: %s", token_data.email)
         raise credentials_exception
-    print(f"DEBUG: User found in DB: ID={user.id}, Email={user.email}, IsActive={user.is_active}") # ユーザー情報確認
+    logger.debug(
+        "DEBUG: User found in DB: ID=%s, Email=%s, IsActive=%s",
+        user.id,
+        user.email,
+        user.is_active,
+    )
     if not user.is_active:
-        print(f"DEBUG: User {user.email} is not active.")
+        logger.debug("DEBUG: User %s is not active.", user.email)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="非アクティブなアカウントです。")
     return user
 

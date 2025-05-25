@@ -4,6 +4,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from datetime import timedelta
+import logging
 
 # プロジェクトルートにあるモジュールを直接インポート
 import database
@@ -17,6 +18,8 @@ router = APIRouter(
     tags=["Authentication"],
 )
 
+logger = logging.getLogger(__name__)
+
 async def create_profile_image(user: models.User, db: Session) -> None:
     """Generate and save the user's profile image."""
     path = f"/static/profile/{user.id}.png"
@@ -25,7 +28,7 @@ async def create_profile_image(user: models.User, db: Session) -> None:
     try:
         await generate_and_save(user.color1, user.color2, user.gender, user.id)
     except Exception as e:
-        print(f"Profile image generation error: {e}")
+        logger.error("Profile image generation error: %s", e)
 
 @router.post("/register", response_model=schemas.User)
 async def register_user(

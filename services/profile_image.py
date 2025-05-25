@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 async def _gen_with_dalle(prompt: str) -> bytes:
     # Log the actual prompt used for this API call
-    print("実際に使ったプロンプト:", prompt)
+    logger.debug("実際に使ったプロンプト: %s", prompt)
     params = {
         "model": "dall-e-3",
         "prompt": prompt,
@@ -40,19 +40,19 @@ async def _gen_with_dalle(prompt: str) -> bytes:
         "quality": "standard",
         "style": "vivid",
     }
-    print("DALL·E request params:", params)
+    logger.debug("DALL·E request params: %s", params)
     try:
         resp = await openai_client.images.generate(**params)
-        print("APIレスポンスやエラー:", resp)
-        print("DALL·E raw response:", resp)
+        logger.debug("APIレスポンスやエラー: %s", resp)
+        logger.debug("DALL·E raw response: %s", resp)
         url = resp.data[0].url
-        print("DALL·E image URL:", url)
+        logger.info("DALL·E image URL: %s", url)
         async with httpx.AsyncClient() as cx:
             content = (await cx.get(url)).content
         return content
     except Exception as e:
         # Log the error before re-raising so retries can inspect it
-        print("APIレスポンスやエラー:", e)
+        logger.error("APIレスポンスやエラー: %s", e)
         raise
 
 
@@ -75,8 +75,8 @@ async def _gen_with_dalle_retry(prompts: list[str]) -> bytes:
 
 
 async def _gen_with_sdxl(prompt: str, neg: str) -> bytes:
-    print("SDXL prompt:", prompt)
-    print("SDXL negative_prompt:", neg)
+    logger.debug("SDXL prompt: %s", prompt)
+    logger.debug("SDXL negative_prompt: %s", neg)
     def _run():
         params = {
             "prompt": prompt,
@@ -84,15 +84,15 @@ async def _gen_with_sdxl(prompt: str, neg: str) -> bytes:
             "width": 1024,
             "height": 1024,
         }
-        print("SDXL request params:", params)
+        logger.debug("SDXL request params: %s", params)
         # Pass the SDXL model ID directly without a tag like :main
         return sd_client.run(MODEL_ID, input=params)
 
     url = await asyncio.to_thread(_run)
-    print("SDXL image URL:", url)
+    logger.info("SDXL image URL: %s", url)
     async with httpx.AsyncClient() as cx:
         content = (await cx.get(url)).content
-    print("SDXL image bytes:", len(content))
+    logger.debug("SDXL image bytes: %s", len(content))
     return content
 
 
@@ -123,17 +123,15 @@ async def generate_and_save(c1_hex: str, c2_hex: str, gender: str, user_id: int)
     try:
         img_bytes = await _gen_with_dalle_retry(prompt_variants)
     except Exception as e:
-        logger.warning(f"DALL·E failed, fallback to SDXL: {e}")
-        print("DALL·E error:", e)
+        logger.warning("DALL·E failed, fallback to SDXL: %s", e)
         try:
             img_bytes = await _gen_with_sdxl(prompt_variants[0], neg)
         except Exception as e2:
-            logger.error(f"SDXL also failed: {e2}")
-            print("SDXL error:", e2)
+            logger.error("SDXL also failed: %s", e2)
             Path("static/profile").mkdir(exist_ok=True, parents=True)
             shutil.copy("static/pic/Default.png", f"static/profile/{user_id}.png")
             return
 
     Path("static/profile").mkdir(exist_ok=True, parents=True)
     (Path("static/profile") / f"{user_id}.png").write_bytes(img_bytes)
-    print("Saved image for user", user_id)
+    logger.info("Saved image for user %s", user_id)

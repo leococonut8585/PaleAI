@@ -1,9 +1,11 @@
+# routers/images.py
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from fastapi.concurrency import run_in_threadpool
 import os
 import base64
+import logging
 # import httpx  # removed: upscale_image no longer uses it
 # import tempfile  # removed: upscale_image no longer uses it
 
@@ -11,6 +13,8 @@ import models
 from dependencies import get_current_active_user
 
 router = APIRouter(prefix="/images", tags=["Images"])
+
+logger = logging.getLogger(__name__)
 
 class ImageGenerationRequest(BaseModel):
     prompt: str
@@ -35,7 +39,7 @@ async def translate_prompt(text: str) -> str:
         result = await run_in_threadpool(deepl_translator.translate_text, text, target_lang="EN-US")
         return result.text
     except Exception as e:
-        print(f"DeepL error: {e}")
+        logger.error(f"DeepL error: {e}")
         return text
 
 async def optimize_prompt(english_prompt: str) -> str:
@@ -62,15 +66,17 @@ The prompt you are optimizing is in English. Ensure your output is also a single
             optimized_text = res.response.strip()
             if optimized_text.lower().startswith("optimized prompt:"):
                 optimized_text = optimized_text[len("optimized prompt:"):].strip()
-            print(f"Optimized prompt by Claude ({res.source}): {optimized_text}")
+            logger.info(f"Optimized prompt by Claude ({res.source}): {optimized_text}")
             return optimized_text
         else:
-            print(f"Claude prompt optimization returned no response. Using original English prompt: {english_prompt}")
+            logger.warning(
+                f"Claude prompt optimization returned no response. Using original English prompt: {english_prompt}"
+            )
             if res and res.error:
-                print(f"Claude optimization error details: {res.error}")
+                logger.warning(f"Claude optimization error details: {res.error}")
             return english_prompt
     except Exception as e:
-        print(f"Claude prompt optimization exception: {e}")
+        logger.error(f"Claude prompt optimization exception: {e}")
         return english_prompt
 
 
@@ -103,16 +109,16 @@ async def generate_images(req: ImageGenerationRequest, current_user: models.User
                 "size": "1024x1024",
                 "quality": "standard",
             }
-            print("DALL·E request params:", params)
+            logger.debug("DALL·E request params: %s", params)
             try:
                 res = await openai_client.images.generate(**params)
                 if res.data and res.data[0].url:
-                    print(f"DALL·E image URL: {res.data[0].url}")
+                    logger.info("DALL·E image URL: %s", res.data[0].url)
                     out.append(res.data[0].url)
                 else:
-                    print("DALL·E response did not contain a valid URL.")
+                    logger.warning("DALL·E response did not contain a valid URL.")
             except Exception as e_dalle:
-                print(f"DALL·E individual generation failed: {e_dalle}")
+                logger.error("DALL·E individual generation failed: %s", e_dalle)
                 errors_occurred.append(f"DALL·E: {str(e_dalle)}")
         return out
 
@@ -128,7 +134,7 @@ async def generate_images(req: ImageGenerationRequest, current_user: models.User
             raise Exception("Stability API key missing. Cannot use Stable Diffusion.")
 
         stability_engine_id = "stable-diffusion-xl-1024-v1-0"
-        print(f"Using Stability Engine: {stability_engine_id}")
+        logger.info("Using Stability Engine: %s", stability_engine_id)
 
         stability = stability_client.StabilityInference(key=key, verbose=True, engine=stability_engine_id)
 
@@ -156,7 +162,7 @@ async def generate_images(req: ImageGenerationRequest, current_user: models.User
                 "seed": current_seed, "steps": 30, "cfg_scale": 7,
                 "samples": 1, "width": 1024, "height": 1024
             }
-            print("Stable Diffusion call parameters (for logging):", call_params_for_log)
+            logger.debug("Stable Diffusion call parameters (for logging): %s", call_params_for_log)
 
             try:
                 answer = await run_in_threadpool(
@@ -171,15 +177,24 @@ async def generate_images(req: ImageGenerationRequest, current_user: models.User
                 )
 
                 # ☆☆☆ 生のAPI応答をログに出力 ☆☆☆
-                print(f"Stable Diffusion API raw answer for seed {current_seed}: {answer}")
+                logger.debug(
+                    "Stable Diffusion API raw answer for seed %s: %s",
+                    current_seed,
+                    answer,
+                )
 
                 found_image = False  # このシードで画像が見つかったかどうかのフラグ
                 for resp_idx, resp in enumerate(answer):  # answerがイテラブルであることを期待
-                    print(f"  Response block {resp_idx}: {type(resp)}")  # 個々のレスポンスブロックの型
+                    logger.debug("  Response block %s: %s", resp_idx, type(resp))  # 個々のレスポンスブロックの型
                     for art_idx, art in enumerate(resp.artifacts):  # artifactsがイテラブルであることを期待
-                        print(f"    Artifact {art_idx}: type={art.type}, finish_reason={art.finish_reason}")
+                        logger.debug(
+                            "    Artifact %s: type=%s, finish_reason=%s",
+                            art_idx,
+                            art.type,
+                            art.finish_reason,
+                        )
                         if art.finish_reason == generation.FILTER:
-                            print("    Stable Diffusion image filtered by safety filter.")
+                            logger.warning("    Stable Diffusion image filtered by safety filter.")
                             errors_occurred.append(f"Stable Diffusion (seed {current_seed}): Image filtered by safety.")
                             continue
                         if art.type == generation.ARTIFACT_IMAGE:
@@ -187,15 +202,25 @@ async def generate_images(req: ImageGenerationRequest, current_user: models.User
                             url = f"data:image/png;base64,{b64}"
                             out.append(url)
                             found_image = True
-                            print(f"    Successfully processed artifact image for seed {current_seed}")
+                            logger.debug(
+                                "    Successfully processed artifact image for seed %s",
+                                current_seed,
+                            )
 
                 if not found_image:
-                    print(f"  No valid image artifact found in API response for seed {current_seed}.")
+                    logger.warning(
+                        "  No valid image artifact found in API response for seed %s.",
+                        current_seed,
+                    )
                     # errors_occurred に何も追加しないでおくと、単に画像が0枚だったことになる
                     # エラーとして扱うべきか検討 ( 例: APIは成功したが期待した画像がなかった場合 )
 
             except Exception as e_stable_gen:
-                print(f"Stable Diffusion individual generation failed for seed {current_seed}: {e_stable_gen}")
+                logger.error(
+                    "Stable Diffusion individual generation failed for seed %s: %s",
+                    current_seed,
+                    e_stable_gen,
+                )
                 errors_occurred.append(f"Stable Diffusion Exception (seed {current_seed}): {str(e_stable_gen)}")
         return out
 
@@ -216,21 +241,27 @@ async def generate_images(req: ImageGenerationRequest, current_user: models.User
 
     if openai_images_to_generate > 0:
         try:
-            print(f"Attempting OpenAI (DALL·E) generation for {openai_images_to_generate} image(s)...")
+            logger.info(
+                "Attempting OpenAI (DALL·E) generation for %s image(s)...",
+                openai_images_to_generate,
+            )
             openai_urls = await dalle_try(openai_images_to_generate, optimized)
             all_generated_urls.extend(openai_urls)
         except Exception as e:
-            print(f"OpenAI (DALL·E) main call failed: {e}")
+            logger.error("OpenAI (DALL·E) main call failed: %s", e)
             errors_occurred.append(f"OpenAI Main Error: {str(e)}")
 
     if stable_images_to_generate > 0:
         stable_optimized_prompt = optimized
         try:
-            print(f"Attempting Stable Diffusion generation for {stable_images_to_generate} image(s)...")
+            logger.info(
+                "Attempting Stable Diffusion generation for %s image(s)...",
+                stable_images_to_generate,
+            )
             stable_urls = await stable_try(stable_images_to_generate, stable_optimized_prompt)
             all_generated_urls.extend(stable_urls)
         except Exception as e:
-            print(f"Stable Diffusion main call failed: {e}")
+            logger.error("Stable Diffusion main call failed: %s", e)
             errors_occurred.append(f"Stable Diffusion Main Error: {str(e)}")
 
     if not all_generated_urls:
