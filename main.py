@@ -984,6 +984,9 @@ async def collaborative_answer_mode_endpoint(
     current_session_id_from_request = session_id
     desired_char_count = char_count # desired_char_count を使うように変数名を合わせる
 
+    print("--- collaborative_answer_mode_endpoint ---")
+    print(f"Received mode from frontend: '{mode}' (raw), Processed current_mode: '{current_mode}'")
+
     mode = current_mode
 
     user_memories_from_request: Optional[List[schemas.UserMemoryResponse]] = None
@@ -1209,11 +1212,19 @@ async def collaborative_answer_mode_endpoint(
             potential_title = "新しいチャット"  # プロンプトが全くない場合
         # ★★★ ここまで ★★★
 
-        active_session = models.ChatSession(user_id=current_user.id, title=potential_title, status='loading')
+        print(f"Creating new session with mode: '{current_mode}' for title: '{potential_title}'")
+        active_session = models.ChatSession(
+            user_id=current_user.id,
+            title=potential_title,
+            status='loading',
+            mode=current_mode,
+        )
         db.add(active_session)
         db.commit()  # 先にセッションをコミットしてIDを確定させる
         db.refresh(active_session)
-        print(f"新規チャットセッション作成成功: ID={active_session.id}, Title='{active_session.title}'")
+        print(
+            f"新規チャットセッション作成成功: ID={active_session.id}, Title='{active_session.title}', Mode='{active_session.mode}'"
+        )
         response_shell.processed_session_id = active_session.id  # レスポンスシェルに確定IDを設定
         initial_user_prompt_for_session = original_prompt_from_user  # 新規なので現在のユーザー入力プロンプトが最初のプロンプト
 
@@ -1237,9 +1248,14 @@ async def collaborative_answer_mode_endpoint(
         session_title = (
             original_prompt_from_user[:70].strip() + "..." if len(original_prompt_from_user) > 70 else original_prompt_from_user.strip()
         )
-        active_session = models.ChatSession(user_id=current_user.id, title=session_title, status='loading')
+        active_session = models.ChatSession(
+            user_id=current_user.id,
+            title=session_title,
+            status='loading',
+            mode=current_mode,
+        )
         print(
-            f"警告: active_sessionが未作成だったため、新規作成します。Title='{active_session.title}'"
+            f"警告: active_sessionが未作成だったため、新規作成します。Title='{active_session.title}', Mode='{active_session.mode}'"
         )
 
     if not active_session.id:
