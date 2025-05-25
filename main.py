@@ -1225,6 +1225,16 @@ async def collaborative_answer_mode_endpoint(
         print(
             f"新規チャットセッション作成成功: ID={active_session.id}, Title='{active_session.title}', Mode='{active_session.mode}'"
         )
+        # --- Debug: verify mode persisted correctly ---
+        db_session_check = db.query(models.ChatSession).filter(models.ChatSession.id == active_session.id).first()
+        if db_session_check:
+            print(
+                f"DEBUG: Newly created session (ID: {db_session_check.id}) re-fetched from DB. Mode in DB: '{db_session_check.mode}'"
+            )
+        else:
+            print(
+                f"DEBUG: Failed to re-fetch newly created session (ID: {active_session.id}) from DB for mode check."
+            )
         response_shell.processed_session_id = active_session.id  # レスポンスシェルに確定IDを設定
         initial_user_prompt_for_session = original_prompt_from_user  # 新規なので現在のユーザー入力プロンプトが最初のプロンプト
 
