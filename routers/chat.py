@@ -54,14 +54,21 @@ async def get_user_chat_sessions(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(get_current_active_user)
 ):
-    sessions = db.query(models.ChatSession)\
-                 .filter(models.ChatSession.user_id == current_user.id)\
-                 .filter(models.ChatSession.is_complete == True)\
-                 .order_by(models.ChatSession.updated_at.desc())\
-                 .offset(skip)\
-                 .limit(limit)\
-                 .all()
-    return sessions
+    db_sessions = (
+        db.query(models.ChatSession)
+        .filter(models.ChatSession.user_id == current_user.id)
+        .filter(models.ChatSession.is_complete == True)
+        .order_by(models.ChatSession.updated_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    print(f"--- get_user_chat_sessions (user_id: {current_user.id}) ---")
+    response_list = []
+    for s in db_sessions:
+        print(f"  Returning Session ID: {s.id}, Mode from DB: '{s.mode}', Title: '{s.title}'")
+        response_list.append(schemas.ChatSessionResponse.from_orm(s))
+    return response_list
 
 @router.get("/sessions/{session_id}/messages", response_model=List[schemas.ChatMessageResponse]) # ★★★ エンドポイントを修正 ★★★
 async def get_chat_session_messages( # ★★★ 関数名を修正 ★★★

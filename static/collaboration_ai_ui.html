@@ -735,25 +735,33 @@
 
     // ★ 新規追加: 旧バージョンのモード名を現在のモード名に正規化
     function normalizeMode(modeValue) {
-        if (!modeValue) {
-            console.warn(`normalizeMode: modeValue is falsy ('${modeValue}'), defaulting to 'balance'.`);
+        if (modeValue === null || modeValue === undefined || modeValue === '') {
+            console.warn(`normalizeMode: modeValue is empty or null/undefined ('${modeValue}'), defaulting to 'balance'. This likely indicates an issue with data from the backend or cache.`);
             return 'balance';
         }
+
         const lower = String(modeValue).toLowerCase();
+
         if (lower === 'chat') {
-            console.warn("normalizeMode: 'chat' mode found, normalizing to 'balance'.");
+            console.warn("normalizeMode: Legacy 'chat' mode found, normalizing to 'balance'. Ensure backend DB/API is updated to no longer use 'chat'.");
             return 'balance';
         }
         if (lower === 'search') {
-            console.warn("normalizeMode: 'search' mode found, normalizing to 'search3'.");
+            console.warn("normalizeMode: Legacy 'search' mode found, normalizing to 'search3'.");
             return 'search3';
         }
-        const validModes = aiModeSelect ? Array.from(aiModeSelect.options).map(opt => opt.value) : [];
-        if (validModes.includes(lower)) {
-            return lower;
+
+        if (aiModeSelect) {
+            const validModes = Array.from(aiModeSelect.options).map(opt => opt.value);
+            if (validModes.includes(lower)) {
+                return lower;
+            } else {
+                console.error(`normalizeMode: Unknown or invalid modeValue '${lower}' received. It's not in the aiModeSelect options. Defaulting to 'balance'. Valid options: [${validModes.join(', ')}]. This indicates a serious mismatch or new/removed mode.`);
+                return 'balance';
+            }
         } else {
-            console.warn(`normalizeMode: Unknown or invalid modeValue '${lower}'. Defaulting to 'balance'. Valid modes: [${validModes.join(', ')}]`);
-            return 'balance';
+            console.warn("normalizeMode: aiModeSelect not found, returning lowercased modeValue. This might be okay during initial load.");
+            return lower;
         }
     }
 
@@ -2369,20 +2377,31 @@ function highlightMessage(messageId) {
                 }
 
 
-            } catch (error) {
-                console.error('リクエストエラー:', error);
-                displayMessage(`リクエスト処理中にエラー: ${error.message || '不明なエラー'}`, 'ai', 'SystemError');
-            } finally {
-                selectedFile = null;
-                if (fileInput) fileInput.value = '';
-                loadingIndicator.classList.add('hidden');
-                hideThinkingVideo();
-                sessionLoading[targetKey] = false;
-                const c = document.querySelector(`.session-element[data-session-id="${requestSessionId}"]`);
-                if (c) {
-                    c.dataset.status = data && data.overall_error ? 'error' : 'complete';
-                }
+            if(loadingIndicator) loadingIndicator.classList.add('hidden');
+            hideThinkingVideo();
+            const cSuccess = document.querySelector(`.session-element[data-session-id="${requestSessionId}"]`);
+            if (cSuccess) {
+                cSuccess.dataset.status = data && data.overall_error ? 'error' : 'complete';
+                const spinner = cSuccess.querySelector('.session-loading-spinner');
+                if (spinner) spinner.remove();
             }
+        } catch (error) {
+            console.error('リクエストエラー:', error);
+            displayMessage(`リクエスト処理中にエラー: ${error.message || '不明なエラー'}`, 'ai', 'SystemError');
+            if(loadingIndicator) loadingIndicator.classList.add('hidden');
+            hideThinkingVideo();
+            const cError = document.querySelector(`.session-element[data-session-id="${requestSessionId}"]`);
+            if (cError) {
+                cError.dataset.status = 'error';
+                const spinner = cError.querySelector('.session-loading-spinner');
+                if (spinner) spinner.remove();
+            }
+        } finally {
+            selectedFile = null;
+            if (fileInput) fileInput.value = '';
+            const targetKeyFinally = requestSessionId !== null ? String(requestSessionId) : 'new';
+            sessionLoading[targetKeyFinally] = false;
+        }
         });
     }
 
