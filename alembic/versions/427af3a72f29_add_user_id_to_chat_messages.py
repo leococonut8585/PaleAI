@@ -17,23 +17,28 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    """Add user_id column to chat_messages."""
-    op.add_column("chat_messages", sa.Column("user_id", sa.Integer(), nullable=True))
-    # Add foreign key on databases that support it
+    """Add user_id column to chat_messages if not already present."""
     bind = op.get_bind()
-    if bind.dialect.name != "sqlite":
-        op.create_foreign_key(
-            "fk_user_id",
-            "chat_messages",
-            "users",
-            ["user_id"],
-            ["id"],
-        )
+    inspector = sa.inspect(bind)
+    columns = [c["name"] for c in inspector.get_columns("chat_messages")]
+    if "user_id" not in columns:
+        op.add_column("chat_messages", sa.Column("user_id", sa.Integer(), nullable=True))
+        if bind.dialect.name != "sqlite":
+            op.create_foreign_key(
+                "fk_user_id",
+                "chat_messages",
+                "users",
+                ["user_id"],
+                ["id"],
+            )
 
 
 def downgrade() -> None:
-    """Remove user_id column from chat_messages."""
+    """Remove user_id column from chat_messages if present."""
     bind = op.get_bind()
-    if bind.dialect.name != "sqlite":
-        op.drop_constraint("fk_user_id", "chat_messages", type_="foreignkey")
-    op.drop_column("chat_messages", "user_id")
+    inspector = sa.inspect(bind)
+    columns = [c["name"] for c in inspector.get_columns("chat_messages")]
+    if "user_id" in columns:
+        if bind.dialect.name != "sqlite":
+            op.drop_constraint("fk_user_id", "chat_messages", type_="foreignkey")
+        op.drop_column("chat_messages", "user_id")
