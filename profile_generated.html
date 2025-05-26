@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登録完了</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-teal-50 min-h-screen flex flex-col items-center justify-center text-center">
+    <img id="avatar" src="" alt="profile" style="max-width:256px;max-height:256px;object-fit:contain;" class="mb-4">
+    <button id="toLogin" class="bg-teal-500 hover:bg-teal-600 text-white py-2 px-4 rounded-md">早速ログインする</button>
+
+    <script>
+    const API_BASE_URL = 'http://127.0.0.1:8000';
+    const params = new URLSearchParams(window.location.search);
+    const uid = params.get('uid');
+    if (!uid) {
+        window.location.href = 'collaboration_ai_ui.html';
+    } else {
+        const img = document.getElementById('avatar');
+        img.src = `${API_BASE_URL}/static/profile/${uid}.png`;
+    }
+    document.getElementById('toLogin').addEventListener('click', () => {
+        window.location.href = 'collaboration_ai_ui.html';
+    });
+    </script>
+</body>
+</html>

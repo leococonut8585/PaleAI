@@ -34,6 +34,14 @@ router = APIRouter(
 logger = logging.getLogger(__name__)
 
 
+@router.post("")
+async def root_upload_placeholder(
+    current_user: models.User = Depends(get_current_active_user),
+):
+    """Placeholder root endpoint requiring authentication."""
+    return {"detail": "not implemented"}
+
+
 @router.post("/process_file_and_chat/", response_model=schemas.CollaborativeResponseV2)
 async def process_file_and_chat_endpoint(
     request: Request,
