@@ -12,6 +12,8 @@ import models
 import schemas
 import auth_utils
 from services.profile_image import generate_and_save
+import uuid
+import os
 
 router = APIRouter(
     prefix="/auth",
@@ -22,11 +24,20 @@ logger = logging.getLogger(__name__)
 
 async def create_profile_image(user: models.User, db: Session) -> None:
     """Generate and save the user's profile image."""
-    path = f"/static/profile/{user.id}.png"
+    unique_name = f"{user.id}_{uuid.uuid4().hex}.png"
+    path = f"/static/profile/{unique_name}"
+    old_path = user.profile_image_url
     user.profile_image_url = path
     db.commit()
     try:
-        await generate_and_save(user.color1, user.color2, user.gender, user.id)
+        await generate_and_save(
+            user.color1, user.color2, user.gender, user.id, file_name=unique_name
+        )
+        if old_path:
+            try:
+                os.remove("." + old_path)
+            except OSError:
+                pass
     except Exception as e:
         logger.error("Profile image generation error: %s", e)
 
