@@ -56,3 +56,16 @@ npx playwright install
 ```
 
 or `playwright install` if the `playwright` command is on your PATH.
+
+## Configuration
+
+Create a `.env` file based on `.env.example` and provide your API keys. At least
+`OPENAI_API_KEY` must be set to enable core features. Keys for Anthropic,
+Gemini, Cohere, Perplexity, ElevenLabs and AWS are optional depending on which
+functions you plan to use.
+
+To start the development server run:
+
+```bash
+uvicorn main:app --reload
+```
