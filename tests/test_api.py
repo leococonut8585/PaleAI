@@ -55,11 +55,20 @@ def test_register_login_and_me():
         },
     )
     if reg.status_code == 400:
+        # 送信するJSONデータを変数に入れておく (テストコード内のものと同じにする)
+        request_payload = {
+            "email": "u@example.com",
+            "username": "user1",
+            "password": "pass1234",
+            "gender": "未回答",
+            "color1": "#000000",
+            "color2": "#ffffff",
+        }
         print(
-            f"\n--- test_register_login_and_me \u306e\u30a8\u30e9\u30fc\u8a73\u7d30 (email: {reg.request.json()['email']}) ---"
+            f"\n--- test_register_login_and_me \u306e\u30a8\u30e9\u30fc\u8a73\u7d30 (email: {request_payload['email']}) ---"
         )
         try:
-            print(reg.json())
+            print("サーバーからのエラーレスポンス:", reg.json())
         except Exception as e:
             print(f"\u30a8\u30e9\u30fc\u30ec\u30b9\u30dd\u30f3\u30b9\u306eJSON\u30c7\u30b3\u30fc\u30c9\u306b\u5931\u6557: {e}")
             print(f"\u751f\u306e\u30ec\u30b9\u30dd\u30f3\u30b9\u30c6\u30ad\u30b9\u30c8: {reg.text}")
@@ -108,11 +117,20 @@ def test_profile_image_creation_and_update():
         },
     )
     if reg.status_code == 400:
+        # 送信するJSONデータを変数に入れておく
+        request_payload = {
+            "email": "u2@example.com",
+            "username": "user2",
+            "password": "pass1234",
+            "gender": "男性",
+            "color1": "#112233",
+            "color2": "#445566",
+        }
         print(
-            f"\n--- test_profile_image_creation_and_update \u306e\u30a8\u30e9\u30fc\u8a73\u7d30 (email: {reg.request.json()['email']}) ---"
+            f"\n--- test_profile_image_creation_and_update \u306e\u30a8\u30e9\u30fc\u8a73\u7d30 (email: {request_payload['email']}) ---"
         )
         try:
-            print(reg.json())
+            print("サーバーからのエラーレスポンス:", reg.json())
         except Exception as e:
             print(f"\u30a8\u30e9\u30fc\u30ec\u30b9\u30dd\u30f3\u30b9\u306eJSON\u30c7\u30b3\u30fc\u30c9\u306b\u5931\u6557: {e}")
             print(f"\u751f\u306e\u30ec\u30b9\u30dd\u30f3\u30b9\u30c6\u30ad\u30b9\u30c8: {reg.text}")
