@@ -47,7 +47,7 @@ def test_register_login_and_me():
         "/auth/register",
         json={
             "email": "unique_user1_for_login_test@example.com",
-            "username": "user1_login_test",
+            "username": "userOneLoginTest",
             "password": "pass1234",
             "gender": "未回答",
             "color1": "#000000",
@@ -58,7 +58,7 @@ def test_register_login_and_me():
         # 送信するJSONデータを変数に入れておく (テストコード内のものと同じにする)
         request_payload = {
             "email": "unique_user1_for_login_test@example.com",
-            "username": "user1_login_test",
+            "username": "userOneLoginTest",
             "password": "pass1234",
             "gender": "未回答",
             "color1": "#000000",
@@ -74,13 +74,13 @@ def test_register_login_and_me():
             print(f"\u751f\u306e\u30ec\u30b9\u30dd\u30f3\u30b9\u30c6\u30ad\u30b9\u30c8: {reg.text}")
     assert reg.status_code == 200
     data = reg.json()
-    assert data["username"] == "user1_login_test"
+    assert data["username"] == "userOneLoginTest"
     img_path = "." + data["profile_image_url"]
     assert os.path.exists(img_path)
     assert os.path.getsize(img_path) > 1024
 
     token_res = client.post(
-        "/auth/login", data={"username": "user1_login_test", "password": "pass1234"}
+        "/auth/login", data={"username": "userOneLoginTest", "password": "pass1234"}
     )
     assert token_res.status_code == 200
     token = token_res.json()["access_token"]
@@ -88,14 +88,14 @@ def test_register_login_and_me():
     me_res = client.get("/users/me", headers={"Authorization": f"Bearer {token}"})
     assert me_res.status_code == 200
     data = me_res.json()
-    assert data["username"] == "user1_login_test"
+    assert data["username"] == "userOneLoginTest"
     assert data["gender"] == "未回答"
 
     dup = client.post(
         "/auth/register",
         json={
             "email": "u2@example.com",
-            "username": "user1_login_test",
+            "username": "userOneLoginTest",
             "password": "x",
             "gender": "未回答",
             "color1": "#000000",
@@ -109,7 +109,7 @@ def test_profile_image_creation_and_update():
         "/auth/register",
         json={
             "email": "unique_user2_for_profile_test@example.com",
-            "username": "user2_profile_test",
+            "username": "userTwoProfileTest",
             "password": "pass1234",
             "gender": "男性",
             "color1": "#112233",
@@ -120,7 +120,7 @@ def test_profile_image_creation_and_update():
         # 送信するJSONデータを変数に入れておく
         request_payload = {
             "email": "unique_user2_for_profile_test@example.com",
-            "username": "user2_profile_test",
+            "username": "userTwoProfileTest",
             "password": "pass1234",
             "gender": "男性",
             "color1": "#112233",
@@ -141,7 +141,7 @@ def test_profile_image_creation_and_update():
     assert os.path.getsize(path) > 1024
 
     token_res = client.post(
-        "/auth/login", data={"username": "user2_profile_test", "password": "pass1234"}
+        "/auth/login", data={"username": "userTwoProfileTest", "password": "pass1234"}
     )
     token = token_res.json()["access_token"]
     upd = client.put(
