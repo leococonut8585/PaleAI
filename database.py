@@ -5,13 +5,14 @@ from sqlalchemy.orm import sessionmaker
 import os
 from dotenv import load_dotenv
 
-load_dotenv() # .envファイルから環境変数を読み込む
+load_dotenv()  # .envファイルから環境変数を読み込む
 
 # .envファイルからDATABASE_URLを読み込む。なければデフォルトでSQLiteを使用。
 SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./pale_ai.db")
 
 # データベースエンジンを作成
-# SQLiteの場合、FastAPIの複数スレッドからのアクセスに対応するために connect_args={"check_same_thread": False} が必要
+# SQLiteの場合、FastAPIの複数スレッドからのアクセスに対応するために
+# connect_args={"check_same_thread": False} が必要
 if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
     engine = create_engine(
         SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
@@ -31,4 +32,4 @@ def get_db():
     try:
         yield db  # セッションをエンドポイント関数に提供
     finally:
-        db.close() # 処理が終わったらセッションを閉じる
+        db.close()  # 処理が終わったらセッションを閉じる
