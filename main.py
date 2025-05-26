@@ -55,7 +55,7 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
-models.Base.metadata.create_all(bind=engine)
+# models.Base.metadata.create_all(bind=engine)
 # --- CORSミDLEWAREの設定 ---
 origins = [
     "http://localhost",
