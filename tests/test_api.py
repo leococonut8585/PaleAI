@@ -54,7 +54,7 @@ def test_register_login_and_me():
             "color2": "#ffffff",
         },
     )
-    if reg.status_code == 400:
+    if reg.status_code != 200:
         # 送信するJSONデータを変数に入れておく (テストコード内のものと同じにする)
         request_payload = {
             "email": "unique_user1_for_login_test@example.com",
@@ -116,7 +116,7 @@ def test_profile_image_creation_and_update():
             "color2": "#445566",
         },
     )
-    if reg.status_code == 400:
+    if reg.status_code != 200:
         # 送信するJSONデータを変数に入れておく
         request_payload = {
             "email": "unique_user2_for_profile_test@example.com",
