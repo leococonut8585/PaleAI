@@ -120,8 +120,26 @@ async def _gen_with_sdxl(prompt: str, neg: str) -> bytes:
     return content
 
 
-async def generate_and_save(c1_hex: str, c2_hex: str, gender: str, user_id: int) -> None:
-    """Generate a profile image via DALL·E 3 with SDXL fallback and save it."""
+async def generate_and_save(
+    c1_hex: str,
+    c2_hex: str,
+    gender: str,
+    user_id: int,
+    file_name: str | None = None,
+) -> None:
+    """Generate a profile image via DALL·E 3 with SDXL fallback and save it.
+
+    Parameters
+    ----------
+    c1_hex, c2_hex, gender : str
+        Color values and gender used to build the prompt.
+    user_id : int
+        User identifier. This is still used as the default output file name for
+        backward compatibility with existing tests and UI.
+    file_name : str | None
+        Optional custom file name (without directory) for the generated image.
+        When omitted, ``"{user_id}.png"`` is used.
+    """
 
     c1_name = _hex_to_color_name(c1_hex)
     c2_name = _hex_to_color_name(c2_hex)
@@ -153,9 +171,11 @@ async def generate_and_save(c1_hex: str, c2_hex: str, gender: str, user_id: int)
         except Exception as e2:
             logger.error("SDXL also failed: %s", e2)
             Path("static/profile").mkdir(exist_ok=True, parents=True)
-            shutil.copy("static/pic/Default.png", f"static/profile/{user_id}.png")
+            out_name = file_name or f"{user_id}.png"
+            shutil.copy("static/pic/Default.png", f"static/profile/{out_name}")
             return
 
     Path("static/profile").mkdir(exist_ok=True, parents=True)
-    (Path("static/profile") / f"{user_id}.png").write_bytes(img_bytes)
-    logger.info("Saved image for user %s", user_id)
+    out_name = file_name or f"{user_id}.png"
+    (Path("static/profile") / out_name).write_bytes(img_bytes)
+    logger.info("Saved image for user %s to %s", user_id, out_name)
