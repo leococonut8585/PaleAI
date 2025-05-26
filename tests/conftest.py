@@ -7,7 +7,7 @@ os.environ.setdefault("SECRET_KEY", "testsecret")
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test.db")
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="function", autouse=True)
 def setup_database():
     db_path = "test.db"
     if os.path.exists(db_path):
