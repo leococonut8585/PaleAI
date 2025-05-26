@@ -3,7 +3,7 @@ from playwright.sync_api import sync_playwright
 
 
 def test_register_progress_page_loads():
-    html_path = os.path.abspath("register_progress.html")
+    html_path = os.path.abspath("static/register_progress.html")
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page()
@@ -13,7 +13,7 @@ def test_register_progress_page_loads():
 
 
 def test_generated_profile_image_display_size():
-    html_path = os.path.abspath("profile_generated.html")
+    html_path = os.path.abspath("static/profile_generated.html")
     img_path = os.path.abspath("static/pic/Default.png")
     with sync_playwright() as p:
         browser = p.chromium.launch()
