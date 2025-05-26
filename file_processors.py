@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 import fitz  # PyMuPDF
 from docx import Document as DocxDocument
 from openpyxl import load_workbook
+import boto3 # AWS SDK
+from botocore.exceptions import ClientError, BotoCoreError # AWS SDK exceptions
 
 # --- 定数定義 ---
 MAX_TEXT_FILE_SIZE_MB = 10  # TXT, MD, code files
@@ -33,6 +35,7 @@ SUPPORTED_IMAGE_MIMETYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif
 SUPPORTED_AUDIO_MIMETYPES = ['audio/mpeg', 'audio/wav', 'audio/mp4', 'audio/x-m4a', 'audio/ogg', 'audio/flac', 'audio/webm']
 
 MIN_TEXT_LENGTH_FOR_RICH_EXTRACTION = 50
+TEXTRACT_MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024 # 5MB for AWS Textract synchronous API
 
 # --- ヘルパー関数 ---
 def get_file_details(filename: str, content: bytes) -> Tuple[str, str, Optional[str], int]:
@@ -124,19 +127,18 @@ async def _process_pdf_with_fitz(content: bytes, filename: str) -> Tuple[Optiona
             return "\n--- Page Break ---\n".join(text_parts)
 
         extracted_text = await run_in_threadpool(extract_text_from_pdf_fitz_sync)
-        if extracted_text is not None:
-            logger.info(
-                "PyMuPDF finished for '%s' with %d characters",
-                filename,
-                len(extracted_text),
-            )
+        if extracted_text and extracted_text.strip():
+            logger.info("PyMuPDF finished for '%s'. Extracted %d characters.", filename, len(extracted_text))
             _log_text_preview(extracted_text, "PyMuPDF")
-        else:
-            logger.info("PyMuPDF extraction for '%s' returned no text", filename)
+        elif extracted_text is not None: # Extracted, but empty or only whitespace
+            logger.info("PyMuPDF extraction for '%s' yielded no text.", filename)
+            _log_text_preview(extracted_text, "PyMuPDF") # Log it anyway for preview
+        else: # None was returned, implies an error before text assignment
+            logger.info("PyMuPDF extraction for '%s' returned no text object (None).", filename)
             _log_text_preview(None, "PyMuPDF")
         return extracted_text, "PyMuPDF (fitz)"
     except Exception as e:
-        logger.error("PyMuPDF (fitz) error during PDF processing for '%s': %s", filename, e)
+        logger.error("PyMuPDF (fitz) error during PDF processing for '%s': %s", filename, e, exc_info=True)
         return None, "PyMuPDF (fitz) - Error"
 
 
@@ -158,7 +160,8 @@ async def _process_pdf_with_pandoc(content: bytes, filename: str) -> Tuple[Optio
             process = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=60)
             if process.returncode != 0:
                 logger.warning(
-                    "Pandoc command error (code %s): %s",
+                    "Pandoc command failed for '%s' (code %s). Stderr: %s",
+                    filename,
                     process.returncode,
                     process.stderr.strip(),
                 )
@@ -166,25 +169,24 @@ async def _process_pdf_with_pandoc(content: bytes, filename: str) -> Tuple[Optio
             return process.stdout
 
         extracted_text = await run_in_threadpool(run_pandoc_command_sync)
-        if extracted_text is not None:
-            logger.info(
-                "Pandoc finished for '%s' with %d characters",
-                filename,
-                len(extracted_text),
-            )
+        if extracted_text and extracted_text.strip():
+            logger.info("Pandoc finished for '%s'. Extracted %d characters.", filename, len(extracted_text))
             _log_text_preview(extracted_text, "Pandoc")
-        else:
-            logger.info("Pandoc extraction for '%s' returned no text", filename)
+        elif extracted_text is not None: # Extracted, but empty or only whitespace
+            logger.info("Pandoc extraction for '%s' yielded no text.", filename)
+            _log_text_preview(extracted_text, "Pandoc")
+        else: # None was returned
+            logger.info("Pandoc extraction for '%s' returned no text object (None).", filename)
             _log_text_preview(None, "Pandoc")
         return extracted_text, "Pandoc"
     except subprocess.TimeoutExpired:
-        logger.error("Pandoc processing for '%s' timed out.", filename)
+        logger.error("Pandoc processing for '%s' timed out.", filename, exc_info=True)
         return None, "Pandoc - Timeout"
     except FileNotFoundError:
-        logger.error("Pandoc command not found. Ensure it's installed and in PATH.")
+        logger.error("Pandoc command not found. Ensure it's installed and in PATH.", exc_info=True)
         return None, "Pandoc - Not Found"
     except Exception as e:
-        logger.error("Pandoc processing error for '%s': %s", filename, e)
+        logger.error("Pandoc processing error for '%s': %s", filename, e, exc_info=True)
         return None, "Pandoc - Error"
     finally:
         if temp_pdf_path and os.path.exists(temp_pdf_path):
@@ -194,78 +196,167 @@ async def _process_pdf_with_pandoc(content: bytes, filename: str) -> Tuple[Optio
                 logger.warning("Error removing temp pandoc file %s: %s", temp_pdf_path, e_remove)
 
 
-async def _process_pdf_with_textract(filename: str, content: bytes, textract_client: Optional[Any]) -> Tuple[Optional[str], str]:
+async def _process_pdf_with_textract(filename: str, content: bytes, textract_client: Optional[boto3.client]) -> Tuple[Optional[str], str]:
     if not textract_client:
-        logger.warning("AWS Textract client not configured.")
+        logger.warning("AWS Textract client not configured. Cannot process '%s'.", filename)
         return None, "AWS Textract (Not Configured)"
-    logger.info("AWS Textract processing for '%s' is a stub.", filename)
-    text = "[AWS Textractによる処理は現在準備中です。スキャンされた画像や複雑なレイアウトのPDFの処理は後日対応予定です。]"
-    _log_text_preview(text, "AWS Textract (Stub)")
-    return text, "AWS Textract (Stub)"
+
+    logger.info("Starting AWS Textract processing for '%s'", filename)
+    try:
+        # analyze_document is synchronous, run in threadpool
+        def call_textract_sync():
+            return textract_client.analyze_document(
+                Document={'Bytes': content},
+                FeatureTypes=['TEXT']
+            )
+
+        response = await run_in_threadpool(call_textract_sync)
+
+        extracted_lines = []
+        if 'Blocks' in response:
+            for block in response['Blocks']:
+                if block['BlockType'] == 'LINE':
+                    if 'Text' in block and block['Text']:
+                        extracted_lines.append(block['Text'])
+        
+        extracted_text = "\n".join(extracted_lines)
+
+        if extracted_text and extracted_text.strip():
+            logger.info("AWS Textract finished for '%s'. Extracted %d characters.", filename, len(extracted_text))
+            _log_text_preview(extracted_text, "AWS Textract")
+            return extracted_text, "AWS Textract"
+        elif extracted_text is not None: # Extracted, but empty or only whitespace
+            logger.info("AWS Textract extraction for '%s' yielded no text.", filename)
+            _log_text_preview(extracted_text, "AWS Textract") # Log it anyway for preview
+            return extracted_text, "AWS Textract" # Return empty string rather than None
+        else: # Should not happen if logic is correct, means no 'LINE' blocks with text
+            logger.info("AWS Textract extraction for '%s' resulted in no text blocks.", filename)
+            _log_text_preview(None, "AWS Textract")
+            return None, "AWS Textract - No Text Blocks"
+
+    except (ClientError, BotoCoreError) as e: # Catch specific AWS SDK errors
+        error_message = str(e)
+        logger.error("AWS Textract API error for '%s': %s", filename, error_message, exc_info=True)
+        # Check for common error types to provide more specific feedback
+        if "UnsupportedDocumentException" in error_message:
+            return None, "AWS Textract - Unsupported Document"
+        elif "DocumentTooLargeException" in error_message:
+            return None, "AWS Textract - Document Too Large"
+        elif "BadDocumentException" in error_message:
+            return None, "AWS Textract - Bad Document"
+        return None, f"AWS Textract - API Error ({e.__class__.__name__})"
+    except Exception as e:
+        logger.error("Unexpected error during AWS Textract processing for '%s': %s", filename, e, exc_info=True)
+        return None, f"AWS Textract - Error ({e.__class__.__name__})"
 
 
 async def process_pdf_file(filename: str, content: bytes, size_bytes: int, textract_client: Optional[Any]) -> Dict[str, Any]:
     logger.info("Processing PDF file '%s' (%d bytes)", filename, size_bytes)
     if size_bytes > MAX_PDF_SIZE_MB * MB_TO_BYTES:
         return create_error_response(
-            f"PDFファイルは {MAX_PDF_SIZE_MB}MB までしかアップロードできません。", 413
+            f"PDFファイルは {MAX_PDF_SIZE_MB}MB までしかアップロードできません。", 413, "N/A"
         )
 
-    extracted_text, method_used = await _process_pdf_with_fitz(content, filename)
+    current_best_text: Optional[str] = None
+    method_used: str = "N/A"
+    tried_methods: list[str] = []
 
-    if extracted_text and len(extracted_text.strip()) >= MIN_TEXT_LENGTH_FOR_RICH_EXTRACTION:
-        _log_text_preview(extracted_text, method_used)
-        return create_success_response(extracted_text, method_used, filename, "application/pdf", size_bytes)
-
-    logger.info(
-        "PyMuPDF for '%s' yielded short/empty text or error (%s). Trying Pandoc.",
-        filename,
-        method_used,
-    )
-    current_best_text = extracted_text if extracted_text else ""
-
-    pandoc_text, pandoc_method = await _process_pdf_with_pandoc(content, filename)
-    if pandoc_text and len(pandoc_text.strip()) > len(current_best_text.strip()):
-        current_best_text = pandoc_text
-        method_used = pandoc_method
-        logger.info("Pandoc yielded better result for '%s'.", filename)
+    # 1. Try PyMuPDF (fitz)
+    fitz_text, fitz_method = await _process_pdf_with_fitz(content, filename)
+    tried_methods.append(fitz_method)
+    if fitz_text and fitz_text.strip():
+        current_best_text = fitz_text
+        method_used = fitz_method
         if len(current_best_text.strip()) >= MIN_TEXT_LENGTH_FOR_RICH_EXTRACTION:
+            logger.info("PyMuPDF successfully extracted sufficient text for '%s'.", filename)
             _log_text_preview(current_best_text, method_used)
             return create_success_response(current_best_text, method_used, filename, "application/pdf", size_bytes)
-    elif pandoc_text:
-        logger.info("Pandoc result for '%s' was not better than PyMuPDF.", filename)
-    else:
-        logger.warning(
-            "Pandoc failed or yielded empty text for '%s' (%s).", filename, pandoc_method
-        )
 
-    if len(current_best_text.strip()) < MIN_TEXT_LENGTH_FOR_RICH_EXTRACTION:
-        logger.info(
-            "Text from PyMuPDF and Pandoc for '%s' is still short. Trying AWS Textract (Stub).",
-            filename,
-        )
-        textract_text, textract_method = await _process_pdf_with_textract(filename, content, textract_client)
-        if textract_text and len(textract_text.strip()) > len(current_best_text.strip()):
-            current_best_text = textract_text
-            method_used = textract_method
-            logger.info("AWS Textract (Stub) yielded better result for '%s'.", filename)
-        elif textract_text:
-            logger.info(
-                "AWS Textract (Stub) result for '%s' was not better.", filename
-            )
+    logger.info(
+        "PyMuPDF for '%s' yielded %s. Current best text length: %d. (Method: %s)",
+        filename,
+        "no text" if not fitz_text or not fitz_text.strip() else "short text",
+        len(current_best_text.strip()) if current_best_text and current_best_text.strip() else 0,
+        fitz_method
+    )
+
+    # 2. Try Pandoc if PyMuPDF failed or text is insufficient
+    should_try_pandoc = (current_best_text is None or
+                         not current_best_text.strip() or
+                         len(current_best_text.strip()) < MIN_TEXT_LENGTH_FOR_RICH_EXTRACTION)
+
+    if should_try_pandoc:
+        logger.info("Trying Pandoc for '%s'.", filename)
+        pandoc_text, pandoc_method = await _process_pdf_with_pandoc(content, filename)
+        tried_methods.append(pandoc_method)
+        if pandoc_text and pandoc_text.strip():
+            # Use Pandoc result if it's better than current_best_text (which might be empty from fitz)
+            if not current_best_text or not current_best_text.strip() or len(pandoc_text.strip()) > len(current_best_text.strip()):
+                logger.info("Pandoc yielded better or initial text for '%s'.", filename)
+                current_best_text = pandoc_text
+                method_used = pandoc_method
+            else:
+                logger.info("Pandoc text for '%s' was not better than PyMuPDF's.", filename)
+            
+            if current_best_text and current_best_text.strip() and len(current_best_text.strip()) >= MIN_TEXT_LENGTH_FOR_RICH_EXTRACTION:
+                logger.info("Pandoc successfully extracted sufficient text for '%s'.", filename)
+                _log_text_preview(current_best_text, method_used)
+                return create_success_response(current_best_text, method_used, filename, "application/pdf", size_bytes)
         else:
-            logger.warning(
-                "AWS Textract (Stub) failed or yielded empty text for '%s' (%s).",
-                filename,
-                textract_method,
-            )
+            logger.warning("Pandoc failed or yielded empty text for '%s' (Method: %s).", filename, pandoc_method)
+    
+    logger.info(
+        "After Pandoc for '%s', current best text length: %d. (Method: %s)",
+        filename,
+        len(current_best_text.strip()) if current_best_text and current_best_text.strip() else 0,
+        method_used
+    )
 
+    # 3. Try AWS Textract if Pandoc (or PyMuPDF) failed or text is insufficient
+    should_try_textract = (current_best_text is None or
+                           not current_best_text.strip() or
+                           len(current_best_text.strip()) < MIN_TEXT_LENGTH_FOR_RICH_EXTRACTION)
+
+    if should_try_textract:
+        if size_bytes > TEXTRACT_MAX_FILE_SIZE_BYTES:
+            logger.info(
+                "File size (%d bytes) for '%s' exceeds Textract limit (%d bytes). Skipping Textract.",
+                size_bytes, filename, TEXTRACT_MAX_FILE_SIZE_BYTES
+            )
+            # tried_methods.append("AWS Textract (Skipped - Size Limit)") # Optional: add to tried_methods
+        else:
+            logger.info("Trying AWS Textract for '%s'.", filename)
+            textract_text, textract_method = await _process_pdf_with_textract(filename, content, textract_client)
+            tried_methods.append(textract_method)
+            if textract_text and textract_text.strip():
+                 # Use Textract result if it's better
+                if not current_best_text or not current_best_text.strip() or len(textract_text.strip()) > len(current_best_text.strip()):
+                    logger.info("AWS Textract yielded better or initial text for '%s'.", filename)
+                    current_best_text = textract_text
+                    method_used = textract_method
+                else:
+                    logger.info("AWS Textract text for '%s' was not better than previous methods.", filename)
+
+                # No need to check MIN_TEXT_LENGTH_FOR_RICH_EXTRACTION here, this is the last resort.
+            else:
+                logger.warning("AWS Textract failed or yielded empty text for '%s' (Method: %s).", filename, textract_method)
+
+    # Final check and response
     if current_best_text and current_best_text.strip():
+        logger.info(
+            "Final extracted text for '%s' using %s has length %d.",
+            filename, method_used, len(current_best_text.strip())
+        )
         _log_text_preview(current_best_text, method_used)
         return create_success_response(current_best_text, method_used, filename, "application/pdf", size_bytes)
     else:
-        return create_error_response(f"PDFファイル「{filename}」からテキストを抽出できませんでした。ファイルが画像のみで構成されているか、破損している可能性があります。", 422, method_used + " - All Failed")
-
+        final_method_info = " | ".join(tried_methods) if tried_methods else "N/A"
+        logger.error("All PDF extraction methods failed for '%s'. Tried: %s", filename, final_method_info)
+        return create_error_response(
+            f"PDFファイル「{filename}」からテキストを抽出できませんでした。試行したすべての方法で有効なテキストが得られませんでした。",
+            422,
+            final_method_info + " - All Failed"
+        )
 
 async def process_docx_file(filename: str, content: bytes, size_bytes: int) -> Dict[str, Any]:
     if size_bytes > MAX_DOCX_SIZE_MB * MB_TO_BYTES:
