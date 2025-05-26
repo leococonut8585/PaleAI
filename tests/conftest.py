@@ -1,10 +1,12 @@
 import os
 import subprocess
 import pytest
-from database import engine
 
+# 環境変数は database モジュールを読み込む前に設定する
 os.environ.setdefault("SECRET_KEY", "testsecret")
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test.db")
+
+from database import engine
 
 
 @pytest.fixture(scope="function", autouse=True)
