@@ -43,7 +43,7 @@ async def _gen_with_dalle(prompt: str) -> bytes:
     logger.debug("DALL·E request params: %s", params)
     try:
         resp = await openai_client.images.generate(**params)
-        logger.debug("APIレスポンスやエラー: %s", resp)
+        # logger.debug("APIレスポンスやエラー: %s", resp)  # 成功時はこのログは詳細すぎることがあるのでコメントアウトしてもOK
         logger.debug("DALL·E raw response: %s", resp)
         url = resp.data[0].url
         logger.info("DALL·E image URL: %s", url)
@@ -51,8 +51,32 @@ async def _gen_with_dalle(prompt: str) -> bytes:
             content = (await cx.get(url)).content
         return content
     except Exception as e:
-        # Log the error before re-raising so retries can inspect it
-        logger.error("APIレスポンスやエラー: %s", e)
+        # --- ここからが詳細なエラーログを出力するための修正 ---
+        logger.error("DALL·E API呼び出しでエラー発生: %s", e)  # まずエラーオブジェクト全体を出力
+
+        if hasattr(e, "response") and hasattr(e.response, "text"):
+            logger.error("DALL·E APIエラーレスポンス (Text): %s", e.response.text)
+            try:
+                error_detail_json = e.response.json()
+                logger.error(
+                    "DALL·E APIエラー詳細 (JSON from response): %s",
+                    error_detail_json,
+                )
+            except Exception:
+                logger.error(
+                    "DALL·E APIエラーレスポンスのJSONデコードに失敗 (from response.text)"
+                )
+
+        if hasattr(e, "body") and e.body:
+            logger.error("DALL·E APIエラー詳細 (e.body): %s", e.body)
+
+        if hasattr(e, "code"):
+            logger.error(f"OpenAI Specific Error Code: {e.code}")
+        if hasattr(e, "message"):
+            logger.error(f"OpenAI Specific Error Message: {e.message}")
+        if hasattr(e, "type"):
+            logger.error(f"OpenAI Specific Error Type: {e.type}")
+        # --- ここまでが詳細なエラーログを出力するための修正 ---
         raise
 
 
