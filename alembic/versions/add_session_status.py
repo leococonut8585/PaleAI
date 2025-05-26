@@ -10,10 +10,20 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    with op.batch_alter_table('chat_sessions') as batch_op:
-        batch_op.add_column(sa.Column('status', sa.String(), server_default='complete', nullable=False))
+    """Add status column to chat_sessions if missing."""
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = [c['name'] for c in inspector.get_columns('chat_sessions')]
+    if 'status' not in columns:
+        with op.batch_alter_table('chat_sessions') as batch_op:
+            batch_op.add_column(sa.Column('status', sa.String(), server_default='complete', nullable=False))
 
 
 def downgrade() -> None:
-    with op.batch_alter_table('chat_sessions') as batch_op:
-        batch_op.drop_column('status')
+    """Drop status column from chat_sessions if present."""
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = [c['name'] for c in inspector.get_columns('chat_sessions')]
+    if 'status' in columns:
+        with op.batch_alter_table('chat_sessions') as batch_op:
+            batch_op.drop_column('status')
