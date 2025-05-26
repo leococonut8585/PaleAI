@@ -60,7 +60,7 @@ The prompt you are optimizing is in English. Ensure your output is also a single
         res = await get_claude_response(
             prompt_text=user_prompt_for_claude,
             system_instruction=optimization_system_prompt,
-            model="claude-3-haiku-20240307"
+            model="claude-opus-4-20250514"
         )
         if res and res.response:
             optimized_text = res.response.strip()
@@ -133,7 +133,7 @@ async def generate_images(req: ImageGenerationRequest, current_user: models.User
         if not key:
             raise Exception("Stability API key missing. Cannot use Stable Diffusion.")
 
-        stability_engine_id = "stable-diffusion-xl-1024-v1-0"
+        stability_engine_id = "stable-diffusion-3-medium"
         logger.info("Using Stability Engine: %s", stability_engine_id)
 
         stability = stability_client.StabilityInference(key=key, verbose=True, engine=stability_engine_id)

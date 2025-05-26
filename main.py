@@ -105,9 +105,9 @@ if not google_api_key:
     app.state.gemini_flash_model = None
 else:
     genai.configure(api_key=google_api_key)
-    app.state.gemini_vision_client = genai.GenerativeModel('gemini-1.5-pro-latest')
-    app.state.gemini_pro_model = genai.GenerativeModel('gemini-1.5-pro-latest')
-    app.state.gemini_flash_model = genai.GenerativeModel('gemini-1.5-flash-latest')
+    app.state.gemini_vision_client = genai.GenerativeModel('gemini-2.5-pro-latest')
+    app.state.gemini_pro_model = genai.GenerativeModel('gemini-2.5-pro-latest')
+    app.state.gemini_flash_model = genai.GenerativeModel('gemini-2.5-flash-latest')
 
 # Cohere
 cohere_api_key = os.getenv("COHERE_API_KEY")
@@ -304,7 +304,7 @@ async def get_openai_response(
 async def get_claude_response(
     prompt_text: str,
     system_instruction: Optional[str] = None,
-    model: str = "claude-3-opus-20240229",
+    model: str = "claude-opus-4-20250514",
     chat_history: Optional[List[Dict[str, str]]] = None,
     initial_user_prompt: Optional[str] = None,
     user_memories: Optional[List[schemas.UserMemoryResponse]] = None
@@ -391,7 +391,7 @@ async def get_claude_response(
 async def get_cohere_response(
     prompt_text: str,
     preamble: Optional[str] = None, # タスク固有のプリアンブル
-    model: str = "command-r-plus",
+    model: str = "command-a-03-2025",
     chat_history: Optional[List[Dict[str, str]]] = None,
     initial_user_prompt: Optional[str] = None, # 会話全体の目的
     user_memories: Optional[List[schemas.UserMemoryResponse]] = None # ★ 追加
@@ -530,7 +530,7 @@ async def get_gemini_response(
     request: Request,
     prompt_text: str,
     system_instruction: Optional[str] = None,
-    model_name: str = "gemini-1.5-pro-latest",
+    model_name: str = "gemini-2.5-pro-latest",
     chat_history: Optional[List[Dict[str, str]]] = None,
     initial_user_prompt: Optional[str] = None,
     user_memories: Optional[List[schemas.UserMemoryResponse]] = None,
@@ -538,9 +538,9 @@ async def get_gemini_response(
     source_name = f"Gemini ({model_name})"
 
     gemini_model_instance: Optional[genai.GenerativeModel] = None
-    if model_name in ("gemini-1.5-pro-latest", "gemini-pro"):
+    if model_name in ("gemini-2.5-pro-latest", "gemini-pro", "gemini-2.5-pro"):
         gemini_model_instance = request.app.state.gemini_pro_model
-    elif model_name == "gemini-1.5-flash-latest":
+    elif model_name == "gemini-2.5-flash-latest":
         gemini_model_instance = request.app.state.gemini_flash_model
     elif "vision" in model_name:
         gemini_model_instance = request.app.state.gemini_vision_client
@@ -1714,7 +1714,7 @@ async def run_super_search_mode_flow(
                     analysis_res = await get_claude_response(
                         prompt_text=analysis_user_prompt,
                         system_instruction=analysis_system_prompt,
-                        model="claude-3-opus-20240229",
+                        model="claude-opus-4-20250514",
                         initial_user_prompt=initial_user_prompt_for_session,
                         user_memories=user_memories,
                     )
@@ -1831,7 +1831,7 @@ async def run_super_search_mode_flow(
             request=request,
             prompt_text=final_formatting_user_prompt,
             system_instruction=final_formatting_system_prompt,
-            model_name="gemini-1.5-pro-latest",
+            model_name="gemini-2.5-pro-latest",
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
         )
@@ -2009,7 +2009,7 @@ async def run_balance_mode_flow(
         step3_res = await get_cohere_response(
             prompt_text=step3_prompt_for_cohere, # Cohereのmessageパラメータに相当
             preamble=step3_preamble_cohere,
-            model="command-r-plus",
+            model="command-a-03-2025",
             # Cohere の chat_history は USER/CHATBOT の交互形式。
             # ここでは current_chat_history_for_this_turn を Cohere 形式に変換して渡すか、
             # 主要なコンテキストはプロンプトに含めたので、履歴は渡さない選択も。
@@ -2073,7 +2073,7 @@ async def run_balance_mode_flow(
             request=request,
             prompt_text=step5_prompt_for_gemini,
             system_instruction=step5_system_instruction_gemini,
-            model_name="gemini-1.5-pro-latest", # 推奨モデル
+            model_name="gemini-2.5-pro-latest", # 推奨モデル
             chat_history=list(current_chat_history_for_this_turn),
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
@@ -2286,7 +2286,7 @@ async def run_search_mode_flow(
             step2_res_claude = await get_claude_response( # または get_openai_response
                 prompt_text=missing_aspects_user_prompt_claude,
                 system_instruction=missing_aspects_system_prompt, # 専用システムプロンプト
-                model="claude-3-haiku-20240307", # Opusより高速・安価なモデルで十分な場合も
+                model="claude-opus-4-20250514", # Opusより高速・安価なモデルで十分な場合も
                 # chat_history=current_chat_history_with_prompt, # 必要に応じて文脈として渡す
                 initial_user_prompt=initial_user_prompt_for_session
             )
@@ -2399,7 +2399,7 @@ async def run_search_mode_flow(
             request=request,
             prompt_text=formatting_user_prompt_gemini,
             system_instruction=formatting_system_prompt_gemini,
-            model_name="gemini-1.5-pro-latest",
+            model_name="gemini-2.5-pro-latest",
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
         )
@@ -2720,7 +2720,7 @@ async def run_code_mode_flow(
             request=request,
             prompt_text=c0_user_prompt,
             system_instruction=c0_system_instruction,
-            model_name="gemini-1.5-pro-latest",
+            model_name="gemini-2.5-pro-latest",
             chat_history=list(current_chat_history_for_this_turn),
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
@@ -2746,7 +2746,7 @@ async def run_code_mode_flow(
         c1_res = await get_claude_response(
             prompt_text=c1_user_prompt,
             system_instruction=c1_system_instruction,
-            model="claude-3-opus-20240229",
+            model="claude-opus-4-20250514",
             chat_history=list(current_chat_history_for_this_turn), # C0の結果を含む履歴
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
@@ -2801,7 +2801,7 @@ async def run_code_mode_flow(
         c3_res = await get_claude_response(
             prompt_text=c3_user_prompt,
             system_instruction=c3_system_instruction,
-            model="claude-3-opus-20240229",
+            model="claude-opus-4-20250514",
             chat_history=list(current_chat_history_for_this_turn), # C2の結果を含む履歴
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
@@ -2856,7 +2856,7 @@ async def run_code_mode_flow(
         c5_res = await get_claude_response(
             prompt_text=c5_user_prompt,
             system_instruction=c5_system_instruction,
-            model="claude-3-opus-20240229",
+            model="claude-opus-4-20250514",
             chat_history=list(current_chat_history_for_this_turn), # C4の結果を含む履歴
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
@@ -2965,7 +2965,7 @@ async def run_writing_mode_flow(
             request=request,
             prompt_text=w0_user_prompt,
             system_instruction=w0_system_instruction,
-            model_name="gemini-1.5-pro-latest",
+            model_name="gemini-2.5-pro-latest",
             chat_history=list(current_chat_history_for_this_turn),
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
@@ -3011,7 +3011,7 @@ async def run_writing_mode_flow(
         w1_res = await get_claude_response(
             prompt_text=w1_user_prompt,
             system_instruction=w1_system_instruction,
-            model="claude-3-opus-20240229",
+            model="claude-opus-4-20250514",
             chat_history=list(current_chat_history_for_this_turn), # W0の結果を含む履歴
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
@@ -3070,7 +3070,7 @@ async def run_writing_mode_flow(
         w3_res = await get_claude_response(
             prompt_text=w3_user_prompt,
             system_instruction=w3_system_instruction,
-            model="claude-3-opus-20240229",
+            model="claude-opus-4-20250514",
             chat_history=list(current_chat_history_for_this_turn), # W2の結果を含む履歴
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
@@ -3099,7 +3099,7 @@ async def run_writing_mode_flow(
         w4_res = await get_cohere_response(
             prompt_text=w4_user_prompt,
             preamble=w4_preamble_cohere,
-            model="command-r-plus",
+            model="command-a-03-2025",
             chat_history=list(current_chat_history_for_this_turn), # W3の結果を含む履歴
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
@@ -3137,7 +3137,7 @@ async def run_writing_mode_flow(
             request=request,
             prompt_text=w5_user_prompt,
             system_instruction=w5_final_system_instruction,
-            model_name="gemini-1.5-pro-latest",
+            model_name="gemini-2.5-pro-latest",
             chat_history=list(current_chat_history_for_this_turn),
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
