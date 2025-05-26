@@ -20,6 +20,11 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+# 環境変数 DATABASE_URL が設定されていれば Alembic の設定を上書きする
+db_url = os.getenv("DATABASE_URL")
+if db_url:
+    config.set_main_option("sqlalchemy.url", db_url)
+
 # マイグレーション対象のメタデータを設定
 target_metadata = Base.metadata
 
