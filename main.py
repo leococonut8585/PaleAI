@@ -1019,14 +1019,20 @@ async def collaborative_answer_mode_endpoint(
 
     user_memories_from_request: Optional[List[schemas.UserMemoryResponse]] = None
 
-    # user_memories: Optional[List[schemas.UserMemoryResponse]] = None
-    # if user_memories_json:
-    #     try:
-    #         user_memories_data = json.loads(user_memories_json)
-    #         user_memories = [schemas.UserMemoryResponse.model_validate(mem) for mem in user_memories_data]
-    #     except json.JSONDecodeError:
-    #         logger.info("ユーザーメモリのJSONデコードに失敗しました。")
-    #         # エラー処理または無視
+    # 現在のユーザーに紐づく長期メモリを取得（存在しない場合は空リスト）
+    try:
+        user_memories_from_request = (
+            db.query(models.UserMemory)
+            .filter(models.UserMemory.user_id == current_user.id)
+            .order_by(
+                models.UserMemory.priority.desc(),
+                models.UserMemory.updated_at.desc(),
+            )
+            .all()
+        )
+    except Exception as e:
+        logger.info(f"ユーザーメモリ取得中にエラー: {e}")
+        user_memories_from_request = None
 
     logger.info(f"\nリクエスト受信: UserID={current_user.id}, SessionID(Req)={current_session_id_from_request}, Prompt='{original_prompt_from_user[:50].strip()}...', Mode='{current_mode}', File: {file.filename if file else 'なし'}")
 
