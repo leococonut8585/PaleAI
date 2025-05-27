@@ -443,8 +443,8 @@ async def get_cohere_response(
         return schemas.IndividualAIResponse(source=f"Cohere ({model})", error=f"API呼び出し中にエラー: {str(e)}")
 
 async def get_perplexity_response(
-    prompt_for_perplexity: str, # これはAIへの主要な指示・質問
-    model: str = "pplx-70b-online",
+    prompt_for_perplexity: str,  # これはAIへの主要な指示・質問
+    model: str = "sonar-reasoning-pro",
     user_memories: Optional[List[schemas.UserMemoryResponse]] = None, # ★ 追加
     initial_user_prompt: Optional[str] = None # ★ 追加 (もしあれば文脈として有用)
 ) -> schemas.IndividualAIResponse:
@@ -1635,7 +1635,7 @@ async def run_super_search_mode_flow(
                 search_tasks.append(
                     get_perplexity_response(
                         prompt_for_perplexity=perplexity_prompt,
-                        model="pplx-70b-online",
+                        model="sonar-reasoning-pro",
                         user_memories=user_memories,
                         initial_user_prompt=initial_user_prompt_for_session,
                     )
@@ -1951,7 +1951,7 @@ async def run_balance_mode_flow(
         step1_prompt = f"{current_date} 時点の最新情報を調べてください。質問: {original_prompt}"
         step1_res = await get_perplexity_response(
             prompt_for_perplexity=step1_prompt,
-            model="pplx-70b-online",
+            model="sonar-reasoning-pro",
             user_memories=user_memories,
             initial_user_prompt=initial_user_prompt_for_session,
         )
@@ -2001,7 +2001,7 @@ async def run_balance_mode_flow(
         step4_prompt = f"{current_date} 時点の最新情報も踏まえて検索してください。{step3_res.response}"
         step4_res = await get_perplexity_response(
             prompt_for_perplexity=step4_prompt,
-            model="pplx-70b-online",
+            model="sonar-reasoning-pro",
             user_memories=user_memories,
             initial_user_prompt=initial_user_prompt_for_session,
         )
@@ -2107,7 +2107,7 @@ async def run_search_mode_flow(
         )
         step1_res_perplexity = await get_perplexity_response(
             prompt_for_perplexity=perplexity_initial_prompt,
-            model="pplx-70b-online"
+            model="sonar-reasoning-pro"
         )
         if step1_res_perplexity.response:
             # Perplexityの応答をパースしてメタデータを付与する処理が必要 (ここでは簡略化)
@@ -2182,7 +2182,7 @@ async def run_search_mode_flow(
             )
             # Perplexityを使うが、GeminiのWeb検索機能や他の検索APIも検討可能
             step3_sub_res_perplexity = await get_perplexity_response(
-                prompt_for_perplexity=perplexity_followup_prompt, model="pplx-70b-online"
+                prompt_for_perplexity=perplexity_followup_prompt, model="sonar-reasoning-pro"
             )
             if step3_sub_res_perplexity.response:
                 collected_fragments.append(schemas.IndividualAIResponse(
@@ -2406,7 +2406,7 @@ Claudeによるレビューと改善提案:
 """
         step4_res = await get_perplexity_response( # ★★★ get_perplexity_response を呼び出し ★★★
             prompt_for_perplexity=step4_prompt_for_perplexity,
-            model="pplx-70b-online"
+            model="sonar-reasoning-pro"
         )
         response_shell.step4_comprehensive_answer_perplexity = step4_res
         if step4_res.error or (step4_res.response is not None and len(step4_res.response.strip()) < 5 and not step4_res.error):
