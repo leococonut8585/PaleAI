@@ -89,7 +89,12 @@ async def run_quality_chat_mode_flow(
         error=step1_res_perplexity.error,
     )
 
-    system_prompt = (system_prompt + "\n\n" if system_prompt else "") + "特に口調を柔らかく、親しみやすい表現でまとめてください。"
+    # Build the system prompt for Claude. Start with the initial user prompt if
+    # provided, then append additional instructions for a friendly tone.
+    system_prompt = initial_user_prompt_for_session or ""
+    system_prompt = (
+        system_prompt + "\n\n" if system_prompt else ""
+    ) + "特に口調を柔らかく、親しみやすい表現でまとめてください。"
 
     summary_prompt = (
         "以下の情報をもとに、魅力的で構成の整った日本語の文章にしてください。\n"
