@@ -105,7 +105,8 @@ if not google_api_key:
     app.state.gemini_flash_model = None
 else:
     genai.configure(api_key=google_api_key)
-    app.state.gemini_vision_client = genai.GenerativeModel('gemini-1.5-pro-latest')
+    app.state.gemini_vision_client = genai.GenerativeModel('gemini-2.5-pro-preview-05-06')
+main
     app.state.gemini_pro_model = genai.GenerativeModel('gemini-2.5-pro-preview-05-06')
     app.state.gemini_flash_model = genai.GenerativeModel('gemini-2.5-flash-preview-04-17')
 
@@ -543,17 +544,20 @@ async def get_gemini_response(
     if model_name in (
         "gemini-2.5-pro-preview-05-06",
         "gemini-pro",
+
         "gemini-2.5-pro-latest",
+main
         "gemini-2.5-pro",
-        "gemini-1.5-pro-latest",  # backward compatibility
-        "gemini-1.5-pro",
+   
     ):
         gemini_model_instance = request.app.state.gemini_pro_model
+
     elif model_name in (
         "gemini-2.5-flash-preview-04-17",
         "gemini-2.5-flash-latest",
         "gemini-1.5-flash-latest",
     ):
+main
         gemini_model_instance = request.app.state.gemini_flash_model
     elif "vision" in model_name:
         gemini_model_instance = request.app.state.gemini_vision_client
