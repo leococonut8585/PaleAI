@@ -1,4 +1,4 @@
-# Pail AI
+# Pale AI
 
 This project provides a FastAPI backend for various AI features. A new **video generation mode** is available both in the API and the UI.
 The `/video/generate` endpoint accepts a text description and returns a stubbed video URL.
@@ -69,3 +69,8 @@ To start the development server run:
 ```bash
 uvicorn main:app --reload
 ```
+
+## Development Notes
+
+- Sample documents for testing are stored under `C:\dev\multi_ai_app\PDF` and `C:\dev\multi_ai_app\Word`.
+- The correct `Ukiyozaru.png` is now placed under `static/pic` so the chat avatar displays properly.
