@@ -36,7 +36,13 @@ async def run_quality_chat_mode_flow(
     from fastapi.concurrency import run_in_threadpool
 
     current_dt = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-    search_prompt = f"{current_dt} 時点の最新情報を調べてください。{original_prompt}"
+    search_prompt = (
+        f"{current_dt} 時点での最新情報を調べてください。テーマは以下の通りです：{original_prompt}\n"
+        "この回答では、以下の条件を厳守してください：\n"
+        "・文字数は1000文字以上\n"
+        "・過去の出力と内容が重複しないこと（別視点・追加情報に集中）\n"
+        "・明確で読みやすい日本語で書くこと\n"
+    )
 
     def query_perplexity(client, prompt):
         try:
@@ -49,14 +55,27 @@ async def run_quality_chat_mode_flow(
     if not isinstance(result_text, str):
         result_text = str(result_text)
 
-    if len(result_text) < 3000:
+    def dedup_lines(text: str) -> str:
+        seen = set()
+        lines = []
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped and stripped not in seen:
+                lines.append(line)
+                seen.add(stripped)
+        return "\n".join(lines)
+
+    result_text = dedup_lines(result_text)
+
+    if len(result_text) < 1000:
         extra = await run_in_threadpool(
             query_perplexity,
             perplexity_client,
-            f"さらに詳しく、3000文字以上で: {search_prompt}",
+            f"前回の情報と重複しない新しい視点から、さらに詳しく、1000文字以上で説明してください：\n{search_prompt}",
         )
         if isinstance(extra, str):
             result_text += "\n" + extra
+            result_text = dedup_lines(result_text)
 
     response_shell.step4_comprehensive_answer_perplexity = schemas.IndividualAIResponse(
         source="Perplexity (sonar-reasoning-pro)", response=result_text
@@ -67,7 +86,9 @@ async def run_quality_chat_mode_flow(
         messages.append({"role": "system", "content": initial_user_prompt_for_session})
 
     summary_prompt = (
-        "以下の情報を魅力的で読みやすい文章に整形してください。内容を削らず日本語でまとめてください。\n\n"
+        "以下の情報をもとに、魅力的で構成の整った日本語の文章にしてください。\n"
+        "内容は削らず、むしろ必要に応じて補足しながら3000文字以上にしてください。\n"
+        "読み手の興味を引く導入と、自然な結論部分も含めてください。\n\n"
         + result_text
     )
     messages.append({"role": "user", "content": summary_prompt})

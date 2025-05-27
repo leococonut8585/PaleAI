@@ -44,5 +44,12 @@ async def test_quality_chat_mode_flow():
 
     queried = app.state.perplexity_sync_client.queries[0]
     assert datetime.utcnow().strftime("%Y-%m-%d") in queried
+    assert "1000文字以上" in queried
+    assert "重複" in queried
+
+    claude_call = app.state.anthropic_client.messages.calls[0]
+    user_msg = [m for m in claude_call["messages"] if m["role"] == "user"][0]
+    assert "3000文字以上" in user_msg["content"]
+
     assert res.step4_comprehensive_answer_perplexity.response.startswith("x")
     assert res.step7_final_answer_v2_openai.response == "summary"
