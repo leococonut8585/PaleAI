@@ -133,7 +133,7 @@ async def generate_images(req: ImageGenerationRequest, current_user: models.User
         if not key:
             raise Exception("Stability API key missing. Cannot use Stable Diffusion.")
 
-        stability_engine_id = "stable-diffusion-3-medium"
+        stability_engine_id = "stable-diffusion-3.5"
         logger.info("Using Stability Engine: %s", stability_engine_id)
 
         stability = stability_client.StabilityInference(key=key, verbose=True, engine=stability_engine_id)

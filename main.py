@@ -105,9 +105,9 @@ if not google_api_key:
     app.state.gemini_flash_model = None
 else:
     genai.configure(api_key=google_api_key)
-    app.state.gemini_vision_client = genai.GenerativeModel('gemini-2.5-pro-latest')
-    app.state.gemini_pro_model = genai.GenerativeModel('gemini-2.5-pro-latest')
-    app.state.gemini_flash_model = genai.GenerativeModel('gemini-2.5-flash-latest')
+    app.state.gemini_vision_client = genai.GenerativeModel('gemini-1.5-pro-latest')
+    app.state.gemini_pro_model = genai.GenerativeModel('gemini-1.5-pro-latest')
+    app.state.gemini_flash_model = genai.GenerativeModel('gemini-1.5-flash-latest')
 
 # Cohere
 cohere_api_key = os.getenv("COHERE_API_KEY")
@@ -393,7 +393,7 @@ async def get_claude_response(
 async def get_cohere_response(
     prompt_text: str,
     preamble: Optional[str] = None, # タスク固有のプリアンブル
-    model: str = "command-a-03-2025",
+    model: str = "cohere.embed-english-v3",
     chat_history: Optional[List[Dict[str, str]]] = None,
     initial_user_prompt: Optional[str] = None, # 会話全体の目的
     user_memories: Optional[List[schemas.UserMemoryResponse]] = None # ★ 追加
@@ -444,7 +444,7 @@ async def get_cohere_response(
 
 async def get_perplexity_response(
     prompt_for_perplexity: str, # これはAIへの主要な指示・質問
-    model: str = "sonar-pro",
+    model: str = "pplx-70b-online",
     user_memories: Optional[List[schemas.UserMemoryResponse]] = None, # ★ 追加
     initial_user_prompt: Optional[str] = None # ★ 追加 (もしあれば文脈として有用)
 ) -> schemas.IndividualAIResponse:
@@ -532,7 +532,7 @@ async def get_gemini_response(
     request: Request,
     prompt_text: str,
     system_instruction: Optional[str] = None,
-    model_name: str = "gemini-2.5-pro-latest",
+    model_name: str = "gemini-1.5-pro-latest",
     chat_history: Optional[List[Dict[str, str]]] = None,
     initial_user_prompt: Optional[str] = None,
     user_memories: Optional[List[schemas.UserMemoryResponse]] = None,
@@ -540,9 +540,15 @@ async def get_gemini_response(
     source_name = f"Gemini ({model_name})"
 
     gemini_model_instance: Optional[genai.GenerativeModel] = None
-    if model_name in ("gemini-2.5-pro-latest", "gemini-pro", "gemini-2.5-pro"):
+    if model_name in (
+        "gemini-1.5-pro-latest",
+        "gemini-pro",
+        "gemini-1.5-pro",
+        "gemini-2.5-pro-latest",  # backward compatibility
+        "gemini-2.5-pro",
+    ):
         gemini_model_instance = request.app.state.gemini_pro_model
-    elif model_name == "gemini-2.5-flash-latest":
+    elif model_name in ("gemini-1.5-flash-latest", "gemini-2.5-flash-latest"):
         gemini_model_instance = request.app.state.gemini_flash_model
     elif "vision" in model_name:
         gemini_model_instance = request.app.state.gemini_vision_client
@@ -1623,7 +1629,7 @@ async def run_super_search_mode_flow(
                 search_tasks.append(
                     get_perplexity_response(
                         prompt_for_perplexity=perplexity_prompt,
-                        model="sonar-reasoning-pro",
+                        model="pplx-70b-online",
                         user_memories=user_memories,
                         initial_user_prompt=initial_user_prompt_for_session,
                     )
@@ -1833,7 +1839,7 @@ async def run_super_search_mode_flow(
             request=request,
             prompt_text=final_formatting_user_prompt,
             system_instruction=final_formatting_system_prompt,
-            model_name="gemini-2.5-pro-latest",
+            model_name="gemini-1.5-pro-latest",
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
         )
@@ -1976,7 +1982,7 @@ async def run_balance_mode_flow(
         step2_res = await get_claude_response(
             prompt_text=step2_prompt_for_claude,
             system_instruction=step2_system_instruction_claude,
-            model="claude-3-opus-20240229",
+            model="claude-opus-4-20250514",
             # Claudeの場合、chat_history を渡すか、プロンプトに含めるかは設計による。
             # ここでは主要な情報はプロンプトに含めたので、chat_historyは渡さないか、あるいは
             # current_chat_history_for_this_turn を渡してClaude側で解釈させる。
@@ -2011,7 +2017,7 @@ async def run_balance_mode_flow(
         step3_res = await get_cohere_response(
             prompt_text=step3_prompt_for_cohere, # Cohereのmessageパラメータに相当
             preamble=step3_preamble_cohere,
-            model="command-a-03-2025",
+            model="cohere.embed-english-v3",
             # Cohere の chat_history は USER/CHATBOT の交互形式。
             # ここでは current_chat_history_for_this_turn を Cohere 形式に変換して渡すか、
             # 主要なコンテキストはプロンプトに含めたので、履歴は渡さない選択も。
@@ -2035,7 +2041,7 @@ async def run_balance_mode_flow(
         )
         step4_res = await get_perplexity_response(
             prompt_for_perplexity=step4_prompt_for_perplexity,
-            model="sonar-reasoning-pro", # 推奨モデル
+            model="pplx-70b-online",  # 推奨モデル
             # Perplexity は履歴をプロンプトに含める形式なので、chat_historyとinitial_user_promptを直接渡すのではなく、
             # 上記のようにプロンプト文字列に情報を組み込む。
         )
@@ -2075,7 +2081,7 @@ async def run_balance_mode_flow(
             request=request,
             prompt_text=step5_prompt_for_gemini,
             system_instruction=step5_system_instruction_gemini,
-            model_name="gemini-2.5-pro-latest", # 推奨モデル
+            model_name="gemini-1.5-pro-latest",  # 推奨モデル
             chat_history=list(current_chat_history_for_this_turn),
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
@@ -2110,7 +2116,7 @@ async def run_balance_mode_flow(
         step6_res = await get_claude_response(
             prompt_text=step6_prompt_for_claude_review2,
             system_instruction=step6_system_instruction_claude_review2,
-            model="claude-3-opus-20240229",
+            model="claude-opus-4-20250514",
             initial_user_prompt=initial_user_prompt_for_session
         )
         response_shell.step6_review2_claude = step6_res
@@ -2242,7 +2248,7 @@ async def run_search_mode_flow(
         )
         step1_res_perplexity = await get_perplexity_response(
             prompt_for_perplexity=perplexity_initial_prompt,
-            model="sonar-pro" # または "sonar-reasoning-pro"
+            model="pplx-70b-online"
         )
         if step1_res_perplexity.response:
             # Perplexityの応答をパースしてメタデータを付与する処理が必要 (ここでは簡略化)
@@ -2317,7 +2323,7 @@ async def run_search_mode_flow(
             )
             # Perplexityを使うが、GeminiのWeb検索機能や他の検索APIも検討可能
             step3_sub_res_perplexity = await get_perplexity_response(
-                prompt_for_perplexity=perplexity_followup_prompt, model="sonar-pro"
+                prompt_for_perplexity=perplexity_followup_prompt, model="pplx-70b-online"
             )
             if step3_sub_res_perplexity.response:
                 collected_fragments.append(schemas.IndividualAIResponse(
@@ -2401,7 +2407,7 @@ async def run_search_mode_flow(
             request=request,
             prompt_text=formatting_user_prompt_gemini,
             system_instruction=formatting_system_prompt_gemini,
-            model_name="gemini-2.5-pro-latest",
+            model_name="gemini-1.5-pro-latest",
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
         )
@@ -2541,7 +2547,7 @@ Claudeによるレビューと改善提案:
 """
         step4_res = await get_perplexity_response( # ★★★ get_perplexity_response を呼び出し ★★★
             prompt_for_perplexity=step4_prompt_for_perplexity,
-            model="sonar-reasoning-pro" # Perplexityのモデル名を指定
+            model="pplx-70b-online"  # Perplexityのモデル名を指定
         )
         response_shell.step4_comprehensive_answer_perplexity = step4_res
         if step4_res.error or (step4_res.response is not None and len(step4_res.response.strip()) < 5 and not step4_res.error):
@@ -2722,7 +2728,7 @@ async def run_code_mode_flow(
             request=request,
             prompt_text=c0_user_prompt,
             system_instruction=c0_system_instruction,
-            model_name="gemini-2.5-pro-latest",
+            model_name="gemini-1.5-pro-latest",
             chat_history=list(current_chat_history_for_this_turn),
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
@@ -2967,7 +2973,7 @@ async def run_writing_mode_flow(
             request=request,
             prompt_text=w0_user_prompt,
             system_instruction=w0_system_instruction,
-            model_name="gemini-2.5-pro-latest",
+            model_name="gemini-1.5-pro-latest",
             chat_history=list(current_chat_history_for_this_turn),
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
@@ -3101,7 +3107,7 @@ async def run_writing_mode_flow(
         w4_res = await get_cohere_response(
             prompt_text=w4_user_prompt,
             preamble=w4_preamble_cohere,
-            model="command-a-03-2025",
+            model="cohere.embed-english-v3",
             chat_history=list(current_chat_history_for_this_turn), # W3の結果を含む履歴
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
@@ -3139,7 +3145,7 @@ async def run_writing_mode_flow(
             request=request,
             prompt_text=w5_user_prompt,
             system_instruction=w5_final_system_instruction,
-            model_name="gemini-2.5-pro-latest",
+            model_name="gemini-1.5-pro-latest",
             chat_history=list(current_chat_history_for_this_turn),
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,

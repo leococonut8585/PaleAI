@@ -65,7 +65,7 @@ async def run_deep_search_flow(
 
     def query_perplexity(client, prompt):
         try:
-            client.model = "sonar-pro"
+            client.model = "pplx-70b-online"
             return client.query(prompt)
         except Exception as exc:  # pragma: no cover - depends on external API
             return f"Perplexity error: {exc}"

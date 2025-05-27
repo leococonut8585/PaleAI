@@ -6,7 +6,7 @@ import logging
 # \u25BC ここに実際の Replicate トークンを入れる
 os.environ["REPLICATE_API_TOKEN"] = "r8_********************************"
 
-MODEL = "stability-ai/sdxl@7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc"
+MODEL = "replicate-sdxl"
 
 prompt = "red and blue test"
 params = {"prompt": prompt}
