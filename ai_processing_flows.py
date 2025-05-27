@@ -98,6 +98,7 @@ async def run_quality_chat_mode_flow(
             model="claude-opus-4-20250514",
             messages=messages,
             temperature=0.6,
+            max_tokens=4000,
         )
         text = ""
         if res and hasattr(res, "content") and isinstance(res.content, list):
