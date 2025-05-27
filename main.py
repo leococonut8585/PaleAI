@@ -2065,6 +2065,26 @@ async def run_balance_mode_flow(
             step4_res.response = "" # Noneなら空文字に
             logger.info("Perplexity AIから応答がありませんでした（エラーもなし）。")
 
+        # Perplexityの応答に含まれる年が現在と大きく離れている場合、
+        # 同じクエリに「最新」キーワードを付与して再検索する
+        if step4_res.response:
+            import re
+            year_matches = re.findall(r"(\d{4})", step4_res.response)
+            valid_years = [int(y) for y in year_matches if 1900 <= int(y) <= 2100]
+            if valid_years:
+                latest_year = max(valid_years)
+                current_year_int = datetime.utcnow().year
+                if abs(current_year_int - latest_year) > 1:
+                    logger.info("Perplexity結果が古い可能性があるため、'最新'キーワードで再検索します。")
+                    retry_prompt = step4_prompt_for_perplexity + " 最新"
+                    retry_res = await get_perplexity_response(
+                        prompt_for_perplexity=retry_prompt,
+                        model="sonar-reasoning-pro",
+                    )
+                    if retry_res.response:
+                        step4_res = retry_res
+                        response_shell.step4_comprehensive_answer_perplexity = step4_res
+
         # 既存レビューに依存しすぎない独自検索
         additional_prompt = (
             f"本日は {current_date} です。ユーザーの質問『{original_prompt}』について、"
