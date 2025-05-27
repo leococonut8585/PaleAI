@@ -1919,330 +1919,130 @@ async def run_super_search_mode_flow(
 # --- 各モード実行フロー関数 ---
 # ↓↓↓ 変更点: 各モード実行フロー関数に chat_history_for_ai 引数を追加 ↓↓↓
 # main.py の run_balance_mode_flow 関数の修正
+
 async def run_balance_mode_flow(
-    original_prompt: str,                            # 現在のユーザーの具体的な質問
+    original_prompt: str,
     response_shell: schemas.CollaborativeResponseV2,
-    chat_history_for_ai: List[Dict[str, str]],     # これまでの会話履歴 (現在のプロンプトは含まない)
-    initial_user_prompt_for_session: Optional[str],   # このチャットセッション全体の最初のユーザーリクエスト
+    chat_history_for_ai: List[Dict[str, str]],
+    initial_user_prompt_for_session: Optional[str],
     request: Request,
-    user_memories: Optional[List[schemas.UserMemoryResponse]] = None
+    user_memories: Optional[List[schemas.UserMemoryResponse]] = None,
 ) -> schemas.CollaborativeResponseV2:
+    """High quality chat mode flow."""
 
-    logger.info("\n--- バランスモード開始 ---")
+    logger.info("\n--- ハイクオリティモード開始 ---")
 
-    # このターンでAIに渡すための完全なチャット履歴を作成 (過去の履歴 + 現在のプロンプト)
-    current_chat_history_for_this_turn = list(chat_history_for_ai) # コピーを作成
+    current_chat_history_for_this_turn = list(chat_history_for_ai)
     current_chat_history_for_this_turn.append({"role": "user", "content": original_prompt})
-    logger.info(f"Balance Mode: このターンでAIに渡す完全な履歴は {len(current_chat_history_for_this_turn)} 件")
+    logger.info(
+        f"Balance Mode: このターンでAIに渡す完全な履歴は {len(current_chat_history_for_this_turn)} 件"
+    )
 
-
-    # 各ステップの結果を格納する変数の初期化 (変更なし)
-    step1_res = schemas.IndividualAIResponse(source="OpenAI (Initial Draft)", error="未実行")
-    step2_res = schemas.IndividualAIResponse(source="Claude (Review 1)", error="未実行")
-    step3_res = schemas.IndividualAIResponse(source="Cohere (Improved Draft)", error="未実行")
-    step4_res = schemas.IndividualAIResponse(source="PerplexityAI (Fact Check/Research)", error="未実行")
-    step5_res = schemas.IndividualAIResponse(source="Gemini (Synthesized Answer 1)", error="未実行")
-    step6_res = schemas.IndividualAIResponse(source="Claude (Review 2)", error="未実行")
-    step7_res = schemas.IndividualAIResponse(source="OpenAI (Final Polished Answer)", error="未実行")
+    step1_res = schemas.IndividualAIResponse(source="Perplexity (Initial Search)", error="未実行")
+    step2_res = schemas.IndividualAIResponse(source="Gemini (Draft)", error="未実行")
+    step3_res = schemas.IndividualAIResponse(source="GPT-4o (Prompt)", error="未実行")
+    step4_res = schemas.IndividualAIResponse(source="Perplexity (Follow-up)", error="未実行")
+    step5_res = schemas.IndividualAIResponse(source="Claude (Final Answer)", error="未実行")
 
     try:
-        # ステップ1: OpenAI - 初期回答の草案生成
-        logger.info("ステップ1: OpenAIによる初期回答生成中...")
         current_date = datetime.utcnow().strftime("%Y-%m-%d")
-        step1_system_prompt = (
-            f"本日は {current_date} です。最新の話題を示してください。"
-            "あなたは、ユーザーからの質問とこれまでの会話の流れ、そして会話全体の主要な目的を深く理解し、"
-            "まずは網羅的で客観的な情報に基づいた基本的な回答の草案を、序論・本論（複数の主要点）・結論の形式で構造化して作成するAIアシスタントです。"
-        )
-        step1_res = await get_openai_response(
-            prompt_text=original_prompt, # 現在のプロンプト (get_openai_response内で履歴の最後に追加される想定)
-            system_role_description=step1_system_prompt,
-            model="gpt-4o", # モデル指定
-            chat_history=list(current_chat_history_for_this_turn), # このターン用の完全な履歴
-            initial_user_prompt=initial_user_prompt_for_session  # セッション最初の質問
+
+        logger.info("ステップ1: Perplexityによる最新情報検索中...")
+        step1_prompt = f"{current_date} 時点の最新情報を調べてください。質問: {original_prompt}"
+        step1_res = await get_perplexity_response(
+            prompt_for_perplexity=step1_prompt,
+            model="sonar-reasoning-pro",
+            user_memories=user_memories,
+            initial_user_prompt=initial_user_prompt_for_session,
         )
         response_shell.step1_initial_draft_openai = step1_res
         if step1_res.error or not step1_res.response:
-            raise ValueError(f"Balance Mode - Step1 (OpenAI初期回答) 失敗: {step1_res.error or '応答なし'}")
-        logger.info(f"OpenAI 回答草案 (冒頭): {step1_res.response[:100].strip()}...")
-
-        # ステップ2: Claude - 初期回答の批判的レビュー
-        logger.info("\nステップ2: Claudeによる批判的レビュー中...")
-        step2_system_instruction_claude = (
-            "あなたはAIの回答を非常に厳しく、建設的に批判・評価する専門のレビュアーです。\n"
-            f"この会話全体の主要な目的は「{initial_user_prompt_for_session}」であることを念頭に置いてください。\n"
-            "提示された「AIの初期回答草案」を、以下の観点からレビューし、具体的な改善提案を【番号付きリスト形式で5つ以上】挙げてください。\n"
-            "- 元のユーザーの質問および会話全体の目的に対して、回答が適切かつ十分か。\n"
-            "- 論理の飛躍、矛盾点、根拠の薄弱さ、情報の偏りはないか。\n"
-            "- 表現の曖昧さ、分かりにくい部分はないか。\n"
-            "- さらに情報を深掘りすべき点、追加すべき視点はないか。\n"
-            "あなたのレビューは、次のAIがこの草案を大幅に改善するための重要な土台となります。"
-        )
-        step2_prompt_for_claude = f"""ユーザーの現在の質問: 「{original_prompt}」
-これまでの会話履歴:
-{json.dumps(chat_history_for_ai, ensure_ascii=False, indent=2)}
-
-上記を踏まえたAIの初期回答草案 (OpenAI作成):
-「{step1_res.response}」
-
-この初期回答草案を、あなたが持つ専門的なレビュアーとしての観点から、上記のシステム指示に従って詳細にレビューし、具体的な改善提案をしてください。
-"""
-        step2_res = await get_claude_response(
-            prompt_text=step2_prompt_for_claude,
-            system_instruction=step2_system_instruction_claude,
-            model="claude-3-opus-20240229",
-            # Claudeの場合、chat_history を渡すか、プロンプトに含めるかは設計による。
-            # ここでは主要な情報はプロンプトに含めたので、chat_historyは渡さないか、あるいは
-            # current_chat_history_for_this_turn を渡してClaude側で解釈させる。
-            # 今回は、レビュー対象のテキストが主なので、履歴は必須ではないかもしれない。
-            initial_user_prompt=initial_user_prompt_for_session # system_instructionに含めたが念のため
-        )
-        response_shell.step2_review_claude = step2_res
-        if step2_res.error or not step2_res.response:
-            raise ValueError(f"Balance Mode - Step2 (Claudeレビュー1) 失敗: {step2_res.error or '応答なし'}")
-        logger.info(f"Claude レビュー1 (冒頭): {step2_res.response[:100].strip()}...")
-
-        # ステップ3: Cohere - 第1改善案の作成
-        logger.info("\nステップ3: Cohereによる第1改善案作成中...")
-        step3_preamble_cohere = (
-            "あなたは、提示された「AIの初期回答草案」と、それに対する「詳細な批判的レビュー」を深く理解し、"
-            "レビューでの指摘事項を具体的に反映させて、草案を大幅に改善・再構築する編集専門のAIです。\n"
-            f"この会話全体の主要な目的は「{initial_user_prompt_for_session}」であり、"
-            f"ユーザーの現在の質問は「{original_prompt}」であることを常に念頭に置いてください。\n"
-            "文章全体の論理性、情報の正確性、具体性、網羅性、そして表現の明瞭さを向上させることを目指してください。"
-        )
-        step3_prompt_for_cohere = f"""以下の情報があります。
-1.  ユーザーの現在の質問: 「{original_prompt}」
-2.  これまでの会話履歴:
-{json.dumps(chat_history_for_ai, ensure_ascii=False, indent=2)}
-3.  AIによる初期回答草案 (OpenAI作成):
-「{step1_res.response}」
-4.  上記草案への詳細な批判的レビューと改善提案 (Claude作成):
-「{step2_res.response}」
-
-これらの情報をすべて考慮し、Claudeのレビューで指摘された改善点を具体的に反映させ、OpenAIの初期回答草案を全面的に修正・拡張し、より質の高い「第1改善案」を作成してください。
-"""
-        step3_res = await get_cohere_response(
-            prompt_text=step3_prompt_for_cohere, # Cohereのmessageパラメータに相当
-            preamble=step3_preamble_cohere,
-            model="command-a-03-2025",
-            # Cohere の chat_history は USER/CHATBOT の交互形式。
-            # ここでは current_chat_history_for_this_turn を Cohere 形式に変換して渡すか、
-            # 主要なコンテキストはプロンプトに含めたので、履歴は渡さない選択も。
-            # バランスモードでは、各AIが前のAIの出力を参照するため、全履歴を毎回渡す必要性は低いかもしれない。
-            # initial_user_prompt は preamble に含めた。
-            chat_history=list(current_chat_history_for_this_turn) # 渡す場合は整形が必要
-        )
-        response_shell.step3_improved_draft_cohere = step3_res
-        if step3_res.error or not step3_res.response:
-            raise ValueError(f"Balance Mode - Step3 (Cohere改善案) 失敗: {step3_res.error or '応答なし'}")
-        logger.info(f"Cohere 第1改善案 (冒頭): {step3_res.response[:100].strip()}...")
-
-        # ステップ4: Perplexity AI - 事実確認と追加情報収集
-        logger.info("\nステップ4: Perplexity AIによる情報収集と提示中...")
-        step4_prompt_for_perplexity = (
-            f"ユーザーの最初の質問は「{initial_user_prompt_for_session}」で、現在の質問は「{original_prompt}」です。\n"
-            f"これまでのAIによる議論（特にCohereが作成した改善案とClaudeによるレビュー）を踏まえ、さらに回答の質を高めるために、以下の点について最新かつ信頼性の高い情報をウェブから収集し、簡潔にまとめてください。\n"
-            f"Claudeのレビューで指摘された情報不足の点: 「{step2_res.response[:200].strip()}...」 (レビューの関連部分)\n"
-            f"Cohereの改善案: 「{step3_res.response[:200].strip()}...」 (改善案の関連部分)\n"
-            f"これらの内容を補強し、事実誤認がないか確認するために必要な情報を調査し、結果と情報源のURL（もしあれば）を提示してください。\n"
-            f"特に {current_date} 時点での最新ニュース・トレンドを優先して調べてください。"
-        )
-        step4_res = await get_perplexity_response(
-            prompt_for_perplexity=step4_prompt_for_perplexity,
-            model="sonar-reasoning-pro", # 推奨モデル
-            # Perplexity は履歴をプロンプトに含める形式なので、chat_historyとinitial_user_promptを直接渡すのではなく、
-            # 上記のようにプロンプト文字列に情報を組み込む。
-        )
-        response_shell.step4_comprehensive_answer_perplexity = step4_res
-        if step4_res.error or (step4_res.response is not None and len(step4_res.response.strip()) < 10 and not step4_res.error): # 応答が極端に短い場合も考慮
-            logger.info(f"Perplexity AIからの応答が不十分またはエラー: {step4_res.error or '応答が短すぎます/ありません'}")
-            # エラーがあっても処理を続行し、エラー情報を記録する
-            step4_res.response = step4_res.response or "" # Noneなら空文字に
-        elif step4_res.response:
-            logger.info(f"Perplexity AI リサーチ結果 (冒頭): {step4_res.response[:100].strip()}...")
-        else: # error もなく response も None (または空) の場合
-            step4_res.response = "" # Noneなら空文字に
-            logger.info("Perplexity AIから応答がありませんでした（エラーもなし）。")
-
-        # Perplexityの応答に含まれる年が現在と大きく離れている場合、
-        # 同じクエリに「最新」キーワードを付与して再検索する
-        if step4_res.response:
-            import re
-            year_matches = re.findall(r"(\d{4})", step4_res.response)
-            valid_years = [int(y) for y in year_matches if 1900 <= int(y) <= 2100]
-            if valid_years:
-                latest_year = max(valid_years)
-                current_year_int = datetime.utcnow().year
-                if abs(current_year_int - latest_year) > 1:
-                    logger.info("Perplexity結果が古い可能性があるため、'最新'キーワードで再検索します。")
-                    retry_prompt = step4_prompt_for_perplexity + " 最新"
-                    retry_res = await get_perplexity_response(
-                        prompt_for_perplexity=retry_prompt,
-                        model="sonar-reasoning-pro",
-                    )
-                    if retry_res.response:
-                        step4_res = retry_res
-                        response_shell.step4_comprehensive_answer_perplexity = step4_res
-
-        # 既存レビューに依存しすぎない独自検索
-        additional_prompt = (
-            f"本日は {current_date} です。ユーザーの質問『{original_prompt}』について、"
-            f"最新ニュースやトレンドを中心に調査し、信頼できる情報源を簡潔にまとめてください。"
-        )
-        additional_res = await get_perplexity_response(
-            prompt_for_perplexity=additional_prompt,
-            model="sonar-reasoning-pro",
-        )
-        if additional_res.response:
-            logger.info(
-                f"Perplexity AI 追加検索結果 (冒頭): {additional_res.response[:100].strip()}..."
+            raise ValueError(
+                f"Balance Mode - Step1 (Perplexity) 失敗: {step1_res.error or '応答なし'}"
             )
-            combined = step4_res.response.strip() if step4_res.response else ""
-            if combined:
-                combined += "\n\n--- 独自の最新情報 ---\n" + additional_res.response.strip()
-            else:
-                combined = additional_res.response.strip()
-            step4_res.response = combined
-            if additional_res.links:
-                step4_res.links = (step4_res.links or []) + additional_res.links
-        elif additional_res.error:
-            logger.info(f"Perplexity AI 追加検索エラー: {additional_res.error}")
 
-
-        # ステップ5: Gemini - 「第1最終回答」の統合・編集
-        logger.info("\nステップ5: Geminiによる「第1最終回答」生成中...")
-        step5_system_instruction_gemini = (
-            "あなたは、ユーザーからの質問に対し、複数のAIによる多角的な検討とリサーチを経て、質の高い回答を構築するAI編集長です。\n"
-            f"この会話全体の主要な目的は「{initial_user_prompt_for_session}」であり、ユーザーの現在の質問は「{original_prompt}」です。\n"
-            "提供された全ての情報（初期草案、レビュー、改善案、追加リサーチ情報）を慎重に吟味し、矛盾を解消し、読者にとって最も価値のある「第1最終回答」を構築してください。\n"
-            "批判的思考と高度な編集能力を発揮し、論理的で一貫性のある、正確かつ詳細で網羅的な、分かりやすい文章にまとめてください。"
-        )
-        step5_prompt_for_gemini = f"""ユーザーの現在の質問: 「{original_prompt}」
-これまでの会話履歴の要点:
-{json.dumps(chat_history_for_ai[-3:], ensure_ascii=False, indent=2)} # 直近3件の履歴例
-
-提供情報:
-1.  AIによる初期回答草案 (OpenAI作成): 「{step1_res.response}」
-2.  上記草案への批判的レビュー1 (Claude作成): 「{step2_res.response}」
-3.  レビューを反映した改善案 (Cohere作成): 「{step3_res.response}」
-4.  追加リサーチ情報 (Perplexity AI作成): 「{step4_res.response if step4_res.response else "Perplexityからの追加情報はありませんでした。"}」
-
-これらの情報をすべて活用し、元のユーザープロンプトに対する「第1最終回答」を、上記のシステム指示に従って生成してください。
-"""
-        step5_res = await get_gemini_response(
+        logger.info("ステップ2: Geminiによる一次回答作成中...")
+        step2_system = "収集した情報を整理し、ユーザーの質問への一次回答を作成してください。"
+        step2_prompt = f"ユーザー質問: {original_prompt}\n\n集めた情報:\n{step1_res.response}"
+        step2_res = await get_gemini_response(
             request=request,
-            prompt_text=step5_prompt_for_gemini,
-            system_instruction=step5_system_instruction_gemini,
-            model_name="gemini-2.5-pro-preview-05-06",  # 推奨モデル
+            prompt_text=step2_prompt,
+            system_instruction=step2_system,
+            model_name="gemini-2.5-pro-preview-05-06",
             chat_history=list(current_chat_history_for_this_turn),
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
         )
-        response_shell.step5_final_answer_gemini = step5_res
-        if step5_res.error or not step5_res.response:
-            raise ValueError(f"Balance Mode - Step5 (Gemini第1最終回答) 失敗: {step5_res.error or '応答なし'}")
-        logger.info(f"Gemini 第1最終回答 (冒頭): {step5_res.response[:100].strip()}...")
+        response_shell.step2_review_claude = step2_res
+        if step2_res.error or not step2_res.response:
+            raise ValueError(
+                f"Balance Mode - Step2 (Gemini要約) 失敗: {step2_res.error or '応答なし'}"
+            )
 
-        # ステップ6: Claude - 「第1最終回答」の再レビュー
-        logger.info("\nステップ6: Claudeによる「第1最終回答」の再レビュー中...")
-        step6_system_instruction_claude_review2 = (
-            "あなたはAIが生成した高度な回答をさらに磨き上げるための最終レビューを行う、超一流の編集・校閲AIです。\n"
-            f"この会話全体の主要な目的は「{initial_user_prompt_for_session}」であり、ユーザーの現在の質問は「{original_prompt}」であることを忘れないでください。\n"
-            "提示された「第1最終回答」を、さらに高いレベルの品質に引き上げるために、非常に厳しく、多角的な視点から再度レビューしてください。\n"
-            "特に以下の点に注目し、具体的な改善点を【番号付きリスト形式で3つ以上】挙げてください。\n"
-            "- 論理の一貫性と飛躍のなさ、情報の正確性\n"
-            "- 情報の深さと洞察力、新規性\n"
-            "- 表現の洗練度、明瞭さ、説得力\n"
-            "- 読者への訴求力と分かりやすさ、ユーザーの意図への適合性\n"
-            "- 倫理的配慮や潜在的なバイアスの有無\n"
-            "あなたの指摘は、最終的な完成版を作成するための最後の重要なフィードバックとなります。"
-        )
-        step6_prompt_for_claude_review2 = f"""ユーザーの現在の質問: 「{original_prompt}」
-これまでの会話の主要な目的: 「{initial_user_prompt_for_session}」
-
-複数のAIが協力して作成した「第1最終回答」(Gemini作成):
-「{step5_res.response}」
-
-あなたはこの「第1最終回答」を、上記のシステム指示に従って再度レビューし、最終的な改善提案をしてください。
-"""
-        step6_res = await get_claude_response(
-            prompt_text=step6_prompt_for_claude_review2,
-            system_instruction=step6_system_instruction_claude_review2,
-            model="claude-3-opus-20240229",
-            initial_user_prompt=initial_user_prompt_for_session
-        )
-        response_shell.step6_review2_claude = step6_res
-        if step6_res.error or not step6_res.response:
-            raise ValueError(f"Balance Mode - Step6 (Claudeレビュー2) 失敗: {step6_res.error or '応答なし'}")
-        logger.info(f"Claude レビュー2 (冒頭): {step6_res.response[:100].strip()}...")
-
-        # ステップ7: OpenAI - 「第2最終回答（完成版）」の生成
-        logger.info("\nステップ7: OpenAIによる「第2最終回答（完成版）」生成中...")
-        step7_system_prompt_openai_final = (
-            f"特に、この会話全体の主要な目的は「{initial_user_prompt_for_session}」であり、"
-            f"ユーザーの現在の具体的な質問は「{original_prompt}」であることを強く意識してください。\n"
-            "これまでの全てのステップ（初期草案、レビュー1、改善案、追加情報、第1最終回答、レビュー2）の内容を総合的に判断し、"
-            "特に最後のレビュー（ステップ6）での指摘事項を完全に解消するように、最高の最終回答を生成してください。"
-        )
-        step7_user_prompt_for_openai_final = f"""ユーザーの現在の質問: 「{original_prompt}」
-会話全体の主要な目的: 「{initial_user_prompt_for_session}」
-
-これまでのAIたちの議論の集大成です！
-1.  AIによる初期回答草案 (OpenAI): 「{step1_res.response[:300].strip()}...」 (要約)
-2.  上記へのレビュー1 (Claude): 「{step2_res.response[:300].strip()}...」 (要約)
-3.  レビュー反映改善案 (Cohere): 「{step3_res.response[:300].strip()}...」 (要約)
-4.  追加情報 (Perplexity): 「{(step4_res.response[:300].strip() + '...') if step4_res.response else '追加情報なし'}」 (要約)
-5.  第1最終回答 (Gemini): 「{step5_res.response}」
-6.  上記「第1最終回答」への最終レビュー (Claude): 「{step6_res.response}」
-
-上記の全情報を踏まえ、特にClaudeによる最終レビュー（項目6）の指摘を全て解消し、指定された父親的で情報満載の口調で、ユーザーの現在の質問に対する完璧な最終回答を作成してください。
-"""
-        step7_res = await get_openai_response(
-            prompt_text=step7_user_prompt_for_openai_final,
-            system_role_description=step7_system_prompt_openai_final,
+        logger.info("ステップ3: GPT-4oによる追加情報クエリ生成中...")
+        step3_system = "不足情報を補うための最適なPerplexity検索プロンプトを日本語で作成してください。"
+        step3_prompt = f"ユーザー質問: {original_prompt}\n\n一次回答:\n{step2_res.response}"
+        step3_res = await get_openai_response(
+            prompt_text=step3_prompt,
+            system_role_description=step3_system,
             model="gpt-4o",
-            # 最終生成なので、ここまでの履歴ではなく、指示プロンプトに集約した情報を重視。
-            # 必要であれば current_chat_history_for_this_turn を渡すことも可能。
-            initial_user_prompt=initial_user_prompt_for_session
+            chat_history=list(current_chat_history_for_this_turn),
+            initial_user_prompt=initial_user_prompt_for_session,
+            user_memories=user_memories,
         )
-        response_shell.step7_final_answer_v2_openai = step7_res # エラーの場合もそのまま格納
-        if step7_res.error or not step7_res.response:
-            # 最終ステップでエラーが起きても、ここまでの情報を返すため、ここでは敢えて ValueError を raise しない。
-            # overall_error には記録せず、step7_final_answer_v2_openai.error にエラー情報が含まれる。
-            logger.info(f"Balance Mode - Step7 (OpenAI最終回答) でエラーまたは応答なし: {step7_res.error or '応答なし'}")
-            # フォールバックとして、ステップ5の回答を最終回答とすることも検討できる。
-            # if response_shell.step5_final_answer_gemini and response_shell.step5_final_answer_gemini.response:
-            #     response_shell.step7_final_answer_v2_openai = response_shell.step5_final_answer_gemini
-            #     logger.info("警告: ステップ7でエラーのため、ステップ5の回答を最終回答としました。")
-            # else:
-            #     # ステップ5もなければ、エラーメッセージを最終回答とする
-            #     response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-            #         source="Fallback Error",
-            #         response="申し訳ありません。最終回答の生成中に問題が発生しました。",
-            #         error=step7_res.error or "ステップ7で不明なエラー"
-            #     )
-            # 今回は、ステップ7の結果をそのまま格納する
-        else:
-            logger.info(f"OpenAI 第2最終回答 (冒頭): {step7_res.response[:100].strip()}...")
+        response_shell.step3_improved_draft_cohere = step3_res
+        if step3_res.error or not step3_res.response:
+            raise ValueError(
+                f"Balance Mode - Step3 (GPT-4oプロンプト生成) 失敗: {step3_res.error or '応答なし'}"
+            )
 
-        logger.info("--- バランスモード終了 ---")
+        logger.info("ステップ4: Perplexityによる追加検索中...")
+        step4_res = await get_perplexity_response(
+            prompt_for_perplexity=step3_res.response,
+            model="sonar-reasoning-pro",
+            user_memories=user_memories,
+            initial_user_prompt=initial_user_prompt_for_session,
+        )
+        response_shell.step4_comprehensive_answer_perplexity = step4_res
+        if step4_res.error or not step4_res.response:
+            raise ValueError(
+                f"Balance Mode - Step4 (Perplexity追加検索) 失敗: {step4_res.error or '応答なし'}"
+            )
+
+        logger.info("ステップ5: Claudeによる最終回答生成中...")
+        step5_system = FRIENDLY_TONE_SYSTEM_PROMPT + "\nあなたは複数の情報を統合し、魅力的な文章を作成する編集者です。"
+        step5_prompt = (
+            f"ユーザー質問: {original_prompt}\n\n一次回答:\n{step2_res.response}\n\n追加情報:\n{step4_res.response}\n\nこれらをもとに日本語で魅力的に回答してください。"
+        )
+        step5_res = await get_claude_response(
+            prompt_text=step5_prompt,
+            system_instruction=step5_system,
+            model="claude-3-opus-20240229",
+            chat_history=list(current_chat_history_for_this_turn),
+            initial_user_prompt=initial_user_prompt_for_session,
+        )
+        response_shell.step5_final_answer_gemini = step5_res
+        response_shell.step7_final_answer_v2_openai = step5_res
+        if step5_res.error or not step5_res.response:
+            raise ValueError(
+                f"Balance Mode - Step5 (Claude最終回答) 失敗: {step5_res.error or '応答なし'}"
+            )
+
+        logger.info("--- ハイクオリティモード終了 ---")
 
     except ValueError as e:
         error_message = f"バランスモードの処理中にエラーが発生しました: {str(e)}"
         logger.info(error_message)
         response_shell.overall_error = error_message
-        # エラーが発生したステップまでの結果は response_shell に格納されている
-        # 必要であれば、エラー時の最終応答を response_shell.step7_final_answer_v2_openai に設定
-    if not response_shell.step7_final_answer_v2_openai:
-        response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse( # <<< schemas.
-            source="Code Mode Error Step",
-            # ...
-        )
-    
-    logger.info(f"run_balance_mode_flow が返却する response_shell の内容 (JSON): {response_shell.model_dump_json(indent=2) if response_shell else 'None'}")
-    return response_shell
+        if not response_shell.step7_final_answer_v2_openai:
+            response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
+                source="Balance Mode Error", error=str(e)
+            )
 
+    logger.info(
+        f"run_balance_mode_flow が返却する response_shell の内容 (JSON): {response_shell.model_dump_json(indent=2) if response_shell else 'None'}"
+    )
+    return response_shell
 
 import re
 
