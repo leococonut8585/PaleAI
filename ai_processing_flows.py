@@ -82,8 +82,9 @@ async def run_quality_chat_mode_flow(
     )
 
     messages = []
+    system_prompt = None
     if initial_user_prompt_for_session:
-        messages.append({"role": "system", "content": initial_user_prompt_for_session})
+        system_prompt = initial_user_prompt_for_session
 
     summary_prompt = (
         "以下の情報をもとに、魅力的で構成の整った日本語の文章にしてください。\n"
@@ -97,6 +98,8 @@ async def run_quality_chat_mode_flow(
         res = await claude_client.messages.create(
             model="claude-opus-4-20250514",
             messages=messages,
+            system=system_prompt,
+            max_tokens=4000,
             temperature=0.6,
         )
         text = ""
