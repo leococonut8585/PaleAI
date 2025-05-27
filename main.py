@@ -458,7 +458,7 @@ async def get_claude_response(
 
     api_params: Dict[str, Any] = {
         "model": model,
-        "max_tokens": 4000,
+        "max_tokens": 8000,
         "messages": messages_for_api,
         "temperature": 0.6,
     }
@@ -2188,6 +2188,11 @@ async def run_super_search_mode_flow(
                 seen.add(stripped)
         return "\n".join(lines)
 
+    def enhance_output_formatting(text: str) -> str:
+        """Add extra blank lines between paragraphs for readability."""
+        import re as _re
+        return _re.sub(r"\n(?=\S)", "\n\n", text)
+
     results: List[str] = []
     summaries: List[str] = []
 
@@ -2279,9 +2284,14 @@ async def run_super_search_mode_flow(
         user_memories=user_memories,
     )
 
+    formatted_response = (
+        enhance_output_formatting(summary_res.response)
+        if summary_res.response
+        else summary_res.response
+    )
     response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
         source="Claude (claude-opus-4-20250514)",
-        response=summary_res.response,
+        response=formatted_response,
         error=summary_res.error,
     )
     return response_shell
