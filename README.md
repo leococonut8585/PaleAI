@@ -22,6 +22,16 @@ background task. Once the file appears the browser automatically redirects to
 `profile_generated.html?uid=<id>` where the resulting PNG is displayed fullscreen with a button to
 return to the login form.
 
+## Image Generation Updates
+
+The `/images/generate` endpoint now accepts several new fields:
+
+- `deference` (1–5) – controls how different each image should be
+- `allow_text` (bool) – when `false` negative prompts are added to avoid words
+- `text_content` (str) – optional text to draw in the image
+
+These options let you fine‑tune variation and overlay text when using DALL·E or Stable Diffusion.
+
 ## Code Generation Mode
 
 For details on output in the `ペイルの創造` code mode, see
@@ -61,8 +71,9 @@ or `playwright install` if the `playwright` command is on your PATH.
 
 Create a `.env` file based on `.env.example` and provide your API keys. At least
 `OPENAI_API_KEY` must be set to enable core features. Keys for Anthropic,
-Gemini, Cohere, Perplexity, ElevenLabs and AWS are optional depending on which
-functions you plan to use.
+Gemini, Cohere, Perplexity, ElevenLabs, **Stability** (Stable Diffusion) and AWS
+are optional depending on which functions you plan to use. When using Replicate
+for SDXL set `REPLICATE_API_TOKEN` as well.
 
 To start the development server run:
 
