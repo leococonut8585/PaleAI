@@ -12,7 +12,6 @@ from database import get_db
 
 from ai_processing_flows import (
     run_quality_chat_mode_flow,
-    run_deep_search_flow,
     run_ultra_search_flow,
 )
 from file_processors import stage0_process_file
@@ -20,8 +19,10 @@ from file_processors import stage0_process_file
 try:
     from utils.memory_retriever import get_relevant_memories_for_prompt
 except Exception:  # pragma: no cover - placeholder when module missing
+
     async def get_relevant_memories_for_prompt(*args, **kwargs):
         return []
+
 
 UPLOAD_DIR = "uploaded_files_temp"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -68,7 +69,9 @@ async def process_file_and_chat_endpoint(
     stage0_result = await stage0_process_file(request, file.filename, file_content)
 
     if stage0_result["error"]:
-        raise HTTPException(status_code=stage0_result["status_code"], detail=stage0_result["error"])
+        raise HTTPException(
+            status_code=stage0_result["status_code"], detail=stage0_result["error"]
+        )
 
     processed_file_text = stage0_result["processed_content"]
 
@@ -85,7 +88,11 @@ async def process_file_and_chat_endpoint(
         step0_file_processing_result=schemas.IndividualAIResponse(
             source=stage0_result.get("processing_ai", "FileProcessor"),
             prompt_text="N/A (File Content used as input)",
-            response=processed_file_text if processed_file_text else "[ファイル内容の処理結果なし]",
+            response=(
+                processed_file_text
+                if processed_file_text
+                else "[ファイル内容の処理結果なし]"
+            ),
             error=None,
         ),
     )
@@ -123,14 +130,6 @@ async def process_file_and_chat_endpoint(
                 user_memories=user_memories_list,
                 request=request,
             )
-        elif current_ai_mode == "deepsearch":
-            response_shell = await run_deep_search_flow(
-                original_prompt=prompt_with_file_context,
-                response_shell=response_shell,
-                chat_history_for_ai=chat_history_for_ai,
-                user_memories=user_memories_list,
-                request=request,
-            )
         elif current_ai_mode == "ultrasearch":
             response_shell = await run_ultra_search_flow(
                 original_prompt=prompt_with_file_context,
@@ -149,10 +148,15 @@ async def process_file_and_chat_endpoint(
     except HTTPException:
         raise
     except Exception as e:
-        error_message = f"AI処理フロー ({current_ai_mode}) でエラーが発生しました: {str(e)}"
+        error_message = (
+            f"AI処理フロー ({current_ai_mode}) でエラーが発生しました: {str(e)}"
+        )
         logger.error("[Error] %s", error_message)
         response_shell.overall_error = error_message
-        if not response_shell.step7_final_answer_v2_openai or not response_shell.step7_final_answer_v2_openai.response:
+        if (
+            not response_shell.step7_final_answer_v2_openai
+            or not response_shell.step7_final_answer_v2_openai.response
+        ):
             response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
                 source="System Error",
                 response="申し訳ありません、AIの応答生成中に内部エラーが発生しました。",

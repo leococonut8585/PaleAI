@@ -473,7 +473,6 @@
                     <div class="mr-3">
                         <select id="aiMode" class="p-2 border-gray-300 rounded-lg shadow-sm focus:ring-teal-500 focus:border-teal-500 text-sm bg-white">
                             <option value="balance" selected>ペイルの声 (ハイクオリティモード)</option>
-                            <option value="search3">ペイルの知恵(検索特化モード)</option>
                             <option value="search6">ペイルの叡智(超検索特化モード)</option>
                             <option value="code">ペイルの創造(コード生成特化モード)</option>
                             <option value="writing">ペイルの手紙(執筆特化モード)</option>
@@ -747,8 +746,8 @@
             return 'balance';
         }
         if (lower === 'search') {
-            console.warn("normalizeMode: Legacy 'search' mode found, normalizing to 'search3'.");
-            return 'search3';
+            console.warn("normalizeMode: Legacy 'search' mode found, normalizing to 'search6'.");
+            return 'search6';
         }
 
         if (aiModeSelect) {
@@ -1180,7 +1179,7 @@ function displayMessage(content, role, aiModelName = null, messageId = null, sea
                 contentDiv.textContent = content || "";
             }
         }
-    } else if ((currentSelectedMode === 'search3' || currentSelectedMode === 'search6' || currentSelectedMode === 'search' || currentSelectedMode === 'supersearch') && role === 'ai') {
+    } else if ((currentSelectedMode === 'search6' || currentSelectedMode === 'supersearch') && role === 'ai') {
         // 検索モードの処理 (変更なし)
         if (content) {
             try {
@@ -1300,7 +1299,7 @@ function displayMessage(content, role, aiModelName = null, messageId = null, sea
     speechBubbleCard.appendChild(contentDiv);
 
     // 翻訳ボタンの追加ロジック (変更なし、ただし画像生成モードでは表示しないようにする)
-    if (role === 'ai' && currentSelectedMode !== 'imagegen' && !(currentSelectedMode === 'search3' || currentSelectedMode === 'search6' || currentSelectedMode === 'search' || currentSelectedMode === 'supersearch')) {
+    if (role === 'ai' && currentSelectedMode !== 'imagegen' && !(currentSelectedMode === 'search6' || currentSelectedMode === 'supersearch')) {
         const transBtn = document.createElement('button');
         transBtn.className = 'text-xs text-blue-600 underline mt-2';
         transBtn.textContent = 'この返答をDeepLで翻訳';
