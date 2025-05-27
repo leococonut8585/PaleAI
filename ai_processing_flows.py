@@ -15,36 +15,86 @@ async def run_quality_chat_mode_flow(
     user_memories: Optional[List[schemas.UserMemoryResponse]],
     request: Request,
 ) -> schemas.CollaborativeResponseV2:
-    """Simplified quality chat flow using OpenAI."""
-    openai_client = request.app.state.openai_client
-    if not openai_client:
+    """High quality mode using Perplexity then Claude."""
+
+    perplexity_client = request.app.state.perplexity_sync_client
+    claude_client = request.app.state.anthropic_client
+
+    if not perplexity_client:
         response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-            source="OpenAI (gpt-4o)", error="OpenAI client not initialized."
+            source="Perplexity (sonar-pro)", error="Perplexity client not initialized."
         )
         return response_shell
+    if not claude_client:
+        response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
+            source="Claude (claude-3-opus-20240229)", error="Claude client not initialized."
+        )
+        return response_shell
+
+    from datetime import datetime
+    from fastapi.concurrency import run_in_threadpool
+
+    current_dt = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    search_prompt = f"{current_dt} 時点の最新情報を調べてください。{original_prompt}"
+
+    def query_perplexity(client, prompt):
+        try:
+            client.model = "sonar-pro"
+            return client.query(prompt)
+        except Exception as exc:
+            return f"Perplexity error: {exc}"
+
+    result_text = await run_in_threadpool(query_perplexity, perplexity_client, search_prompt)
+    if not isinstance(result_text, str):
+        result_text = str(result_text)
+
+    if len(result_text) < 3000:
+        extra = await run_in_threadpool(
+            query_perplexity,
+            perplexity_client,
+            f"さらに詳しく、3000文字以上で: {search_prompt}",
+        )
+        if isinstance(extra, str):
+            result_text += "\n" + extra
+
+    response_shell.step4_comprehensive_answer_perplexity = schemas.IndividualAIResponse(
+        source="Perplexity (sonar-pro)", response=result_text
+    )
 
     messages = []
     if initial_user_prompt_for_session:
         messages.append({"role": "system", "content": initial_user_prompt_for_session})
-    for msg in chat_history_for_ai:
-        role = msg.get("role")
-        if role == "ai":
-            role = "assistant"
-        if role in {"user", "assistant"}:
-            messages.append({"role": role, "content": str(msg.get("content", ""))})
-    messages.append({"role": "user", "content": original_prompt})
+
+    summary_prompt = (
+        "以下の情報を魅力的で読みやすい文章に整形してください。内容を削らず日本語でまとめてください。\n\n"
+        + result_text
+    )
+    messages.append({"role": "user", "content": summary_prompt})
 
     try:
-        res = await openai_client.chat.completions.create(
-            model="gpt-4o", messages=messages, temperature=0.7
+        res = await claude_client.messages.create(
+            model="claude-3-opus-20240229",
+            messages=messages,
+            temperature=0.6,
         )
+        text = ""
+        if res and hasattr(res, "content") and isinstance(res.content, list):
+            for block in res.content:
+                if hasattr(block, "text"):
+                    text += block.text
+        elif hasattr(res, "text"):
+            text = res.text
+        else:
+            text = str(res)
+
         response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-            source="OpenAI (gpt-4o)", response=res.choices[0].message.content
+            source="Claude (claude-3-opus-20240229)", response=text
         )
     except Exception as e:  # pragma: no cover - network errors not testable
         response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-            source="OpenAI (gpt-4o)", error=str(e)
+            source="Claude (claude-3-opus-20240229)", error=str(e)
         )
+
     return response_shell
 
 
