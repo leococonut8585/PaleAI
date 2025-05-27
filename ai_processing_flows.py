@@ -103,7 +103,6 @@ async def run_quality_chat_mode_flow(
             system=system_prompt,
             max_tokens=4000,
             temperature=0.6,
-            max_tokens=4000,
         )
         text = ""
         if res and hasattr(res, "content") and isinstance(res.content, list):
