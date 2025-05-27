@@ -295,7 +295,8 @@ async def get_openai_response(
         res = await app.state.openai_client.chat.completions.create(
             messages=messages_for_api,
             model=model,
-            temperature=0.7
+            temperature=0.7,
+            max_tokens=1024,
         )
         return schemas.IndividualAIResponse(source=f"OpenAI ({model})", response=res.choices[0].message.content)
     except Exception as e:
