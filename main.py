@@ -134,7 +134,9 @@ else:
     app.state.deepl_translator = deepl.Translator(deepl_api_key)
 
 # AWS Textract
-aws_region = os.getenv("AWS_REGION", "ap-northeast-1")
+# about this app.txt では `AWS_DEFAULT_REGION` を使用すると記載されているため、
+# 互換性のためにまず AWS_DEFAULT_REGION を参照し、次に AWS_REGION を見る。
+aws_region = os.getenv("AWS_DEFAULT_REGION") or os.getenv("AWS_REGION", "ap-northeast-1")
 try:
     app.state.textract_client = boto3.client("textract", region_name=aws_region)
     logger.info("AWS Textract client initialized for region: %s", aws_region)
