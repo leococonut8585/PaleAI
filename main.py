@@ -2045,7 +2045,8 @@ async def run_balance_mode_flow(
             f"これまでのAIによる議論（特にCohereが作成した改善案とClaudeによるレビュー）を踏まえ、さらに回答の質を高めるために、以下の点について最新かつ信頼性の高い情報をウェブから収集し、簡潔にまとめてください。\n"
             f"Claudeのレビューで指摘された情報不足の点: 「{step2_res.response[:200].strip()}...」 (レビューの関連部分)\n"
             f"Cohereの改善案: 「{step3_res.response[:200].strip()}...」 (改善案の関連部分)\n"
-            f"これらの内容を補強し、事実誤認がないか確認するために必要な情報を調査し、結果と情報源のURL（もしあれば）を提示してください。"
+            f"これらの内容を補強し、事実誤認がないか確認するために必要な情報を調査し、結果と情報源のURL（もしあれば）を提示してください。\n"
+            f"特に {current_date} 時点での最新ニュース・トレンドを優先して調べてください。"
         )
         step4_res = await get_perplexity_response(
             prompt_for_perplexity=step4_prompt_for_perplexity,
@@ -2063,6 +2064,30 @@ async def run_balance_mode_flow(
         else: # error もなく response も None (または空) の場合
             step4_res.response = "" # Noneなら空文字に
             logger.info("Perplexity AIから応答がありませんでした（エラーもなし）。")
+
+        # 既存レビューに依存しすぎない独自検索
+        additional_prompt = (
+            f"本日は {current_date} です。ユーザーの質問『{original_prompt}』について、"
+            f"最新ニュースやトレンドを中心に調査し、信頼できる情報源を簡潔にまとめてください。"
+        )
+        additional_res = await get_perplexity_response(
+            prompt_for_perplexity=additional_prompt,
+            model="sonar-reasoning-pro",
+        )
+        if additional_res.response:
+            logger.info(
+                f"Perplexity AI 追加検索結果 (冒頭): {additional_res.response[:100].strip()}..."
+            )
+            combined = step4_res.response.strip() if step4_res.response else ""
+            if combined:
+                combined += "\n\n--- 独自の最新情報 ---\n" + additional_res.response.strip()
+            else:
+                combined = additional_res.response.strip()
+            step4_res.response = combined
+            if additional_res.links:
+                step4_res.links = (step4_res.links or []) + additional_res.links
+        elif additional_res.error:
+            logger.info(f"Perplexity AI 追加検索エラー: {additional_res.error}")
 
 
         # ステップ5: Gemini - 「第1最終回答」の統合・編集
