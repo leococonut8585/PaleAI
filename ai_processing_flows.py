@@ -82,8 +82,9 @@ async def run_quality_chat_mode_flow(
     )
 
     messages = []
+    system_prompt = ""
     if initial_user_prompt_for_session:
-        messages.append({"role": "system", "content": initial_user_prompt_for_session})
+        system_prompt = initial_user_prompt_for_session
 
     summary_prompt = (
         "以下の情報をもとに、魅力的で構成の整った日本語の文章にしてください。\n"
@@ -98,6 +99,8 @@ async def run_quality_chat_mode_flow(
             model="claude-opus-4-20250514",
             messages=messages,
             temperature=0.6,
+            max_tokens=4000,
+            system=system_prompt,
         )
         text = ""
         if res and hasattr(res, "content") and isinstance(res.content, list):
