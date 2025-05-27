@@ -22,7 +22,8 @@ async def run_quality_chat_mode_flow(
 
     if not perplexity_client:
         response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-            source="Perplexity (pplx-70b-online)", error="Perplexity client not initialized."
+            source="Perplexity (sonar-reasoning-pro)",
+            error="Perplexity client not initialized."
         )
         return response_shell
     if not claude_client:
@@ -39,7 +40,7 @@ async def run_quality_chat_mode_flow(
 
     def query_perplexity(client, prompt):
         try:
-            client.model = "pplx-70b-online"
+            client.model = "sonar-reasoning-pro"
             return client.query(prompt)
         except Exception as exc:
             return f"Perplexity error: {exc}"
@@ -58,7 +59,7 @@ async def run_quality_chat_mode_flow(
             result_text += "\n" + extra
 
     response_shell.step4_comprehensive_answer_perplexity = schemas.IndividualAIResponse(
-        source="Perplexity (pplx-70b-online)", response=result_text
+        source="Perplexity (sonar-reasoning-pro)", response=result_text
     )
 
     messages = []
@@ -115,7 +116,7 @@ async def run_deep_search_flow(
 
     def query_perplexity(client, prompt):
         try:
-            client.model = "pplx-70b-online"
+            client.model = "sonar-reasoning-pro"
             return client.query(prompt)
         except Exception as exc:  # pragma: no cover - depends on external API
             return f"Perplexity error: {exc}"

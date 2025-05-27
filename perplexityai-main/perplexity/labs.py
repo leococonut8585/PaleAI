@@ -98,7 +98,7 @@ class Labs:
             "pplx-7b-chat",
             "pplx-70b-chat",
             "pplx-7b-online",
-            "pplx-70b-online"
+            "sonar-reasoning-pro"
         ]
         self.finished = False
         self.history.append({"role": "user", "content": prompt, "priority": 0})

@@ -9,7 +9,7 @@ from asyncio import run, ensure_future, gather, sleep
 
 MODELS = [
     "pplx-7b-online",
-    "pplx-70b-online"
+    "sonar-reasoning-pro",
     "pplx-7b-chat",
     "pplx-70b-chat",
     "mistral-7b-instruct",
