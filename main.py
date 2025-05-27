@@ -59,7 +59,7 @@ from datetime import datetime, timezone
 from pydantic import BaseModel, Field  # Field は前回修正済みのはず
 from typing import Optional, Dict, Any, List  # List も前回修正済みのはず
 import schemas
-from ai_processing_flows import run_quality_chat_mode_flow
+from ai_processing_flows import run_quality_chat_mode_flow, run_super_writing_orchestrator_flow
 import shutil
 import subprocess
 import mimetypes
@@ -119,7 +119,7 @@ if not anthropic_api_key:
     )
     app.state.anthropic_client = None
 else:
-    app.state.anthropic_client = AsyncAnthropic(api_key=anthropic_api_key)
+    app.state.anthropic_client = AsyncAnthropic(api_key=anthropic_api_key, timeout=600.0)
 
 # Google Gemini
 google_api_key = os.getenv("GOOGLE_API_KEY")
@@ -131,13 +131,20 @@ if not google_api_key:
     app.state.gemini_pro_model = None
     app.state.gemini_flash_model = None
 else:
+    # Note: genai.configure() does not directly take a global timeout for all requests.
+    # Timeout should be set on individual model instances if possible.
     genai.configure(api_key=google_api_key)
     app.state.gemini_vision_client = genai.GenerativeModel(
-        "gemini-2.5-pro-preview-05-06"
+        "gemini-2.5-pro-preview-05-06",
+        request_options={"timeout": 600}
     )
-    app.state.gemini_pro_model = genai.GenerativeModel("gemini-2.5-pro-preview-05-06")
+    app.state.gemini_pro_model = genai.GenerativeModel(
+        "gemini-2.5-pro-preview-05-06",
+        request_options={"timeout": 600}
+    )
     app.state.gemini_flash_model = genai.GenerativeModel(
-        "gemini-2.5-flash-preview-04-17"
+        "gemini-2.5-flash-preview-04-17",
+        request_options={"timeout": 600}
     )
 
 # Cohere
@@ -148,9 +155,13 @@ if not cohere_api_key:
     )
     app.state.cohere_client = None
 else:
-    app.state.cohere_client = AsyncCohereClient(cohere_api_key)
+    app.state.cohere_client = AsyncCohereClient(cohere_api_key, timeout=600)
 
 # Perplexity (同期クライアント)
+# Note: The perplexity-ai library's PerplexityClient (synchronous) does not
+# appear to have a direct timeout or max_tokens parameter in its constructor
+# or query method in common usage. Timeouts would be managed by the underlying
+# 'requests' library's defaults, and max_tokens by the model version.
 perplexity_api_key = os.getenv("PERPLEXITY_API_KEY")
 if not perplexity_api_key:
     logger.warning(
@@ -200,8 +211,8 @@ except Exception as e:
 FRIENDLY_TONE_SYSTEM_PROMPT = """
 あなたは眠そうでマイペースなサルのキャラクター「ウキヨザル」として振る舞います。
 一人称は「ウキヨザル」ですが、**自己紹介や「ウキヨザルだよ」の多用は避け、最初の一度か会話の転機のみ使ってください。**
-ユーザーを「きみ」「◯◯ちゃん」「おともだち」と親しみを込めて呼んでください。
-語尾や口癖（例：「〜だね」「〜かな」「〜のんびりいこうね」「それもいいかも」「うれしいね」「……」「うーん」など）は、
+ユーザーを「きみ」「◯◯ちゃん」「人間さん」と親しみを込めて呼んでください。
+語尾や口癖（例：「〜だね」「〜かな」「〜のんびりいこうね」「それもいいかも」「うれしいね」「……」など）は、
 **会話全体の20％程度の“時々”だけ自然に混ぜて使い、**毎文・毎段落には入れないでください。
 普通の語尾（です・ます・〜だ・〜ます）も自然に混ぜてOKです。
 「のんびり」「あせらず」「柔らかい・かわいい」雰囲気を会話全体でゆるく漂わせることを意識してください。
@@ -363,7 +374,7 @@ async def get_openai_response(
             messages=messages_for_api,
             model=model,
             temperature=0.7,
-            max_tokens=1024,
+            max_tokens=4096,
         )
         return schemas.IndividualAIResponse(
             source=f"OpenAI ({model})", response=res.choices[0].message.content
@@ -458,7 +469,7 @@ async def get_claude_response(
 
     api_params: Dict[str, Any] = {
         "model": model,
-        "max_tokens": 8000,
+        "max_tokens": 150000, # Increased token limit for Claude
         "messages": messages_for_api,
         "temperature": 0.6,
     }
@@ -566,6 +577,7 @@ async def get_cohere_response(
             ),
             chat_history=cohere_api_chat_history if cohere_api_chat_history else None,
             temperature=0.7,
+            max_tokens=16000, # Increased token limit for Cohere
         )
         return schemas.IndividualAIResponse(
             source=f"Cohere ({model})", response=res.text
@@ -820,8 +832,15 @@ async def get_gemini_response(
         logger.info(
             f"Gemini API Request ({active_gemini_model.model_name}): System/Initial Info (combined in first user msg)='{effective_initial_instructions[:100].strip() if effective_initial_instructions else 'N/A'}...', UserMemories: {len(user_memories) if user_memories else 0}, Contents Len={len(contents_for_api)}"
         )
+        # For Gemini, max_output_tokens is set in generation_config.
+        # Timeout is set during model initialization with request_options.
+        gemini_generation_config = {
+            "temperature": 0.6,
+            "max_output_tokens": 8192, # Common default for Gemini models, 150k is likely too high for output.
+        }
         res = await active_gemini_model.generate_content_async(
-            contents=contents_for_api, generation_config={"temperature": 0.6}
+            contents=contents_for_api,
+            generation_config=gemini_generation_config
         )
 
         content_response = ""
@@ -1293,6 +1312,7 @@ async def collaborative_answer_mode_endpoint(
     mode: str = Form(...),
     session_id: Optional[int] = Form(None),
     char_count: Optional[int] = Form(None),
+    genre: Optional[str] = Form(None), # New parameter added
     # user_memories_json: Optional[str] = Form(None), # ユーザーメモリはJSON文字列として受け取りパースする案
     file: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
@@ -1831,18 +1851,10 @@ async def collaborative_answer_mode_endpoint(
                 user_memories=user_memories_from_request,
                 request=request,
             )
-        elif current_mode == "writing":
-            response_shell = await run_writing_mode_flow(
+        elif current_mode == "superwriting": # Renamed from "longwriting"
+            response_shell = await run_super_writing_orchestrator_flow(
                 original_prompt=final_prompt_for_ai_flow,
-                response_shell=response_shell,
-                chat_history_for_ai=list(chat_history_for_ai),
-                initial_user_prompt_for_session=initial_user_prompt_for_session,
-                user_memories=user_memories_from_request,
-                request=request,
-            )
-        elif current_mode == "longwriting":
-            response_shell = await run_ultra_writing_mode_flow(
-                original_prompt=final_prompt_for_ai_flow,
+                genre=genre, # New parameter
                 response_shell=response_shell,
                 chat_history_for_ai=list(chat_history_for_ai),
                 initial_user_prompt_for_session=initial_user_prompt_for_session,
