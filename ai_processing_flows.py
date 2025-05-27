@@ -22,12 +22,12 @@ async def run_quality_chat_mode_flow(
 
     if not perplexity_client:
         response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-            source="Perplexity (sonar-pro)", error="Perplexity client not initialized."
+            source="Perplexity (pplx-70b-online)", error="Perplexity client not initialized."
         )
         return response_shell
     if not claude_client:
         response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-            source="Claude (claude-3-opus-20240229)", error="Claude client not initialized."
+            source="Claude (claude-opus-4-20250514)", error="Claude client not initialized."
         )
         return response_shell
 
@@ -39,7 +39,7 @@ async def run_quality_chat_mode_flow(
 
     def query_perplexity(client, prompt):
         try:
-            client.model = "sonar-pro"
+            client.model = "pplx-70b-online"
             return client.query(prompt)
         except Exception as exc:
             return f"Perplexity error: {exc}"
@@ -58,7 +58,7 @@ async def run_quality_chat_mode_flow(
             result_text += "\n" + extra
 
     response_shell.step4_comprehensive_answer_perplexity = schemas.IndividualAIResponse(
-        source="Perplexity (sonar-pro)", response=result_text
+        source="Perplexity (pplx-70b-online)", response=result_text
     )
 
     messages = []
@@ -73,7 +73,7 @@ async def run_quality_chat_mode_flow(
 
     try:
         res = await claude_client.messages.create(
-            model="claude-3-opus-20240229",
+            model="claude-opus-4-20250514",
             messages=messages,
             temperature=0.6,
         )
@@ -88,11 +88,11 @@ async def run_quality_chat_mode_flow(
             text = str(res)
 
         response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-            source="Claude (claude-3-opus-20240229)", response=text
+            source="Claude (claude-opus-4-20250514)", response=text
         )
     except Exception as e:  # pragma: no cover - network errors not testable
         response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-            source="Claude (claude-3-opus-20240229)", error=str(e)
+            source="Claude (claude-opus-4-20250514)", error=str(e)
         )
 
     return response_shell
@@ -115,7 +115,7 @@ async def run_deep_search_flow(
 
     def query_perplexity(client, prompt):
         try:
-            client.model = "sonar-pro"
+            client.model = "pplx-70b-online"
             return client.query(prompt)
         except Exception as exc:  # pragma: no cover - depends on external API
             return f"Perplexity error: {exc}"
