@@ -1134,7 +1134,7 @@ function displayMessage(content, role, aiModelName = null, messageId = null, sea
         characterImage.alt = 'User';
         speechBubbleCard.classList.add('user-bubble');
     } else if (role === 'ai') {
-        characterImage.src = '/static/pic/Ukiyozaru.png'; // この画像は 404 になっているので後で確認
+        characterImage.src = '/static/pic/Ukiyozaru.png'; // 正しく表示されるよう画像を更新済み
         characterImage.alt = 'AI';
         speechBubbleCard.classList.add('ai-bubble');
         if (aiModelName) {
