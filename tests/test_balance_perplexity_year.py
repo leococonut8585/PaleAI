@@ -1,4 +1,3 @@
-import os
 import pytest
 from datetime import datetime
 from starlette.requests import Request
@@ -6,30 +5,36 @@ from starlette.requests import Request
 import main
 from main import schemas
 
+class DummyPerplexity:
+    def __init__(self, responses=None):
+        self.model = None
+        self.queries = []
+        self.responses = responses or ["x" * 1100]
+        self.call_count = 0
+    def query(self, prompt):
+        self.queries.append(prompt)
+        resp = self.responses[min(self.call_count, len(self.responses)-1)]
+        self.call_count += 1
+        return resp
+
+class DummyClaudeMessages:
+    def __init__(self):
+        self.calls = []
+    async def create(self, **kwargs):
+        self.calls.append(kwargs)
+        return type("Res", (), {"content": [type("Block", (), {"text": "summary"})()]})
+
+class DummyClaudeClient:
+    def __init__(self):
+        self.messages = DummyClaudeMessages()
 
 @pytest.mark.asyncio
-async def test_balance_mode_perplexity_year(monkeypatch):
-    os.environ.setdefault("PERPLEXITY_API_KEY", "dummy")
+def test_balance_mode_perplexity_year():
+    app = type("App", (), {"state": type("State", (), {})()})()
+    app.state.perplexity_sync_client = DummyPerplexity([f"info {datetime.utcnow().year}"])
+    app.state.anthropic_client = DummyClaudeClient()
 
-    async def dummy_openai_response(*args, **kwargs):
-        return schemas.IndividualAIResponse(source="OpenAI", response="openai prompt")
-
-    async def dummy_claude_response(*args, **kwargs):
-        return schemas.IndividualAIResponse(source="Claude", response="claude final")
-
-    async def dummy_gemini_response(*args, **kwargs):
-        return schemas.IndividualAIResponse(source="Gemini", response="gemini draft")
-
-    async def dummy_perplexity_response(*args, **kwargs):
-        year = datetime.utcnow().year
-        return schemas.IndividualAIResponse(source="Perplexity", response=f"info {year}")
-
-    monkeypatch.setattr(main, "get_openai_response", dummy_openai_response)
-    monkeypatch.setattr(main, "get_claude_response", dummy_claude_response)
-    monkeypatch.setattr(main, "get_gemini_response", dummy_gemini_response)
-    monkeypatch.setattr(main, "get_perplexity_response", dummy_perplexity_response)
-
-    req = Request({"type": "http"})
+    req = Request({"type": "http", "app": app})
     shell = schemas.CollaborativeResponseV2(prompt="q")
 
     res = await main.run_balance_mode_flow(
@@ -41,41 +46,20 @@ async def test_balance_mode_perplexity_year(monkeypatch):
         user_memories=None,
     )
 
-    current_year = str(datetime.utcnow().year)
-    assert current_year in res.step4_comprehensive_answer_perplexity.response
-
+    query = app.state.perplexity_sync_client.queries[0]
+    assert datetime.utcnow().strftime("%Y-%m-%d") in query
+    assert f"{datetime.utcnow().year}" in res.step4_comprehensive_answer_perplexity.response
+    assert res.step7_final_answer_v2_openai.response == "summary"
 
 @pytest.mark.asyncio
-async def test_balance_mode_perplexity_retry(monkeypatch):
-    os.environ.setdefault("PERPLEXITY_API_KEY", "dummy")
+def test_balance_mode_perplexity_retry():
+    short = "short"
+    long_resp = "x" * 1200
+    app = type("App", (), {"state": type("State", (), {})()})()
+    app.state.perplexity_sync_client = DummyPerplexity([short, long_resp])
+    app.state.anthropic_client = DummyClaudeClient()
 
-    async def dummy_openai_response(*args, **kwargs):
-        return schemas.IndividualAIResponse(source="OpenAI", response="openai prompt")
-
-    async def dummy_claude_response(*args, **kwargs):
-        return schemas.IndividualAIResponse(source="Claude", response="claude final")
-
-    async def dummy_gemini_response(*args, **kwargs):
-        return schemas.IndividualAIResponse(source="Gemini", response="gemini draft")
-
-    call_log = {"count": 0}
-
-    async def dummy_perplexity_response(prompt_for_perplexity: str, *args, **kwargs):
-        call_log["count"] += 1
-        if call_log["count"] == 1:
-            year = datetime.utcnow().year - 5
-        elif "最新" in prompt_for_perplexity:
-            year = datetime.utcnow().year
-        else:
-            year = datetime.utcnow().year
-        return schemas.IndividualAIResponse(source="Perplexity", response=f"info {year}")
-
-    monkeypatch.setattr(main, "get_openai_response", dummy_openai_response)
-    monkeypatch.setattr(main, "get_claude_response", dummy_claude_response)
-    monkeypatch.setattr(main, "get_gemini_response", dummy_gemini_response)
-    monkeypatch.setattr(main, "get_perplexity_response", dummy_perplexity_response)
-
-    req = Request({"type": "http"})
+    req = Request({"type": "http", "app": app})
     shell = schemas.CollaborativeResponseV2(prompt="q")
 
     res = await main.run_balance_mode_flow(
@@ -87,6 +71,6 @@ async def test_balance_mode_perplexity_retry(monkeypatch):
         user_memories=None,
     )
 
-    current_year = str(datetime.utcnow().year)
-    assert call_log["count"] == 2
-    assert current_year in res.step4_comprehensive_answer_perplexity.response
+    assert app.state.perplexity_sync_client.call_count == 2
+    assert len(res.step4_comprehensive_answer_perplexity.response) >= len(long_resp)
+    assert res.step7_final_answer_v2_openai.response == "summary"

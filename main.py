@@ -38,6 +38,7 @@ from datetime import datetime, timezone
 from pydantic import BaseModel, Field  # Field は前回修正済みのはず
 from typing import Optional, Dict, Any, List  # List も前回修正済みのはず
 import schemas
+from ai_processing_flows import run_quality_chat_mode_flow
 import shutil
 import subprocess
 import mimetypes
@@ -1919,7 +1920,6 @@ async def run_super_search_mode_flow(
 # --- 各モード実行フロー関数 ---
 # ↓↓↓ 変更点: 各モード実行フロー関数に chat_history_for_ai 引数を追加 ↓↓↓
 # main.py の run_balance_mode_flow 関数の修正
-
 async def run_balance_mode_flow(
     original_prompt: str,
     response_shell: schemas.CollaborativeResponseV2,
@@ -1928,127 +1928,21 @@ async def run_balance_mode_flow(
     request: Request,
     user_memories: Optional[List[schemas.UserMemoryResponse]] = None,
 ) -> schemas.CollaborativeResponseV2:
-    """High quality chat mode flow."""
-
-    logger.info("\n--- ハイクオリティモード開始 ---")
-
-    current_chat_history_for_this_turn = list(chat_history_for_ai)
-    current_chat_history_for_this_turn.append({"role": "user", "content": original_prompt})
-    logger.info(
-        f"Balance Mode: このターンでAIに渡す完全な履歴は {len(current_chat_history_for_this_turn)} 件"
+    """High quality chat mode flow (Perplexity -> Claude)."""
+    logger.info("\n--- ハイクオリティモード開始 (簡易) ---")
+    res = await run_quality_chat_mode_flow(
+        original_prompt=original_prompt,
+        response_shell=response_shell,
+        chat_history_for_ai=chat_history_for_ai,
+        initial_user_prompt_for_session=initial_user_prompt_for_session,
+        user_memories=user_memories,
+        request=request,
     )
+    logger.info("--- ハイクオリティモード終了 ---")
+    logger.info(f"run_balance_mode_flow が返却する response_shell の内容 (JSON): {res.model_dump_json(indent=2) if res else None}")
+    return res
 
-    step1_res = schemas.IndividualAIResponse(source="Perplexity (Initial Search)", error="未実行")
-    step2_res = schemas.IndividualAIResponse(source="Gemini (Draft)", error="未実行")
-    step3_res = schemas.IndividualAIResponse(source="GPT-4o (Prompt)", error="未実行")
-    step4_res = schemas.IndividualAIResponse(source="Perplexity (Follow-up)", error="未実行")
-    step5_res = schemas.IndividualAIResponse(source="Claude (Final Answer)", error="未実行")
 
-    try:
-        current_date = datetime.utcnow().strftime("%Y-%m-%d")
-
-        logger.info("ステップ1: Perplexityによる最新情報検索中...")
-        step1_prompt = f"{current_date} 時点の最新情報を調べてください。質問: {original_prompt}"
-        step1_res = await get_perplexity_response(
-            prompt_for_perplexity=step1_prompt,
-            model="sonar-reasoning-pro",
-            user_memories=user_memories,
-            initial_user_prompt=initial_user_prompt_for_session,
-        )
-        response_shell.step1_initial_draft_openai = step1_res
-        if step1_res.error or not step1_res.response:
-            raise ValueError(
-                f"Balance Mode - Step1 (Perplexity) 失敗: {step1_res.error or '応答なし'}"
-            )
-
-        logger.info("ステップ2: Geminiによる一次回答作成中...")
-        step2_system = "収集した情報を整理し、ユーザーの質問への一次回答を作成してください。"
-        step2_prompt = f"ユーザー質問: {original_prompt}\n\n集めた情報:\n{step1_res.response}"
-        step2_res = await get_gemini_response(
-            request=request,
-            prompt_text=step2_prompt,
-            system_instruction=step2_system,
-            model_name="gemini-2.5-pro-preview-05-06",
-            chat_history=list(current_chat_history_for_this_turn),
-            initial_user_prompt=initial_user_prompt_for_session,
-            user_memories=user_memories,
-        )
-        response_shell.step2_review_claude = step2_res
-        if step2_res.error or not step2_res.response:
-            raise ValueError(
-                f"Balance Mode - Step2 (Gemini要約) 失敗: {step2_res.error or '応答なし'}"
-            )
-
-        logger.info("ステップ3: GPT-4oによる追加情報クエリ生成中...")
-        step3_system = "不足情報を補うための最適なPerplexity検索プロンプトを日本語で作成してください。"
-        step3_prompt = f"ユーザー質問: {original_prompt}\n\n一次回答:\n{step2_res.response}"
-        step3_res = await get_openai_response(
-            prompt_text=step3_prompt,
-            system_role_description=step3_system,
-            model="gpt-4o",
-            chat_history=list(current_chat_history_for_this_turn),
-            initial_user_prompt=initial_user_prompt_for_session,
-            user_memories=user_memories,
-        )
-        response_shell.step3_improved_draft_cohere = step3_res
-        if step3_res.error or not step3_res.response:
-            raise ValueError(
-                f"Balance Mode - Step3 (GPT-4oプロンプト生成) 失敗: {step3_res.error or '応答なし'}"
-            )
-
-        logger.info("ステップ4: Perplexityによる追加検索中...")
-        current_date = datetime.utcnow().strftime("%Y-%m-%d")
-        step4_prompt = f"{current_date} 時点の最新情報も踏まえて検索してください。{step3_res.response}"
-        step4_res = await get_perplexity_response(
-            prompt_for_perplexity=step4_prompt,
-            model="sonar-reasoning-pro",
-            user_memories=user_memories,
-            initial_user_prompt=initial_user_prompt_for_session,
-        )
-        response_shell.step4_comprehensive_answer_perplexity = step4_res
-        if step4_res.error or not step4_res.response:
-            raise ValueError(
-                f"Balance Mode - Step4 (Perplexity追加検索) 失敗: {step4_res.error or '応答なし'}"
-            )
-
-        logger.info("ステップ5: Claudeによる最終回答生成中...")
-        step5_system = (
-            FRIENDLY_TONE_SYSTEM_PROMPT
-            + "\nあなたは複数の情報を統合し、魅力的な文章を作成する編集者です。"
-            + "\n回答はできるだけ幅広く深掘りし、4〜5段落以上の十分な長さで詳しくまとめてください。"
-        )
-        step5_prompt = (
-            f"ユーザー質問: {original_prompt}\n\n一次回答:\n{step2_res.response}\n\n追加情報:\n{step4_res.response}\n\nこれらをもとに日本語で魅力的に回答してください。"
-        )
-        step5_res = await get_claude_response(
-            prompt_text=step5_prompt,
-            system_instruction=step5_system,
-            model="claude-opus-4-20250514",
-            chat_history=list(current_chat_history_for_this_turn),
-            initial_user_prompt=initial_user_prompt_for_session,
-        )
-        response_shell.step5_final_answer_gemini = step5_res
-        response_shell.step7_final_answer_v2_openai = step5_res
-        if step5_res.error or not step5_res.response:
-            raise ValueError(
-                f"Balance Mode - Step5 (Claude最終回答) 失敗: {step5_res.error or '応答なし'}"
-            )
-
-        logger.info("--- ハイクオリティモード終了 ---")
-
-    except ValueError as e:
-        error_message = f"バランスモードの処理中にエラーが発生しました: {str(e)}"
-        logger.info(error_message)
-        response_shell.overall_error = error_message
-        if not response_shell.step7_final_answer_v2_openai:
-            response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-                source="Balance Mode Error", error=str(e)
-            )
-
-    logger.info(
-        f"run_balance_mode_flow が返却する response_shell の内容 (JSON): {response_shell.model_dump_json(indent=2) if response_shell else 'None'}"
-    )
-    return response_shell
 
 import re
 
