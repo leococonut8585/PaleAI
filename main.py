@@ -1997,8 +1997,10 @@ async def run_balance_mode_flow(
             )
 
         logger.info("ステップ4: Perplexityによる追加検索中...")
+        current_date = datetime.utcnow().strftime("%Y-%m-%d")
+        step4_prompt = f"{current_date} 時点の最新情報も踏まえて検索してください。{step3_res.response}"
         step4_res = await get_perplexity_response(
-            prompt_for_perplexity=step3_res.response,
+            prompt_for_perplexity=step4_prompt,
             model="sonar-reasoning-pro",
             user_memories=user_memories,
             initial_user_prompt=initial_user_prompt_for_session,
@@ -2010,7 +2012,11 @@ async def run_balance_mode_flow(
             )
 
         logger.info("ステップ5: Claudeによる最終回答生成中...")
-        step5_system = FRIENDLY_TONE_SYSTEM_PROMPT + "\nあなたは複数の情報を統合し、魅力的な文章を作成する編集者です。"
+        step5_system = (
+            FRIENDLY_TONE_SYSTEM_PROMPT
+            + "\nあなたは複数の情報を統合し、魅力的な文章を作成する編集者です。"
+            + "\n回答はできるだけ幅広く深掘りし、4〜5段落以上の十分な長さで詳しくまとめてください。"
+        )
         step5_prompt = (
             f"ユーザー質問: {original_prompt}\n\n一次回答:\n{step2_res.response}\n\n追加情報:\n{step4_res.response}\n\nこれらをもとに日本語で魅力的に回答してください。"
         )
