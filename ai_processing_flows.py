@@ -23,12 +23,13 @@ async def run_quality_chat_mode_flow(
     if not perplexity_client:
         response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
             source="Perplexity (sonar-reasoning-pro)",
-            error="Perplexity client not initialized."
+            error="Perplexity client not initialized.",
         )
         return response_shell
     if not claude_client:
         response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-            source="Claude (claude-opus-4-20250514)", error="Claude client not initialized."
+            source="Claude (claude-opus-4-20250514)",
+            error="Claude client not initialized.",
         )
         return response_shell
 
@@ -51,7 +52,9 @@ async def run_quality_chat_mode_flow(
         except Exception as exc:
             return f"Perplexity error: {exc}"
 
-    result_text = await run_in_threadpool(query_perplexity, perplexity_client, search_prompt)
+    result_text = await run_in_threadpool(
+        query_perplexity, perplexity_client, search_prompt
+    )
     if not isinstance(result_text, str):
         result_text = str(result_text)
 
@@ -82,14 +85,14 @@ async def run_quality_chat_mode_flow(
     )
 
     messages = []
+    system_prompt = None
     if initial_user_prompt_for_session:
-        messages.append({"role": "system", "content": initial_user_prompt_for_session})
+        system_prompt = initial_user_prompt_for_session
 
     summary_prompt = (
         "以下の情報をもとに、魅力的で構成の整った日本語の文章にしてください。\n"
         "内容は削らず、むしろ必要に応じて補足しながら3000文字以上にしてください。\n"
-        "読み手の興味を引く導入と、自然な結論部分も含めてください。\n\n"
-        + result_text
+        "読み手の興味を引く導入と、自然な結論部分も含めてください。\n\n" + result_text
     )
     messages.append({"role": "user", "content": summary_prompt})
 
@@ -97,6 +100,8 @@ async def run_quality_chat_mode_flow(
         res = await claude_client.messages.create(
             model="claude-opus-4-20250514",
             messages=messages,
+            system=system_prompt,
+            max_tokens=4000,
             temperature=0.6,
             max_tokens=4000,
         )
@@ -143,7 +148,9 @@ async def run_deep_search_flow(
         except Exception as exc:  # pragma: no cover - depends on external API
             return f"Perplexity error: {exc}"
 
-    result_text = await run_in_threadpool(query_perplexity, perplexity_client, original_prompt)
+    result_text = await run_in_threadpool(
+        query_perplexity, perplexity_client, original_prompt
+    )
     response_shell.search_summary_text = str(result_text)
     return response_shell
 
