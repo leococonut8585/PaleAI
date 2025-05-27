@@ -1948,7 +1948,9 @@ async def run_balance_mode_flow(
     try:
         # ステップ1: OpenAI - 初期回答の草案生成
         logger.info("ステップ1: OpenAIによる初期回答生成中...")
+        current_date = datetime.utcnow().strftime("%Y-%m-%d")
         step1_system_prompt = (
+            f"本日は {current_date} です。最新の話題を示してください。"
             "あなたは、ユーザーからの質問とこれまでの会話の流れ、そして会話全体の主要な目的を深く理解し、"
             "まずは網羅的で客観的な情報に基づいた基本的な回答の草案を、序論・本論（複数の主要点）・結論の形式で構造化して作成するAIアシスタントです。"
         )
