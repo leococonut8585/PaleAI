@@ -1,15 +1,34 @@
-from fastapi import FastAPI, HTTPException, Depends, status, File, UploadFile, Form, Request
+from fastapi import (
+    FastAPI,
+    HTTPException,
+    Depends,
+    status,
+    File,
+    UploadFile,
+    Form,
+    Request,
+)
 from fastapi.staticfiles import StaticFiles
 import os
 import logging
 import models  # models.py 全体をインポート
 from routers import auth, users, chat, folders, upload, templates, images, video
 from routers import memory as memory_router
-from database import engine, Base, get_db # SessionLocal はここでは直接使わないので削除、get_db を追加
-from sqlalchemy.orm import Session # SQLAlchemyのSession型をインポート
-from sqlalchemy.sql import func # SQLAlchemyのSQL関数(例: func.now())をインポート
-from dependencies import get_current_active_user # 認証済みユーザー取得用の依存関係をインポート
-from models import User, ChatSession, ChatMessage # ChatSession, ChatMessageも明示的にインポート
+from database import (
+    engine,
+    Base,
+    get_db,
+)  # SessionLocal はここでは直接使わないので削除、get_db を追加
+from sqlalchemy.orm import Session  # SQLAlchemyのSession型をインポート
+from sqlalchemy.sql import func  # SQLAlchemyのSQL関数(例: func.now())をインポート
+from dependencies import (
+    get_current_active_user,
+)  # 認証済みユーザー取得用の依存関係をインポート
+from models import (
+    User,
+    ChatSession,
+    ChatMessage,
+)  # ChatSession, ChatMessageも明示的にインポート
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
 from utils.openai_client import openai_client
@@ -17,23 +36,25 @@ from utils.logging_config import configure_logging
 from anthropic import AsyncAnthropic
 import google.generativeai as genai
 from cohere import AsyncClient as AsyncCohereClient
-from perplexipy import PerplexityClient # 同期クライアントなので注意
+from perplexipy import PerplexityClient  # 同期クライアントなので注意
 import deepl
 import boto3
 from botocore.exceptions import NoCredentialsError, PartialCredentialsError
-from fastapi.concurrency import run_in_threadpool # 同期処理を非同期で実行するため
+from fastapi.concurrency import run_in_threadpool  # 同期処理を非同期で実行するため
 import base64
 import fitz  # PyMuPDF
 import uuid
 from fastapi.responses import FileResponse  # ファイルダウンロード用
 import aiofiles  # 非同期ファイル書き込み用
+
 # オフィス文書処理用ライブラリ
 from docx import Document as DocxDocument  # python-docx
 from openpyxl import load_workbook  # openpyxl
 from pptx import Presentation  # python-pptx
-import json # 今回の修正では直接使用していませんが、一般的に役立つため残します
-import asyncio # 今回の修正では直接使用していませんが、一般的に役立つため残します
+import json  # 今回の修正では直接使用していませんが、一般的に役立つため残します
+import asyncio  # 今回の修正では直接使用していませんが、一般的に役立つため残します
 from datetime import datetime, timezone
+
 # ... (他のimport) ...
 from pydantic import BaseModel, Field  # Field は前回修正済みのはず
 from typing import Optional, Dict, Any, List  # List も前回修正済みのはず
@@ -44,6 +65,7 @@ import subprocess
 import mimetypes
 import traceback
 from io import BytesIO
+
 load_dotenv()
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -92,7 +114,9 @@ app.state.openai_client = openai_client
 # Anthropic
 anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
 if not anthropic_api_key:
-    logger.warning("警告: ANTHROPIC_API_KEY が設定されていません。Claude機能は利用できません。")
+    logger.warning(
+        "警告: ANTHROPIC_API_KEY が設定されていません。Claude機能は利用できません。"
+    )
     app.state.anthropic_client = None
 else:
     app.state.anthropic_client = AsyncAnthropic(api_key=anthropic_api_key)
@@ -100,20 +124,28 @@ else:
 # Google Gemini
 google_api_key = os.getenv("GOOGLE_API_KEY")
 if not google_api_key:
-    logger.warning("警告: GOOGLE_API_KEY が設定されていません。Gemini機能は利用できません。")
+    logger.warning(
+        "警告: GOOGLE_API_KEY が設定されていません。Gemini機能は利用できません。"
+    )
     app.state.gemini_vision_client = None
     app.state.gemini_pro_model = None
     app.state.gemini_flash_model = None
 else:
     genai.configure(api_key=google_api_key)
-    app.state.gemini_vision_client = genai.GenerativeModel('gemini-2.5-pro-preview-05-06')
-    app.state.gemini_pro_model = genai.GenerativeModel('gemini-2.5-pro-preview-05-06')
-    app.state.gemini_flash_model = genai.GenerativeModel('gemini-2.5-flash-preview-04-17')
+    app.state.gemini_vision_client = genai.GenerativeModel(
+        "gemini-2.5-pro-preview-05-06"
+    )
+    app.state.gemini_pro_model = genai.GenerativeModel("gemini-2.5-pro-preview-05-06")
+    app.state.gemini_flash_model = genai.GenerativeModel(
+        "gemini-2.5-flash-preview-04-17"
+    )
 
 # Cohere
 cohere_api_key = os.getenv("COHERE_API_KEY")
 if not cohere_api_key:
-    logger.warning("警告: COHERE_API_KEY が設定されていません。Cohere機能は利用できません。")
+    logger.warning(
+        "警告: COHERE_API_KEY が設定されていません。Cohere機能は利用できません。"
+    )
     app.state.cohere_client = None
 else:
     app.state.cohere_client = AsyncCohereClient(cohere_api_key)
@@ -121,7 +153,9 @@ else:
 # Perplexity (同期クライアント)
 perplexity_api_key = os.getenv("PERPLEXITY_API_KEY")
 if not perplexity_api_key:
-    logger.warning("警告: PERPLEXITY_API_KEY が設定されていません。Perplexity機能は利用できません。")
+    logger.warning(
+        "警告: PERPLEXITY_API_KEY が設定されていません。Perplexity機能は利用できません。"
+    )
     app.state.perplexity_sync_client = None
 else:
     app.state.perplexity_sync_client = PerplexityClient(perplexity_api_key)
@@ -129,7 +163,9 @@ else:
 # DeepL
 deepl_api_key = os.getenv("DEEPL_API_KEY")
 if not deepl_api_key:
-    logger.warning("警告: DEEPL_API_KEY が設定されていません。翻訳機能は利用できません。")
+    logger.warning(
+        "警告: DEEPL_API_KEY が設定されていません。翻訳機能は利用できません。"
+    )
     app.state.deepl_translator = None
 else:
     app.state.deepl_translator = deepl.Translator(deepl_api_key)
@@ -137,15 +173,22 @@ else:
 # AWS Textract
 # about this app.txt では `AWS_DEFAULT_REGION` を使用すると記載されているため、
 # 互換性のためにまず AWS_DEFAULT_REGION を参照し、次に AWS_REGION を見る。
-aws_region = os.getenv("AWS_DEFAULT_REGION") or os.getenv("AWS_REGION", "ap-northeast-1")
+aws_region = os.getenv("AWS_DEFAULT_REGION") or os.getenv(
+    "AWS_REGION", "ap-northeast-1"
+)
 try:
     app.state.textract_client = boto3.client("textract", region_name=aws_region)
     logger.info("AWS Textract client initialized for region: %s", aws_region)
 except (NoCredentialsError, PartialCredentialsError) as e:
-    logger.warning("警告: AWS認証情報が見つからないか不完全です。Textract機能は利用できません。エラー: %s", e)
+    logger.warning(
+        "警告: AWS認証情報が見つからないか不完全です。Textract機能は利用できません。エラー: %s",
+        e,
+    )
     app.state.textract_client = None
 except Exception as e:
-    logger.warning("警告: AWS Textractクライアントの初期化に失敗しました。エラー: %s", e)
+    logger.warning(
+        "警告: AWS Textractクライアントの初期化に失敗しました。エラー: %s", e
+    )
     app.state.textract_client = None
 
 # --- 口調指定用システムプロンプト ---
@@ -167,6 +210,7 @@ FRIENDLY_TONE_SYSTEM_PROMPT = """
 キャラクター表現が会話や回答の邪魔にならないよう、内容・説明が最優先です。ウキヨザルらしさはほんのり香る程度で十分です。
 """
 
+
 def format_memories_for_prompt(
     memories: Optional[List[schemas.UserMemoryResponse]],
     max_length: int = 2000,
@@ -179,7 +223,11 @@ def format_memories_for_prompt(
             memories,
             key=lambda m: (
                 m.priority,
-                m.updated_at if m.updated_at else datetime.min.replace(tzinfo=timezone.utc),
+                (
+                    m.updated_at
+                    if m.updated_at
+                    else datetime.min.replace(tzinfo=timezone.utc)
+                ),
             ),
             reverse=True,
         )
@@ -219,6 +267,7 @@ def format_memories_for_prompt(
     combined_memories = "\n".join(formatted_memories_parts)
     return f"{memory_fixed_prompt.strip()}\n{combined_memories}"
 
+
 # --- 各AIへの問い合わせヘルパー関数 ---
 # main.py の get_openai_response 関数
 # --- 各AIへの問い合わせヘルパー関数 ---
@@ -231,22 +280,32 @@ async def get_openai_response(
     model: str = "gpt-4o",
     chat_history: Optional[List[Dict[str, str]]] = None,
     initial_user_prompt: Optional[str] = None,
-    user_memories: Optional[List[schemas.UserMemoryResponse]] = None
+    user_memories: Optional[List[schemas.UserMemoryResponse]] = None,
 ) -> schemas.IndividualAIResponse:
     if not app.state.openai_client:
-        return schemas.IndividualAIResponse(source=f"OpenAI ({model})", error="OpenAIクライアントが初期化されていません。")
+        return schemas.IndividualAIResponse(
+            source=f"OpenAI ({model})",
+            error="OpenAIクライアントが初期化されていません。",
+        )
 
     messages_for_api: List[Dict[str, str]] = []
 
     formatted_memory_info = format_memories_for_prompt(user_memories)
 
     final_system_message_content = ""
-    is_search_formatting_step = system_role_description and "PALEAI_SEARCH_FORMATTING_TASK_MARKER" in system_role_description
+    is_search_formatting_step = (
+        system_role_description
+        and "PALEAI_SEARCH_FORMATTING_TASK_MARKER" in system_role_description
+    )
 
     if is_search_formatting_step:
-        final_system_message_content = system_role_description.replace("PALEAI_SEARCH_FORMATTING_TASK_MARKER", "").strip()
+        final_system_message_content = system_role_description.replace(
+            "PALEAI_SEARCH_FORMATTING_TASK_MARKER", ""
+        ).strip()
         if initial_user_prompt:
-            final_system_message_content += f"\n\n[参考] ユーザーの当初の質問の文脈: 「{initial_user_prompt}」"
+            final_system_message_content += (
+                f"\n\n[参考] ユーザーの当初の質問の文脈: 「{initial_user_prompt}」"
+            )
     else:
         final_system_message_content = FRIENDLY_TONE_SYSTEM_PROMPT
         if formatted_memory_info:
@@ -258,7 +317,9 @@ async def get_openai_response(
             final_system_message_content += f"{prefix}[重要] この会話全体の主要な目的は次の通りです: 「{initial_user_prompt}」\nこの目的を常に意識して回答してください。"
 
     if final_system_message_content.strip():
-        messages_for_api.append({"role": "system", "content": final_system_message_content.strip()})
+        messages_for_api.append(
+            {"role": "system", "content": final_system_message_content.strip()}
+        )
 
     if chat_history:
         for msg in chat_history:
@@ -271,7 +332,11 @@ async def get_openai_response(
 
     if prompt_text:
         add_current_prompt = True
-        if messages_for_api and messages_for_api[-1].get("role") == "user" and messages_for_api[-1].get("content") == prompt_text:
+        if (
+            messages_for_api
+            and messages_for_api[-1].get("role") == "user"
+            and messages_for_api[-1].get("content") == prompt_text
+        ):
             add_current_prompt = False
         if add_current_prompt:
             messages_for_api.append({"role": "user", "content": prompt_text})
@@ -285,7 +350,9 @@ async def get_openai_response(
                 f"History Len: {len(chat_history) if chat_history else 0}, Prompt: '{prompt_text}'"
             )
             logger.info(f"OpenAIデバッグ (致命的): {error_detail}")
-            return schemas.IndividualAIResponse(source=f"OpenAI ({model})", error=error_detail)
+            return schemas.IndividualAIResponse(
+                source=f"OpenAI ({model})", error=error_detail
+            )
 
     try:
         logger.info(
@@ -298,12 +365,18 @@ async def get_openai_response(
             temperature=0.7,
             max_tokens=1024,
         )
-        return schemas.IndividualAIResponse(source=f"OpenAI ({model})", response=res.choices[0].message.content)
+        return schemas.IndividualAIResponse(
+            source=f"OpenAI ({model})", response=res.choices[0].message.content
+        )
     except Exception as e:
         logger.info(f"OpenAI APIエラー ({model}): {e}")
         import traceback
+
         traceback.print_exc()
-        return schemas.IndividualAIResponse(source=f"OpenAI ({model})", error=f"API呼び出し中にエラー: {str(e)}")
+        return schemas.IndividualAIResponse(
+            source=f"OpenAI ({model})", error=f"API呼び出し中にエラー: {str(e)}"
+        )
+
 
 async def get_claude_response(
     prompt_text: str,
@@ -311,10 +384,13 @@ async def get_claude_response(
     model: str = "claude-opus-4-20250514",
     chat_history: Optional[List[Dict[str, str]]] = None,
     initial_user_prompt: Optional[str] = None,
-    user_memories: Optional[List[schemas.UserMemoryResponse]] = None
+    user_memories: Optional[List[schemas.UserMemoryResponse]] = None,
 ) -> schemas.IndividualAIResponse:
     if not app.state.anthropic_client:
-        return schemas.IndividualAIResponse(source=f"Claude ({model})", error="Anthropicクライアントが初期化されていません。")
+        return schemas.IndividualAIResponse(
+            source=f"Claude ({model})",
+            error="Anthropicクライアントが初期化されていません。",
+        )
 
     messages_for_api: List[Dict[str, str]] = []
     if chat_history:
@@ -328,31 +404,48 @@ async def get_claude_response(
 
     if prompt_text:
         add_current_prompt = True
-        if messages_for_api and messages_for_api[-1].get("role") == "user" and messages_for_api[-1].get("content") == prompt_text:
+        if (
+            messages_for_api
+            and messages_for_api[-1].get("role") == "user"
+            and messages_for_api[-1].get("content") == prompt_text
+        ):
             add_current_prompt = False
         if add_current_prompt:
             messages_for_api.append({"role": "user", "content": prompt_text})
 
     if not any(msg.get("role") == "user" for msg in messages_for_api):
         if prompt_text:
-             messages_for_api.append({"role": "user", "content": prompt_text})
+            messages_for_api.append({"role": "user", "content": prompt_text})
         else:
             error_detail = f"Claude APIリクエストに有効なユーザーメッセージが含まれていません。History: {chat_history is not None}, Prompt: '{prompt_text}'"
             logger.info(f"Claudeデバッグ (致命的): {error_detail}")
-            return schemas.IndividualAIResponse(source=f"Claude ({model})", error=error_detail)
+            return schemas.IndividualAIResponse(
+                source=f"Claude ({model})", error=error_detail
+            )
 
     if messages_for_api and messages_for_api[0].get("role") == "assistant":
-        logger.info("警告: Claude APIのメッセージリストがassistantから始まっています。先頭にダミーのユーザーメッセージを挿入します。")
-        messages_for_api.insert(0, {"role": "user", "content":"(会話の文脈を開始します)"})
+        logger.info(
+            "警告: Claude APIのメッセージリストがassistantから始まっています。先頭にダミーのユーザーメッセージを挿入します。"
+        )
+        messages_for_api.insert(
+            0, {"role": "user", "content": "(会話の文脈を開始します)"}
+        )
 
     formatted_memory_info = format_memories_for_prompt(user_memories)
     final_system_prompt_for_claude = ""
-    is_search_formatting_step_claude = system_instruction and "PALEAI_SEARCH_FORMATTING_TASK_MARKER" in system_instruction
+    is_search_formatting_step_claude = (
+        system_instruction
+        and "PALEAI_SEARCH_FORMATTING_TASK_MARKER" in system_instruction
+    )
 
     if is_search_formatting_step_claude:
-        final_system_prompt_for_claude = system_instruction.replace("PALEAI_SEARCH_FORMATTING_TASK_MARKER", "").strip()
+        final_system_prompt_for_claude = system_instruction.replace(
+            "PALEAI_SEARCH_FORMATTING_TASK_MARKER", ""
+        ).strip()
         if initial_user_prompt:
-             final_system_prompt_for_claude += f"\n\n[参考] ユーザーの当初の質問の文脈: 「{initial_user_prompt}」"
+            final_system_prompt_for_claude += (
+                f"\n\n[参考] ユーザーの当初の質問の文脈: 「{initial_user_prompt}」"
+            )
     else:
         final_system_prompt_for_claude = FRIENDLY_TONE_SYSTEM_PROMPT
         if formatted_memory_info:
@@ -367,54 +460,78 @@ async def get_claude_response(
         "model": model,
         "max_tokens": 4000,
         "messages": messages_for_api,
-        "temperature": 0.6
+        "temperature": 0.6,
     }
     if final_system_prompt_for_claude.strip():
         api_params["system"] = final_system_prompt_for_claude.strip()
 
     try:
-        logger.info(f"Claude API Request ({model}): System='{(api_params.get('system', 'N/A'))[:100].strip()}', UserMemories: {len(user_memories) if user_memories else 0}, Messages Count={len(messages_for_api)}")
+        logger.info(
+            f"Claude API Request ({model}): System='{(api_params.get('system', 'N/A'))[:100].strip()}', UserMemories: {len(user_memories) if user_memories else 0}, Messages Count={len(messages_for_api)}"
+        )
         res = await app.state.anthropic_client.messages.create(**api_params)
 
         response_text = ""
         if res.content and isinstance(res.content, list):
             for block in res.content:
-                if hasattr(block, 'text'):
+                if hasattr(block, "text"):
                     response_text += block.text
 
-        if not response_text.strip() and hasattr(res, 'stop_reason') and res.stop_reason is not None and res.stop_reason != "end_turn":
-             return schemas.IndividualAIResponse(source=f"Claude ({model})", error=f"APIエラーまたは予期しない停止理由。Stop Reason: {res.stop_reason}, Response Content: {res.content}")
+        if (
+            not response_text.strip()
+            and hasattr(res, "stop_reason")
+            and res.stop_reason is not None
+            and res.stop_reason != "end_turn"
+        ):
+            return schemas.IndividualAIResponse(
+                source=f"Claude ({model})",
+                error=f"APIエラーまたは予期しない停止理由。Stop Reason: {res.stop_reason}, Response Content: {res.content}",
+            )
 
-        return schemas.IndividualAIResponse(source=f"Claude ({model})", response=response_text if response_text.strip() else "AIからテキスト応答がありませんでした。")
+        return schemas.IndividualAIResponse(
+            source=f"Claude ({model})",
+            response=(
+                response_text
+                if response_text.strip()
+                else "AIからテキスト応答がありませんでした。"
+            ),
+        )
     except Exception as e:
         logger.info(f"Anthropic APIエラー ({model}): {e}")
         import traceback
+
         traceback.print_exc()
-        return schemas.IndividualAIResponse(source=f"Claude ({model})", error=f"API呼び出し中にエラー: {str(e)}")
+        return schemas.IndividualAIResponse(
+            source=f"Claude ({model})", error=f"API呼び出し中にエラー: {str(e)}"
+        )
+
 
 async def get_cohere_response(
     prompt_text: str,
-    preamble: Optional[str] = None, # タスク固有のプリアンブル
+    preamble: Optional[str] = None,  # タスク固有のプリアンブル
     model: str = "command-a-03-2025",
     chat_history: Optional[List[Dict[str, str]]] = None,
-    initial_user_prompt: Optional[str] = None, # 会話全体の目的
-    user_memories: Optional[List[schemas.UserMemoryResponse]] = None # ★ 追加
+    initial_user_prompt: Optional[str] = None,  # 会話全体の目的
+    user_memories: Optional[List[schemas.UserMemoryResponse]] = None,  # ★ 追加
 ) -> schemas.IndividualAIResponse:
     if not app.state.cohere_client:
-        return schemas.IndividualAIResponse(source=f"Cohere ({model})", error="Cohereクライアントが初期化されていません。")
+        return schemas.IndividualAIResponse(
+            source=f"Cohere ({model})",
+            error="Cohereクライアントが初期化されていません。",
+        )
 
     formatted_memory_info = format_memories_for_prompt(user_memories)
 
     # Preamble の構築順: キャラクター口調 -> メモリ -> タスク指示 -> 会話目的
-    final_preamble_for_cohere = FRIENDLY_TONE_SYSTEM_PROMPT # 1. キャラクター口調
+    final_preamble_for_cohere = FRIENDLY_TONE_SYSTEM_PROMPT  # 1. キャラクター口調
 
-    if formatted_memory_info: # 2. メモリ情報
+    if formatted_memory_info:  # 2. メモリ情報
         final_preamble_for_cohere += f"\n\n{formatted_memory_info}"
 
-    if preamble: # 3. タスク固有のプリアンブル
+    if preamble:  # 3. タスク固有のプリアンブル
         final_preamble_for_cohere += f"\n\n{preamble}"
 
-    if initial_user_prompt: # 4. 会話全体の目的
+    if initial_user_prompt:  # 4. 会話全体の目的
         prefix = "\n\n" if final_preamble_for_cohere.strip() else ""
         final_preamble_for_cohere += f"{prefix}[重要] この会話全体の主要な目的は次の通りです: 「{initial_user_prompt}」\nこの目的を常に意識して回答を生成してください。"
 
@@ -423,36 +540,57 @@ async def get_cohere_response(
         for msg in chat_history:
             role_map = {"user": "USER", "assistant": "CHATBOT", "ai": "CHATBOT"}
             if msg.get("role") in role_map:
-                cohere_api_chat_history.append({"role": role_map[msg["role"]], "message": str(msg.get("content",""))})
+                cohere_api_chat_history.append(
+                    {
+                        "role": role_map[msg["role"]],
+                        "message": str(msg.get("content", "")),
+                    }
+                )
 
     if not prompt_text.strip():
-         return schemas.IndividualAIResponse(source=f"Cohere ({model})", error="現在のユーザープロンプトが空です。")
+        return schemas.IndividualAIResponse(
+            source=f"Cohere ({model})", error="現在のユーザープロンプトが空です。"
+        )
 
     try:
-        logger.info(f"Cohere API Request ({model}): Preamble='{final_preamble_for_cohere[:100].strip() if final_preamble_for_cohere else 'N/A'}...', UserMemories: {len(user_memories) if user_memories else 0}, History Len={len(cohere_api_chat_history)}, Current Message='{prompt_text[:50].strip()}'")
+        logger.info(
+            f"Cohere API Request ({model}): Preamble='{final_preamble_for_cohere[:100].strip() if final_preamble_for_cohere else 'N/A'}...', UserMemories: {len(user_memories) if user_memories else 0}, History Len={len(cohere_api_chat_history)}, Current Message='{prompt_text[:50].strip()}'"
+        )
         res = await app.state.cohere_client.chat(
             message=prompt_text,
             model=model,
-            preamble=final_preamble_for_cohere.strip() if final_preamble_for_cohere.strip() else None,
+            preamble=(
+                final_preamble_for_cohere.strip()
+                if final_preamble_for_cohere.strip()
+                else None
+            ),
             chat_history=cohere_api_chat_history if cohere_api_chat_history else None,
-            temperature=0.7
+            temperature=0.7,
         )
-        return schemas.IndividualAIResponse(source=f"Cohere ({model})", response=res.text)
+        return schemas.IndividualAIResponse(
+            source=f"Cohere ({model})", response=res.text
+        )
     except Exception as e:
         logger.info(f"Cohere APIエラー ({model}): {e}")
         import traceback
+
         traceback.print_exc()
-        return schemas.IndividualAIResponse(source=f"Cohere ({model})", error=f"API呼び出し中にエラー: {str(e)}")
+        return schemas.IndividualAIResponse(
+            source=f"Cohere ({model})", error=f"API呼び出し中にエラー: {str(e)}"
+        )
+
 
 async def get_perplexity_response(
     prompt_for_perplexity: str,  # これはAIへの主要な指示・質問
     model: str = "sonar-reasoning-pro",
-    user_memories: Optional[List[schemas.UserMemoryResponse]] = None, # ★ 追加
-    initial_user_prompt: Optional[str] = None # ★ 追加 (もしあれば文脈として有用)
+    user_memories: Optional[List[schemas.UserMemoryResponse]] = None,  # ★ 追加
+    initial_user_prompt: Optional[str] = None,  # ★ 追加 (もしあれば文脈として有用)
 ) -> schemas.IndividualAIResponse:
     source_name = f"PerplexityAI ({model})"
     if not app.state.perplexity_sync_client:
-        return schemas.IndividualAIResponse(source=source_name, error="Perplexityクライアントが初期化されていません。")
+        return schemas.IndividualAIResponse(
+            source=source_name, error="Perplexityクライアントが初期化されていません。"
+        )
 
     # メモリ情報と会話目的をプロンプトに組み込む
     formatted_memory_info = format_memories_for_prompt(user_memories)
@@ -464,19 +602,25 @@ async def get_perplexity_response(
         final_prompt_for_perplexity_api += f"{formatted_memory_info}\n\n---\n\n"
 
     if initial_user_prompt:  # 会話全体の目的を参考情報として付加
-        final_prompt_for_perplexity_api += f"[この検索の背景にある会話全体の目的: 「{initial_user_prompt}」]\n\n"
+        final_prompt_for_perplexity_api += (
+            f"[この検索の背景にある会話全体の目的: 「{initial_user_prompt}」]\n\n"
+        )
 
     final_prompt_for_perplexity_api += prompt_for_perplexity
 
     if not final_prompt_for_perplexity_api.strip():
-        return schemas.IndividualAIResponse(source=source_name, error="送信するクエリが空です。")
+        return schemas.IndividualAIResponse(
+            source=source_name, error="送信するクエリが空です。"
+        )
 
     try:
         logger.info(
             f"Perplexity AI Request ({model}): Query (first 150 chars, UserMemories: {len(user_memories) if user_memories else 0})='{final_prompt_for_perplexity_api[:150].replace(chr(10), ' ')}...'"
         )
 
-        def sync_perplexity_call(p_client: PerplexityClient, query: str, p_model_name: str):
+        def sync_perplexity_call(
+            p_client: PerplexityClient, query: str, p_model_name: str
+        ):
             try:
                 # モデルはPerplexityClientインスタンスの属性 'model' に直接設定する
                 p_client.model = p_model_name
@@ -485,48 +629,77 @@ async def get_perplexity_response(
                 response_data = p_client.query(query)
 
                 # 応答形式の確認
-                if hasattr(response_data, 'answer') and response_data.answer is not None:
-                    return str(response_data.answer) # 文字列であることを保証
+                if (
+                    hasattr(response_data, "answer")
+                    and response_data.answer is not None
+                ):
+                    return str(response_data.answer)  # 文字列であることを保証
                 elif isinstance(response_data, str):
                     return response_data
                 # Perplexity APIの応答には 'text' 属性もよく使われる
-                elif hasattr(response_data, 'text') and response_data.text is not None:
+                elif hasattr(response_data, "text") and response_data.text is not None:
                     return str(response_data.text)
                 # より詳細な応答オブジェクトの解析が必要な場合がある
                 # (例: response_data['choices'][0]['message']['content'] のような構造)
                 # ここでは最もシンプルなケースを想定
                 else:
-                    logger.info(f"Perplexity API ({p_model_name}): 予期しない応答形式 (query): {type(response_data)}, content: {response_data}")
+                    logger.info(
+                        f"Perplexity API ({p_model_name}): 予期しない応答形式 (query): {type(response_data)}, content: {response_data}"
+                    )
                     return f"Perplexityから予期しない応答形式を受け取りました。"
             except AttributeError as ae:
-                logger.info(f"PerplexityClient API呼び出し中にAttributeError (in sync_perplexity_call): {ae}")
+                logger.info(
+                    f"PerplexityClient API呼び出し中にAttributeError (in sync_perplexity_call): {ae}"
+                )
                 return f"Perplexity APIの呼び出し方法に問題があります (AttributeError): {ae}"
             except Exception as exc_inner:
-                logger.info(f"PerplexityClient API呼び出し中に同期関数内でエラー (in sync_perplexity_call): {exc_inner}")
+                logger.info(
+                    f"PerplexityClient API呼び出し中に同期関数内でエラー (in sync_perplexity_call): {exc_inner}"
+                )
                 import traceback
+
                 traceback.print_exc()
                 return f"Perplexity APIエラー: {exc_inner}"
+
         response_text = await run_in_threadpool(
-            sync_perplexity_call, app.state.perplexity_sync_client, final_prompt_for_perplexity_api, model
+            sync_perplexity_call,
+            app.state.perplexity_sync_client,
+            final_prompt_for_perplexity_api,
+            model,
         )
 
-        if isinstance(response_text, str) and response_text.strip() and \
-           not response_text.lower().startswith("perplexity api") and \
-           not response_text.lower().startswith("perplexityから予期しない応答形式") and \
-           not response_text.lower().startswith("perplexity apiの適切な呼び出しメソッドが見つかりません"):
+        if (
+            isinstance(response_text, str)
+            and response_text.strip()
+            and not response_text.lower().startswith("perplexity api")
+            and not response_text.lower().startswith("perplexityから予期しない応答形式")
+            and not response_text.lower().startswith(
+                "perplexity apiの適切な呼び出しメソッドが見つかりません"
+            )
+        ):
             import re
+
             links = re.findall(r"https?://[^\s]+", response_text)
-            return schemas.IndividualAIResponse(source=source_name, response=response_text, links=links or None)
-        elif isinstance(response_text, str): # エラーメッセージ等が返ってきた場合
-             return schemas.IndividualAIResponse(source=source_name, error=response_text)
+            return schemas.IndividualAIResponse(
+                source=source_name, response=response_text, links=links or None
+            )
+        elif isinstance(response_text, str):  # エラーメッセージ等が返ってきた場合
+            return schemas.IndividualAIResponse(source=source_name, error=response_text)
         else:
-            return schemas.IndividualAIResponse(source=source_name, error=f"PerplexityAIから予期しない応答形式 ({type(response_text)}). Text: '{response_text}'")
+            return schemas.IndividualAIResponse(
+                source=source_name,
+                error=f"PerplexityAIから予期しない応答形式 ({type(response_text)}). Text: '{response_text}'",
+            )
 
     except Exception as e:
         logger.info(f"PerplexityAI APIエラー ({model}) (outer try-except): {e}")
         import traceback
+
         traceback.print_exc()
-        return schemas.IndividualAIResponse(source=source_name, error=f"API呼び出し中に予期せぬエラー: {str(e)}")
+        return schemas.IndividualAIResponse(
+            source=source_name, error=f"API呼び出し中に予期せぬエラー: {str(e)}"
+        )
+
 
 # --- ここまでが get_perplexity_response 関数の末尾 ---
 # main.py の get_gemini_response 関数
@@ -545,10 +718,8 @@ async def get_gemini_response(
     if model_name in (
         "gemini-2.5-pro-preview-05-06",
         "gemini-pro",
-
         "gemini-2.5-pro-latest",
         "gemini-2.5-pro",
-   
     ):
         gemini_model_instance = request.app.state.gemini_pro_model
 
@@ -572,19 +743,28 @@ async def get_gemini_response(
     formatted_memory_info = format_memories_for_prompt(user_memories)
 
     effective_initial_instructions = ""
-    is_search_formatting_step_gemini = system_instruction and "PALEAI_SEARCH_FORMATTING_TASK_MARKER" in system_instruction
+    is_search_formatting_step_gemini = (
+        system_instruction
+        and "PALEAI_SEARCH_FORMATTING_TASK_MARKER" in system_instruction
+    )
 
     if is_search_formatting_step_gemini:
-        effective_initial_instructions = system_instruction.replace("PALEAI_SEARCH_FORMATTING_TASK_MARKER", "").strip()
+        effective_initial_instructions = system_instruction.replace(
+            "PALEAI_SEARCH_FORMATTING_TASK_MARKER", ""
+        ).strip()
         if initial_user_prompt:
-            effective_initial_instructions += f"\n\n[参考] ユーザーの当初の質問の文脈: 「{initial_user_prompt}」"
+            effective_initial_instructions += (
+                f"\n\n[参考] ユーザーの当初の質問の文脈: 「{initial_user_prompt}」"
+            )
     else:
-        effective_initial_instructions = FRIENDLY_TONE_SYSTEM_PROMPT # 1. キャラクター口調
-        if formatted_memory_info: # 2. メモリ情報
+        effective_initial_instructions = (
+            FRIENDLY_TONE_SYSTEM_PROMPT  # 1. キャラクター口調
+        )
+        if formatted_memory_info:  # 2. メモリ情報
             effective_initial_instructions += f"\n\n{formatted_memory_info}"
-        if system_instruction: # 3. タスク固有指示
+        if system_instruction:  # 3. タスク固有指示
             effective_initial_instructions += f"\n\n{system_instruction}"
-        if initial_user_prompt: # 4. 会話全体の目的
+        if initial_user_prompt:  # 4. 会話全体の目的
             prefix = "\n\n" if effective_initial_instructions.strip() else ""
             effective_initial_instructions += f"{prefix}[重要] この会話全体の主要な目的は次の通りです: 「{initial_user_prompt}」です。"
 
@@ -593,70 +773,123 @@ async def get_gemini_response(
     if chat_history:
         for msg in chat_history:
             role = "model" if msg.get("role") in ["ai", "assistant"] else "user"
-            processed_history_for_gemini.append({"role": role, "parts": [{"text": str(msg.get("content", ""))}]})
+            processed_history_for_gemini.append(
+                {"role": role, "parts": [{"text": str(msg.get("content", ""))}]}
+            )
 
     if effective_initial_instructions.strip():
-        contents_for_api.append({"role": "user", "parts": [{"text": effective_initial_instructions.strip()}]})
-        contents_for_api.append({"role": "model", "parts": [{"text": "承知いたしました。指示に従い、記憶情報も考慮して回答します。"}]})
+        contents_for_api.append(
+            {
+                "role": "user",
+                "parts": [{"text": effective_initial_instructions.strip()}],
+            }
+        )
+        contents_for_api.append(
+            {
+                "role": "model",
+                "parts": [
+                    {
+                        "text": "承知いたしました。指示に従い、記憶情報も考慮して回答します。"
+                    }
+                ],
+            }
+        )
 
     contents_for_api.extend(processed_history_for_gemini)
 
     if prompt_text:
-         contents_for_api.append({"role": "user", "parts": [{"text": prompt_text}]})
+        contents_for_api.append({"role": "user", "parts": [{"text": prompt_text}]})
 
     if not any(item.get("role") == "user" for item in contents_for_api):
         final_prompt_to_send = prompt_text or "何か情報を教えてください。"
         if effective_initial_instructions.strip() and prompt_text:
-             final_prompt_to_send = f"{effective_initial_instructions.strip()}\n\n---\n\n{prompt_text}"
+            final_prompt_to_send = (
+                f"{effective_initial_instructions.strip()}\n\n---\n\n{prompt_text}"
+            )
         elif effective_initial_instructions.strip():
-             final_prompt_to_send = f"{effective_initial_instructions.strip()}\n\n---\n\n何か情報を教えてください。"
+            final_prompt_to_send = f"{effective_initial_instructions.strip()}\n\n---\n\n何か情報を教えてください。"
 
-        contents_for_api.append({"role": "user", "parts": [{"text": final_prompt_to_send}]})
-        logger.info(f"Geminiデバッグ: ユーザーメッセージが不足していたため、フォールバックメッセージを追加しました。Content: {final_prompt_to_send[:100]}")
+        contents_for_api.append(
+            {"role": "user", "parts": [{"text": final_prompt_to_send}]}
+        )
+        logger.info(
+            f"Geminiデバッグ: ユーザーメッセージが不足していたため、フォールバックメッセージを追加しました。Content: {final_prompt_to_send[:100]}"
+        )
 
     try:
-        logger.info(f"Gemini API Request ({active_gemini_model.model_name}): System/Initial Info (combined in first user msg)='{effective_initial_instructions[:100].strip() if effective_initial_instructions else 'N/A'}...', UserMemories: {len(user_memories) if user_memories else 0}, Contents Len={len(contents_for_api)}")
+        logger.info(
+            f"Gemini API Request ({active_gemini_model.model_name}): System/Initial Info (combined in first user msg)='{effective_initial_instructions[:100].strip() if effective_initial_instructions else 'N/A'}...', UserMemories: {len(user_memories) if user_memories else 0}, Contents Len={len(contents_for_api)}"
+        )
         res = await active_gemini_model.generate_content_async(
-            contents=contents_for_api,
-            generation_config={"temperature": 0.6}
+            contents=contents_for_api, generation_config={"temperature": 0.6}
         )
 
         content_response = ""
-        if res.candidates and res.candidates[0].content and res.candidates[0].content.parts:
-            content_response = "".join(part.text for part in res.candidates[0].content.parts if hasattr(part, 'text'))
-        elif hasattr(res, 'prompt_feedback') and res.prompt_feedback and hasattr(res.prompt_feedback, 'block_reason') and res.prompt_feedback.block_reason:
-            block_reason_obj = getattr(res.prompt_feedback, 'block_reason', '不明な理由')
-            block_message = getattr(res.prompt_feedback, 'block_reason_message', str(block_reason_obj))
+        if (
+            res.candidates
+            and res.candidates[0].content
+            and res.candidates[0].content.parts
+        ):
+            content_response = "".join(
+                part.text
+                for part in res.candidates[0].content.parts
+                if hasattr(part, "text")
+            )
+        elif (
+            hasattr(res, "prompt_feedback")
+            and res.prompt_feedback
+            and hasattr(res.prompt_feedback, "block_reason")
+            and res.prompt_feedback.block_reason
+        ):
+            block_reason_obj = getattr(
+                res.prompt_feedback, "block_reason", "不明な理由"
+            )
+            block_message = getattr(
+                res.prompt_feedback, "block_reason_message", str(block_reason_obj)
+            )
             error_detail = f"コンテンツ生成がブロックされました: {block_message}"
             logger.info(f"Gemini API: {error_detail}")
-            return schemas.IndividualAIResponse(source=source_name, error=error_detail, response=None)
+            return schemas.IndividualAIResponse(
+                source=source_name, error=error_detail, response=None
+            )
         else:
-            logger.info(f"Geminiから有効な応答パーツが見つかりませんでした。Full response: {res}")
+            logger.info(
+                f"Geminiから有効な応答パーツが見つかりませんでした。Full response: {res}"
+            )
             content_response = ""
 
-        return schemas.IndividualAIResponse(source=source_name, response=content_response)
+        return schemas.IndividualAIResponse(
+            source=source_name, response=content_response
+        )
 
     except Exception as e:
         logger.info(f"Gemini APIエラー ({model_name}): {e}")
         import traceback
+
         traceback.print_exc()
-        return schemas.IndividualAIResponse(source=source_name, error=f"API呼び出し中にエラー: {str(e)}")
+        return schemas.IndividualAIResponse(
+            source=source_name, error=f"API呼び出し中にエラー: {str(e)}"
+        )
+
 
 async def translate_with_deepl(text: str, target_lang: str = "JA") -> str:
     if not app.state.deepl_translator:
         raise ValueError("DeepL translator is not configured")
     try:
-        result = await run_in_threadpool(app.state.deepl_translator.translate_text, text, target_lang=target_lang)
+        result = await run_in_threadpool(
+            app.state.deepl_translator.translate_text, text, target_lang=target_lang
+        )
         return result.text
     except Exception as e:
         logger.info(f"DeepL翻訳エラー: {e}")
         raise
 
+
 # ファイル処理用のヘルパー関数群 (後で詳細を実装)
 async def process_text_file(file: UploadFile) -> str:
     try:
         contents = await file.read()
-        return contents.decode('utf-8', errors='replace')
+        return contents.decode("utf-8", errors="replace")
     except Exception as e:
         logger.info(f"テキストファイルの読み込みエラー: {e}")
         raise
@@ -664,7 +897,9 @@ async def process_text_file(file: UploadFile) -> str:
         await file.seek(0)  # 再度読み込めるようにするため (必要な場合)
 
 
-async def process_image_with_vision_api(file: UploadFile, original_prompt: str, client_identifier: str = "openai") -> str:
+async def process_image_with_vision_api(
+    file: UploadFile, original_prompt: str, client_identifier: str = "openai"
+) -> str:
     if not app.state.openai_client:
         raise Exception("OpenAIクライアントが初期化されていません。")
 
@@ -677,9 +912,7 @@ async def process_image_with_vision_api(file: UploadFile, original_prompt: str, 
 
         user_image_prompt = "この画像の内容を詳細に説明してください。"
         if original_prompt:
-            user_image_prompt += (
-                f"\nユーザーの主な関心事や、この画像をアップロードした背景にある質問は「{original_prompt}」です。これを踏まえて説明に関連性を持たせてください。"
-            )
+            user_image_prompt += f"\nユーザーの主な関心事や、この画像をアップロードした背景にある質問は「{original_prompt}」です。これを踏まえて説明に関連性を持たせてください。"
 
         messages_for_api = [
             {
@@ -718,13 +951,17 @@ async def process_image_with_vision_api(file: UploadFile, original_prompt: str, 
         if not description or description.strip() == "":
             return f"画像「{file.filename}」の内容を認識できませんでした。"
 
-        logger.info(f"OpenAI Vision APIからの応答 (冒頭): {description[:100].strip()}...")
+        logger.info(
+            f"OpenAI Vision APIからの応答 (冒頭): {description[:100].strip()}..."
+        )
         return description.strip()
 
     except Exception as e:
         logger.info(f"OpenAI Vision APIでの画像処理中にエラー: {e}")
         traceback.print_exc()
-        raise Exception(f"画像「{file.filename}」の処理中にエラーが発生しました: {str(e)}")
+        raise Exception(
+            f"画像「{file.filename}」の処理中にエラーが発生しました: {str(e)}"
+        )
 
 
 async def process_pdf_with_ai(file: UploadFile) -> str:
@@ -749,19 +986,25 @@ async def process_pdf_with_ai(file: UploadFile) -> str:
                     f"PDFからのテキスト抽出中にエラー (同期処理内): {str(sync_e)}"
                 )
 
-        logger.info(f"PyMuPDFによるPDF「{file.filename}」のテキスト抽出処理を開始します...")
+        logger.info(
+            f"PyMuPDFによるPDF「{file.filename}」のテキスト抽出処理を開始します..."
+        )
         text_content = await run_in_threadpool(extract_text_from_pdf_sync, pdf_bytes)
 
         if not text_content or text_content.strip() == "":
             return f"PDFファイル「{file.filename}」からテキストを抽出できませんでした。"
 
-        logger.info(f"PDF「{file.filename}」からのテキスト抽出成功 (冒頭): {text_content[:200].strip()}...")
+        logger.info(
+            f"PDF「{file.filename}」からのテキスト抽出成功 (冒頭): {text_content[:200].strip()}..."
+        )
         return text_content.strip()
 
     except Exception as e:
         logger.info(f"PDF「{file.filename}」の処理中にエラー: {e}")
         traceback.print_exc()
-        raise Exception(f"PDFファイル「{file.filename}」の処理中にエラーが発生しました: {str(e)}")
+        raise Exception(
+            f"PDFファイル「{file.filename}」の処理中にエラーが発生しました: {str(e)}"
+        )
 
 
 async def process_audio_with_speech_to_text(file: UploadFile) -> str:
@@ -778,9 +1021,11 @@ async def process_audio_with_speech_to_text(file: UploadFile) -> str:
 
         audio_file_for_api = BytesIO(audio_bytes)
 
-        transcription_response = await app.state.openai_client.audio.transcriptions.create(
-            model="whisper-1",
-            file=(file.filename, audio_file_for_api, file.content_type)
+        transcription_response = (
+            await app.state.openai_client.audio.transcriptions.create(
+                model="whisper-1",
+                file=(file.filename, audio_file_for_api, file.content_type),
+            )
         )
 
         transcribed_text = transcription_response.text
@@ -788,13 +1033,17 @@ async def process_audio_with_speech_to_text(file: UploadFile) -> str:
         if not transcribed_text or transcribed_text.strip() == "":
             return f"音声ファイル「{file.filename}」から文字を認識できませんでした。"
 
-        logger.info(f"OpenAI Whisper APIからの文字起こし成功 (冒頭): {transcribed_text[:100].strip()}...")
+        logger.info(
+            f"OpenAI Whisper APIからの文字起こし成功 (冒頭): {transcribed_text[:100].strip()}..."
+        )
         return transcribed_text.strip()
 
     except Exception as e:
         logger.info(f"OpenAI Whisper APIでの音声処理中にエラー: {e}")
         traceback.print_exc()
-        raise Exception(f"音声ファイル「{file.filename}」の処理中にエラーが発生しました: {str(e)}")
+        raise Exception(
+            f"音声ファイル「{file.filename}」の処理中にエラーが発生しました: {str(e)}"
+        )
 
 
 async def process_docx_file(file_path: str) -> str:
@@ -806,16 +1055,20 @@ async def process_docx_file(file_path: str) -> str:
             full_text = []
             for para in doc.paragraphs:
                 full_text.append(para.text)
-            return '\n'.join(full_text)
+            return "\n".join(full_text)
         except Exception as e:
             logger.info(f"DOCX処理エラー (同期処理内, path: {path}): {e}")
             raise Exception(f"DOCXファイルからのテキスト抽出中にエラー: {str(e)}")
 
-    logger.info(f"python-docxによるDOCXファイル「{os.path.basename(file_path)}」のテキスト抽出処理を開始します...")
+    logger.info(
+        f"python-docxによるDOCXファイル「{os.path.basename(file_path)}」のテキスト抽出処理を開始します..."
+    )
     text_content = await run_in_threadpool(extract_text_sync, file_path)
     if not text_content or text_content.strip() == "":
         return f"DOCXファイル「{os.path.basename(file_path)}」からテキストを抽出できませんでした。"
-    logger.info(f"DOCX「{os.path.basename(file_path)}」からのテキスト抽出成功 (冒頭): {text_content[:200].strip()}...")
+    logger.info(
+        f"DOCX「{os.path.basename(file_path)}」からのテキスト抽出成功 (冒頭): {text_content[:200].strip()}..."
+    )
     return text_content.strip()
 
 
@@ -835,17 +1088,21 @@ async def process_xlsx_file(file_path: str) -> str:
                         if cell.value is not None:
                             row_text.append(str(cell.value))
                     if row_text:
-                        full_text.append('\t'.join(row_text))
-            return '\n'.join(full_text)
+                        full_text.append("\t".join(row_text))
+            return "\n".join(full_text)
         except Exception as e:
             logger.info(f"XLSX処理エラー (同期処理内, path: {path}): {e}")
             raise Exception(f"XLSXファイルからのテキスト抽出中にエラー: {str(e)}")
 
-    logger.info(f"openpyxlによるXLSXファイル「{os.path.basename(file_path)}」のテキスト抽出処理を開始します...")
+    logger.info(
+        f"openpyxlによるXLSXファイル「{os.path.basename(file_path)}」のテキスト抽出処理を開始します..."
+    )
     text_content = await run_in_threadpool(extract_text_sync, file_path)
     if not text_content or text_content.strip() == "":
         return f"XLSXファイル「{os.path.basename(file_path)}」からテキストを抽出できませんでした。"
-    logger.info(f"XLSX「{os.path.basename(file_path)}」からのテキスト抽出成功 (冒頭): {text_content[:200].strip()}...")
+    logger.info(
+        f"XLSX「{os.path.basename(file_path)}」からのテキスト抽出成功 (冒頭): {text_content[:200].strip()}..."
+    )
     return text_content.strip()
 
 
@@ -865,16 +1122,20 @@ async def process_pptx_file(file_path: str) -> str:
                                 full_text.append(run.text)
                     elif hasattr(shape, "text") and shape.text:
                         full_text.append(shape.text)
-            return '\n'.join(full_text)
+            return "\n".join(full_text)
         except Exception as e:
             logger.info(f"PPTX処理エラー (同期処理内, path: {path}): {e}")
             raise Exception(f"PPTXファイルからのテキスト抽出中にエラー: {str(e)}")
 
-    logger.info(f"python-pptxによるPPTXファイル「{os.path.basename(file_path)}」のテキスト抽出処理を開始します...")
+    logger.info(
+        f"python-pptxによるPPTXファイル「{os.path.basename(file_path)}」のテキスト抽出処理を開始します..."
+    )
     text_content = await run_in_threadpool(extract_text_sync, file_path)
     if not text_content or text_content.strip() == "":
         return f"PPTXファイル「{os.path.basename(file_path)}」からテキストを抽出できませんでした。"
-    logger.info(f"PPTX「{os.path.basename(file_path)}」からのテキスト抽出成功 (冒頭): {text_content[:200].strip()}...")
+    logger.info(
+        f"PPTX「{os.path.basename(file_path)}」からのテキスト抽出成功 (冒頭): {text_content[:200].strip()}..."
+    )
     return text_content.strip()
 
 
@@ -882,7 +1143,7 @@ async def convert_markdown_to_format_with_pandoc(
     markdown_content: str,
     output_filename_base: str,
     output_format: str,
-    temp_dir: str = GENERATED_FILES_DIR
+    temp_dir: str = GENERATED_FILES_DIR,
 ) -> Optional[str]:
     """Pandocを使用してMarkdownを指定された形式に変換し、一時ファイルに保存する。"""
     input_md_path = os.path.join(temp_dir, f"{output_filename_base}_temp.md")
@@ -892,7 +1153,9 @@ async def convert_markdown_to_format_with_pandoc(
         async with aiofiles.open(input_md_path, "w", encoding="utf-8") as md_file:
             await md_file.write(markdown_content)
 
-        PANDOC_EXECUTABLE_PATH = r"C:\Program Files\Pandoc\pandoc.exe"  # raw文字列でバックスラッシュは1つ
+        PANDOC_EXECUTABLE_PATH = (
+            r"C:\Program Files\Pandoc\pandoc.exe"  # raw文字列でバックスラッシュは1つ
+        )
 
         pandoc_cmd = [
             PANDOC_EXECUTABLE_PATH,
@@ -904,14 +1167,20 @@ async def convert_markdown_to_format_with_pandoc(
             # 高品質な日本語PDFのためには、lualatex や xelatex と適切なフォント設定が必要
             # サーバー環境に lualatex と IPAexフォントがインストールされていることを前提とします。
             # フォント名は環境に合わせて調整してください。
-            pandoc_cmd.extend([
-                "--pdf-engine=lualatex",
-                "-V", "documentclass=ltjarticle",  # 日本語組版に適したクラス
-                "-V", "mainfont=IPAexMincho",     # メインフォントにIPAex明朝を指定
-                "-V", "sansfont=IPAexGothic",     # サンセリフフォントにIPAexゴシックを指定
-                "-V", "monofont=IPAexGothic",     # 等幅フォントにIPAexゴシックを指定 (好みで変更可)
-                # "-V", "geometry:margin=2.5cm"   # 必要に応じて余白などのジオメトリ設定
-            ])
+            pandoc_cmd.extend(
+                [
+                    "--pdf-engine=lualatex",
+                    "-V",
+                    "documentclass=ltjarticle",  # 日本語組版に適したクラス
+                    "-V",
+                    "mainfont=IPAexMincho",  # メインフォントにIPAex明朝を指定
+                    "-V",
+                    "sansfont=IPAexGothic",  # サンセリフフォントにIPAexゴシックを指定
+                    "-V",
+                    "monofont=IPAexGothic",  # 等幅フォントにIPAexゴシックを指定 (好みで変更可)
+                    # "-V", "geometry:margin=2.5cm"   # 必要に応じて余白などのジオメトリ設定
+                ]
+            )
         elif output_format == "docx":
             # DOCX特有のオプションがあればここに追加
             # 例: --reference-doc=custom-styles.docx でカスタムスタイルを指定
@@ -920,11 +1189,15 @@ async def convert_markdown_to_format_with_pandoc(
         logger.info(f"Pandocコマンド実行準備: {' '.join(pandoc_cmd)}")
 
         def run_pandoc_sync():
-            process = subprocess.run(pandoc_cmd, capture_output=True, text=True, check=False)
+            process = subprocess.run(
+                pandoc_cmd, capture_output=True, text=True, check=False
+            )
             if process.returncode != 0:
                 error_message = f"Pandoc変換エラー (フォーマット: {output_format}):\nSTDOUT:\n{process.stdout}\nSTDERR:\n{process.stderr}"
                 logger.info(error_message)
-                raise Exception(f"Pandoc failed with exit code {process.returncode}. STDERR: {process.stderr[:500]}")
+                raise Exception(
+                    f"Pandoc failed with exit code {process.returncode}. STDERR: {process.stderr[:500]}"
+                )
             return True
 
         await run_in_threadpool(run_pandoc_sync)
@@ -933,7 +1206,9 @@ async def convert_markdown_to_format_with_pandoc(
         return output_file_path
 
     except Exception as e:
-        logger.info(f"Pandoc変換処理中にエラー ({output_format} へ変換しようとしていました): {e}")
+        logger.info(
+            f"Pandoc変換処理中にエラー ({output_format} へ変換しようとしていました): {e}"
+        )
         traceback.print_exc()
         if os.path.exists(output_file_path):
             try:
@@ -948,30 +1223,45 @@ async def convert_markdown_to_format_with_pandoc(
             except OSError:
                 pass
 
+
 # --- (ここまでが新規挿入するヘルパー関数群) ---
 
+
 @app.post("/translate", response_model=schemas.TranslationResponse)
-async def translate_endpoint(request: schemas.TranslationRequest, current_user: models.User = Depends(get_current_active_user)):
+async def translate_endpoint(
+    request: schemas.TranslationRequest,
+    current_user: models.User = Depends(get_current_active_user),
+):
     translated = await translate_with_deepl(request.text, request.target_lang)
     return {"translated_text": translated}
 
+
 @app.get("/download_generated_file/{filename}")
-async def download_generated_file(filename: str, current_user: models.User = Depends(get_current_active_user)):
+async def download_generated_file(
+    filename: str, current_user: models.User = Depends(get_current_active_user)
+):
     # セキュリティのため、ファイル名にディレクトリトラバーサルなどが含まれていないか基本的なチェック
     if ".." in filename or filename.startswith("/"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="無効なファイル名です。")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="無効なファイル名です。"
+        )
 
     file_path = os.path.join(GENERATED_FILES_DIR, filename)
 
     if not os.path.exists(file_path) or not os.path.isfile(file_path):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ファイルが見つかりません。")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="ファイルが見つかりません。"
+        )
 
     # TODO: 本番環境では、このファイルが本当にこのcurrent_userによって生成されたものか、
     #       あるいは全ユーザーがアクセスして良いファイルなのか、などのアクセス制御を検討する必要がある。
     #       例えば、ファイル名にセッションIDやユーザーIDを含め、検証するなど。
     #       今回はデモとして、ファイルが存在すれば誰でもダウンロード可能とする。
 
-    return FileResponse(path=file_path, filename=filename, media_type='application/octet-stream')
+    return FileResponse(
+        path=file_path, filename=filename, media_type="application/octet-stream"
+    )
+
 
 # main.py の末尾近く
 
@@ -995,6 +1285,7 @@ async def download_generated_file(filename: str, current_user: models.User = Dep
 #     # return messages
 #     pass
 
+
 @app.post("/collaborative_answer_v2", response_model=schemas.CollaborativeResponseV2)
 async def collaborative_answer_mode_endpoint(
     request: Request,
@@ -1005,15 +1296,17 @@ async def collaborative_answer_mode_endpoint(
     # user_memories_json: Optional[str] = Form(None), # ユーザーメモリはJSON文字列として受け取りパースする案
     file: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_active_user)
+    current_user: models.User = Depends(get_current_active_user),
 ) -> schemas.CollaborativeResponseV2:
-    original_prompt_from_user = prompt.strip() # ユーザーが入力したプロンプト
+    original_prompt_from_user = prompt.strip()  # ユーザーが入力したプロンプト
     current_mode = mode.lower()
     current_session_id_from_request = session_id
-    desired_char_count = char_count # desired_char_count を使うように変数名を合わせる
+    desired_char_count = char_count  # desired_char_count を使うように変数名を合わせる
 
     logger.info("--- collaborative_answer_mode_endpoint ---")
-    logger.info(f"Received mode from frontend: '{mode}' (raw), Processed current_mode: '{current_mode}'")
+    logger.info(
+        f"Received mode from frontend: '{mode}' (raw), Processed current_mode: '{current_mode}'"
+    )
 
     mode = current_mode
 
@@ -1034,12 +1327,14 @@ async def collaborative_answer_mode_endpoint(
         logger.info(f"ユーザーメモリ取得中にエラー: {e}")
         user_memories_from_request = None
 
-    logger.info(f"\nリクエスト受信: UserID={current_user.id}, SessionID(Req)={current_session_id_from_request}, Prompt='{original_prompt_from_user[:50].strip()}...', Mode='{current_mode}', File: {file.filename if file else 'なし'}")
+    logger.info(
+        f"\nリクエスト受信: UserID={current_user.id}, SessionID(Req)={current_session_id_from_request}, Prompt='{original_prompt_from_user[:50].strip()}...', Mode='{current_mode}', File: {file.filename if file else 'なし'}"
+    )
 
     response_shell = schemas.CollaborativeResponseV2(
-        prompt=original_prompt_from_user, # 初期プロンプトはユーザー入力を保持
+        prompt=original_prompt_from_user,  # 初期プロンプトはユーザー入力を保持
         mode_executed=current_mode,
-        processed_session_id=current_session_id_from_request
+        processed_session_id=current_session_id_from_request,
     )
 
     # ステップ0: ファイル処理
@@ -1087,7 +1382,9 @@ async def collaborative_answer_mode_endpoint(
             except Exception as e_size_check:
                 if temp_file_path and os.path.exists(temp_file_path):
                     os.remove(temp_file_path)
-                logger.info(f"ファイルサイズのチェックまたは一時保存中にエラー: {e_size_check}")
+                logger.info(
+                    f"ファイルサイズのチェックまたは一時保存中にエラー: {e_size_check}"
+                )
                 traceback.print_exc()
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1100,52 +1397,144 @@ async def collaborative_answer_mode_endpoint(
             logger.info(f"ファイル処理開始: {file.filename}, MIMEタイプ: {mime_type}")
 
             SUPPORTED_AUDIO_MIMES = [
-                "audio/mpeg", "audio/mp4", "audio/x-m4a", "audio/wav", "audio/webm", "audio/mp3",
+                "audio/mpeg",
+                "audio/mp4",
+                "audio/x-m4a",
+                "audio/wav",
+                "audio/webm",
+                "audio/mp3",
             ]
 
             if mime_type:
-                if mime_type == "text/plain" or mime_type == "text/markdown" or mime_type.endswith(".py") or mime_type.endswith(".js") or mime_type.endswith(".html") or mime_type.endswith(".css"):
+                if (
+                    mime_type == "text/plain"
+                    or mime_type == "text/markdown"
+                    or mime_type.endswith(".py")
+                    or mime_type.endswith(".js")
+                    or mime_type.endswith(".html")
+                    or mime_type.endswith(".css")
+                ):
                     processed_file_text_for_ai = await process_text_file(file)
-                    file_processing_log = schemas.IndividualAIResponse(source="ファイル処理(テキスト)", response=f"テキスト系ファイル「{file.filename}」の内容を読み込みました。")
+                    file_processing_log = schemas.IndividualAIResponse(
+                        source="ファイル処理(テキスト)",
+                        response=f"テキスト系ファイル「{file.filename}」の内容を読み込みました。",
+                    )
                 elif mime_type.startswith("image/"):
-                    processed_file_text_for_ai = await process_image_with_vision_api(file, original_prompt_from_user)
-                    file_processing_log = schemas.IndividualAIResponse(source="ファイル処理(画像認識)", response=f"画像ファイル「{file.filename}」の内容をAIが認識しました。")
+                    processed_file_text_for_ai = await process_image_with_vision_api(
+                        file, original_prompt_from_user
+                    )
+                    file_processing_log = schemas.IndividualAIResponse(
+                        source="ファイル処理(画像認識)",
+                        response=f"画像ファイル「{file.filename}」の内容をAIが認識しました。",
+                    )
                 elif mime_type == "application/pdf":
                     processed_file_text_for_ai = await process_pdf_with_ai(file)
-                    file_processing_log = schemas.IndividualAIResponse(source="ファイル処理(PDF)", response=f"PDFファイル「{file.filename}」からテキスト情報を抽出しました。")
-                elif mime_type in SUPPORTED_AUDIO_MIMES or (file.filename and any(file.filename.lower().endswith(ext) for ext in [".mp3", ".mp4", ".m4a", ".wav", ".webm", ".mpeg"])):
-                    processed_file_text_for_ai = await process_audio_with_speech_to_text(file)
-                    file_processing_log = schemas.IndividualAIResponse(source="ファイル処理(音声認識)", response=f"音声ファイル「{file.filename}」を文字起こししました。")
-                elif mime_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" or (original_filename and original_filename.lower().endswith(".docx")):
+                    file_processing_log = schemas.IndividualAIResponse(
+                        source="ファイル処理(PDF)",
+                        response=f"PDFファイル「{file.filename}」からテキスト情報を抽出しました。",
+                    )
+                elif mime_type in SUPPORTED_AUDIO_MIMES or (
+                    file.filename
+                    and any(
+                        file.filename.lower().endswith(ext)
+                        for ext in [".mp3", ".mp4", ".m4a", ".wav", ".webm", ".mpeg"]
+                    )
+                ):
+                    processed_file_text_for_ai = (
+                        await process_audio_with_speech_to_text(file)
+                    )
+                    file_processing_log = schemas.IndividualAIResponse(
+                        source="ファイル処理(音声認識)",
+                        response=f"音声ファイル「{file.filename}」を文字起こししました。",
+                    )
+                elif (
+                    mime_type
+                    == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    or (
+                        original_filename
+                        and original_filename.lower().endswith(".docx")
+                    )
+                ):
                     processed_file_text_for_ai = await process_docx_file(temp_file_path)
-                    file_processing_log = schemas.IndividualAIResponse(source="ファイル処理(DOCX)", response=f"DOCXファイル「{original_filename}」からテキスト情報を抽出しました。")
-                elif mime_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" or (original_filename and original_filename.lower().endswith(".xlsx")):
+                    file_processing_log = schemas.IndividualAIResponse(
+                        source="ファイル処理(DOCX)",
+                        response=f"DOCXファイル「{original_filename}」からテキスト情報を抽出しました。",
+                    )
+                elif (
+                    mime_type
+                    == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    or (
+                        original_filename
+                        and original_filename.lower().endswith(".xlsx")
+                    )
+                ):
                     processed_file_text_for_ai = await process_xlsx_file(temp_file_path)
-                    file_processing_log = schemas.IndividualAIResponse(source="ファイル処理(XLSX)", response=f"XLSXファイル「{original_filename}」からテキスト情報を抽出しました。")
-                elif mime_type == "application/vnd.openxmlformats-officedocument.presentationml.presentation" or (original_filename and original_filename.lower().endswith(".pptx")):
+                    file_processing_log = schemas.IndividualAIResponse(
+                        source="ファイル処理(XLSX)",
+                        response=f"XLSXファイル「{original_filename}」からテキスト情報を抽出しました。",
+                    )
+                elif (
+                    mime_type
+                    == "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                    or (
+                        original_filename
+                        and original_filename.lower().endswith(".pptx")
+                    )
+                ):
                     processed_file_text_for_ai = await process_pptx_file(temp_file_path)
-                    file_processing_log = schemas.IndividualAIResponse(source="ファイル処理(PPTX)", response=f"PPTXファイル「{original_filename}」からテキスト情報を抽出しました。")
+                    file_processing_log = schemas.IndividualAIResponse(
+                        source="ファイル処理(PPTX)",
+                        response=f"PPTXファイル「{original_filename}」からテキスト情報を抽出しました。",
+                    )
                 else:
-                    file_processing_log = schemas.IndividualAIResponse(source="ファイル処理", error=f"ファイル形式「{mime_type or '不明'}」は現在直接処理できません。ファイル名「{original_filename}」")
+                    file_processing_log = schemas.IndividualAIResponse(
+                        source="ファイル処理",
+                        error=f"ファイル形式「{mime_type or '不明'}」は現在直接処理できません。ファイル名「{original_filename}」",
+                    )
             else:
                 if original_filename:
                     if original_filename.lower().endswith(".docx"):
-                        processed_file_text_for_ai = await process_docx_file(temp_file_path)
-                        file_processing_log = schemas.IndividualAIResponse(source="ファイル処理(DOCX拡張子判断)", response=f"DOCXファイル「{original_filename}」からテキスト情報を抽出しました。")
+                        processed_file_text_for_ai = await process_docx_file(
+                            temp_file_path
+                        )
+                        file_processing_log = schemas.IndividualAIResponse(
+                            source="ファイル処理(DOCX拡張子判断)",
+                            response=f"DOCXファイル「{original_filename}」からテキスト情報を抽出しました。",
+                        )
                     elif original_filename.lower().endswith(".xlsx"):
-                        processed_file_text_for_ai = await process_xlsx_file(temp_file_path)
-                        file_processing_log = schemas.IndividualAIResponse(source="ファイル処理(XLSX拡張子判断)", response=f"XLSXファイル「{original_filename}」からテキスト情報を抽出しました。")
+                        processed_file_text_for_ai = await process_xlsx_file(
+                            temp_file_path
+                        )
+                        file_processing_log = schemas.IndividualAIResponse(
+                            source="ファイル処理(XLSX拡張子判断)",
+                            response=f"XLSXファイル「{original_filename}」からテキスト情報を抽出しました。",
+                        )
                     elif original_filename.lower().endswith(".pptx"):
-                        processed_file_text_for_ai = await process_pptx_file(temp_file_path)
-                        file_processing_log = schemas.IndividualAIResponse(source="ファイル処理(PPTX拡張子判断)", response=f"PPTXファイル「{original_filename}」からテキスト情報を抽出しました。")
+                        processed_file_text_for_ai = await process_pptx_file(
+                            temp_file_path
+                        )
+                        file_processing_log = schemas.IndividualAIResponse(
+                            source="ファイル処理(PPTX拡張子判断)",
+                            response=f"PPTXファイル「{original_filename}」からテキスト情報を抽出しました。",
+                        )
                     else:
-                        file_processing_log = schemas.IndividualAIResponse(source="ファイル処理", error=f"ファイル「{original_filename}」の形式をMIMEタイプおよび拡張子から特定できませんでした。")
+                        file_processing_log = schemas.IndividualAIResponse(
+                            source="ファイル処理",
+                            error=f"ファイル「{original_filename}」の形式をMIMEタイプおよび拡張子から特定できませんでした。",
+                        )
                 else:
-                    file_processing_log = schemas.IndividualAIResponse(source="ファイル処理", error=f"アップロードされたファイルの形式を特定できませんでした。")
+                    file_processing_log = schemas.IndividualAIResponse(
+                        source="ファイル処理",
+                        error=f"アップロードされたファイルの形式を特定できませんでした。",
+                    )
 
             if file_processing_log and file_processing_log.error:
                 response_shell.overall_error = file_processing_log.error
-                response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(source="ファイル処理エラー", error=file_processing_log.error)
+                response_shell.step7_final_answer_v2_openai = (
+                    schemas.IndividualAIResponse(
+                        source="ファイル処理エラー", error=file_processing_log.error
+                    )
+                )
                 return response_shell
 
             response_shell.file_processing_step = file_processing_log
@@ -1166,38 +1555,70 @@ async def collaborative_answer_mode_endpoint(
                 )
                 response_shell.prompt = final_prompt_for_ai_flow
 
-
         except HTTPException as he:
-            if 'temp_file_path' in locals() and temp_file_path and os.path.exists(temp_file_path):
+            if (
+                "temp_file_path" in locals()
+                and temp_file_path
+                and os.path.exists(temp_file_path)
+            ):
                 try:
                     os.remove(temp_file_path)
-                    logger.info(f"HTTPException発生のため一時ファイル {temp_file_path} を削除しました。")
+                    logger.info(
+                        f"HTTPException発生のため一時ファイル {temp_file_path} を削除しました。"
+                    )
                 except Exception as e_remove:
-                    logger.info(f"HTTPException発生後の一次ファイル削除エラー: {e_remove}")
+                    logger.info(
+                        f"HTTPException発生後の一次ファイル削除エラー: {e_remove}"
+                    )
             logger.info(f"ファイル処理HTTPエラー: {he.detail}")
             response_shell.overall_error = he.detail
-            response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(source="ファイル処理エラー", error=he.detail)
+            response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
+                source="ファイル処理エラー", error=he.detail
+            )
             return response_shell
         except Exception as e:
-            if 'temp_file_path' in locals() and temp_file_path and os.path.exists(temp_file_path):
+            if (
+                "temp_file_path" in locals()
+                and temp_file_path
+                and os.path.exists(temp_file_path)
+            ):
                 try:
                     os.remove(temp_file_path)
-                    logger.info(f"予期せぬエラー発生のため一時ファイル {temp_file_path} を削除しました。")
+                    logger.info(
+                        f"予期せぬエラー発生のため一時ファイル {temp_file_path} を削除しました。"
+                    )
                 except Exception as e_remove:
-                    logger.info(f"予期せぬエラー発生後の一次ファイル削除エラー: {e_remove}")
-            logger.info(f"ファイル処理中に予期せぬエラー: {e}\n{traceback.format_exc()}")
-            response_shell.overall_error = f"ファイルの処理中に予期せぬエラーが発生しました: {str(e)}"
-            response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(source="ファイル処理エラー", error=str(e))
+                    logger.info(
+                        f"予期せぬエラー発生後の一次ファイル削除エラー: {e_remove}"
+                    )
+            logger.info(
+                f"ファイル処理中に予期せぬエラー: {e}\n{traceback.format_exc()}"
+            )
+            response_shell.overall_error = (
+                f"ファイルの処理中に予期せぬエラーが発生しました: {str(e)}"
+            )
+            response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
+                source="ファイル処理エラー", error=str(e)
+            )
             return response_shell
         finally:
             if file:
                 await file.close()
-            if 'temp_file_path' in locals() and temp_file_path and os.path.exists(temp_file_path) and not response_shell.overall_error:
+            if (
+                "temp_file_path" in locals()
+                and temp_file_path
+                and os.path.exists(temp_file_path)
+                and not response_shell.overall_error
+            ):
                 try:
                     os.remove(temp_file_path)
-                    logger.info(f"処理完了のため一時ファイル {temp_file_path} を削除しました。")
+                    logger.info(
+                        f"処理完了のため一時ファイル {temp_file_path} を削除しました。"
+                    )
                 except Exception as e_remove_finally:
-                    logger.info(f"正常処理後の一次ファイル削除エラー: {e_remove_finally}")
+                    logger.info(
+                        f"正常処理後の一次ファイル削除エラー: {e_remove_finally}"
+                    )
     # --- (ファイル処理ロジックここまで) ---
 
     original_prompt = final_prompt_for_ai_flow
@@ -1205,52 +1626,83 @@ async def collaborative_answer_mode_endpoint(
     active_session: Optional[models.ChatSession] = None
     initial_user_prompt_for_session: Optional[str] = None
     # (この下の current_session_id_from_request を利用する処理は適切か確認)
-    chat_history_for_ai: List[Dict[str, str]] = [] # AIヘルパーに渡す履歴リスト
+    chat_history_for_ai: List[Dict[str, str]] = []  # AIヘルパーに渡す履歴リスト
 
     # --- 1. チャットセッションの特定または作成 ---
     if current_session_id_from_request:
-        active_session = db.query(models.ChatSession).filter(
-            models.ChatSession.id == current_session_id_from_request,
-            models.ChatSession.user_id == current_user.id
-        ).first()
+        active_session = (
+            db.query(models.ChatSession)
+            .filter(
+                models.ChatSession.id == current_session_id_from_request,
+                models.ChatSession.user_id == current_user.id,
+            )
+            .first()
+        )
         if not active_session:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="指定されたチャットセッションが見つからないか、アクセス権がありません。")
-        logger.info(f"既存チャットセッション使用: ID={active_session.id}, Title='{active_session.title}'")
-        response_shell.processed_session_id = active_session.id # レスポンスシェルにも確定IDを設定
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="指定されたチャットセッションが見つからないか、アクセス権がありません。",
+            )
+        logger.info(
+            f"既存チャットセッション使用: ID={active_session.id}, Title='{active_session.title}'"
+        )
+        response_shell.processed_session_id = (
+            active_session.id
+        )  # レスポンスシェルにも確定IDを設定
 
-        first_user_message_db = db.query(models.ChatMessage).filter( # 変数名を変更
-            models.ChatMessage.chat_session_id == active_session.id,
-            models.ChatMessage.role == "user"
-        ).order_by(models.ChatMessage.created_at.asc()).first()
+        first_user_message_db = (
+            db.query(models.ChatMessage)
+            .filter(  # 変数名を変更
+                models.ChatMessage.chat_session_id == active_session.id,
+                models.ChatMessage.role == "user",
+            )
+            .order_by(models.ChatMessage.created_at.asc())
+            .first()
+        )
         if first_user_message_db:
             initial_user_prompt_for_session = first_user_message_db.content
-        else: # 既存セッションだが最初のユーザーメッセージがない場合（通常ありえないが）
-            initial_user_prompt_for_session = original_prompt_from_user # 現在のプロンプトで代用
+        else:  # 既存セッションだが最初のユーザーメッセージがない場合（通常ありえないが）
+            initial_user_prompt_for_session = (
+                original_prompt_from_user  # 現在のプロンプトで代用
+            )
 
         # 既存セッションの履歴を取得 (現在のプロンプトはまだ含めない)
-        past_messages_db = db.query(models.ChatMessage).filter(
-            models.ChatMessage.chat_session_id == active_session.id
-        ).order_by(models.ChatMessage.created_at.asc()).all()
+        past_messages_db = (
+            db.query(models.ChatMessage)
+            .filter(models.ChatMessage.chat_session_id == active_session.id)
+            .order_by(models.ChatMessage.created_at.asc())
+            .all()
+        )
         for msg_db in past_messages_db:
-            role_for_ai_helper = "assistant" if msg_db.role == "ai" else msg_db.role # AIヘルパー用のロール名に変換
-            chat_history_for_ai.append({"role": role_for_ai_helper, "content": msg_db.content})
-        logger.info(f"取得した過去メッセージ数 (現在のプロンプトはまだ含まず): {len(chat_history_for_ai)}")
+            role_for_ai_helper = (
+                "assistant" if msg_db.role == "ai" else msg_db.role
+            )  # AIヘルパー用のロール名に変換
+            chat_history_for_ai.append(
+                {"role": role_for_ai_helper, "content": msg_db.content}
+            )
+        logger.info(
+            f"取得した過去メッセージ数 (現在のプロンプトはまだ含まず): {len(chat_history_for_ai)}"
+        )
 
-    else: # 新規セッションの場合
+    else:  # 新規セッションの場合
         # ★★★ タイトル自動生成 (簡易版) ★★★
         if original_prompt_from_user:
-            potential_title = original_prompt_from_user.splitlines()[0][:50].strip()  # 改行を考慮し、最初の行の先頭50文字
+            potential_title = original_prompt_from_user.splitlines()[0][
+                :50
+            ].strip()  # 改行を考慮し、最初の行の先頭50文字
             if not potential_title:  # 空プロンプトや改行のみの場合
                 potential_title = "新しいチャット"
         else:
             potential_title = "新しいチャット"  # プロンプトが全くない場合
         # ★★★ ここまで ★★★
 
-        logger.info(f"Creating new session with mode: '{current_mode}' for title: '{potential_title}'")
+        logger.info(
+            f"Creating new session with mode: '{current_mode}' for title: '{potential_title}'"
+        )
         active_session = models.ChatSession(
             user_id=current_user.id,
             title=potential_title,
-            status='loading',
+            status="loading",
             mode=current_mode,
         )
         db.add(active_session)
@@ -1260,7 +1712,11 @@ async def collaborative_answer_mode_endpoint(
             f"新規チャットセッション作成成功: ID={active_session.id}, Title='{active_session.title}', Mode='{active_session.mode}'"
         )
         # --- Debug: verify mode persisted correctly ---
-        db_session_check = db.query(models.ChatSession).filter(models.ChatSession.id == active_session.id).first()
+        db_session_check = (
+            db.query(models.ChatSession)
+            .filter(models.ChatSession.id == active_session.id)
+            .first()
+        )
         if db_session_check:
             logger.info(
                 f"DEBUG: Newly created session (ID: {db_session_check.id}) re-fetched from DB. Mode in DB: '{db_session_check.mode}'"
@@ -1269,7 +1725,9 @@ async def collaborative_answer_mode_endpoint(
             logger.info(
                 f"DEBUG: Failed to re-fetch newly created session (ID: {active_session.id}) from DB for mode check."
             )
-        response_shell.processed_session_id = active_session.id  # レスポンスシェルに確定IDを設定
+        response_shell.processed_session_id = (
+            active_session.id
+        )  # レスポンスシェルに確定IDを設定
         initial_user_prompt_for_session = original_prompt_from_user  # 新規なので現在のユーザー入力プロンプトが最初のプロンプト
 
     # --- 2. 過去のチャット履歴の取得 (AI送信用) ---
@@ -1278,24 +1736,31 @@ async def collaborative_answer_mode_endpoint(
     #     しかし、現状のコードフローでは、先に履歴を取得し、後で現在のプロンプトをDB保存時に追加しています。
     #     ここでは、そのフローを維持しつつ、initial_user_prompt_for_session を使うことに主眼を置きます。)
     chat_history_for_ai: List[Dict[str, str]] = []
-    if active_session and active_session.id: # 既存セッションでIDが確定している場合のみ
-        past_messages_db = db.query(models.ChatMessage).filter(
-            models.ChatMessage.chat_session_id == active_session.id
-        ).order_by(models.ChatMessage.created_at.asc()).all()
+    if active_session and active_session.id:  # 既存セッションでIDが確定している場合のみ
+        past_messages_db = (
+            db.query(models.ChatMessage)
+            .filter(models.ChatMessage.chat_session_id == active_session.id)
+            .order_by(models.ChatMessage.created_at.asc())
+            .all()
+        )
         for msg_db in past_messages_db:
             role_for_ai = "assistant" if msg_db.role == "ai" else msg_db.role
             chat_history_for_ai.append({"role": role_for_ai, "content": msg_db.content})
-        logger.info(f"取得した過去メッセージ数 (DB保存前の現在のプロンプトは含まず): {len(chat_history_for_ai)}")
+        logger.info(
+            f"取得した過去メッセージ数 (DB保存前の現在のプロンプトは含まず): {len(chat_history_for_ai)}"
+        )
 
     # --- 3. ユーザーメッセージをDBに保存 ---
     if not active_session:  # 万が一ここでセッションが無い場合に備える
         session_title = (
-            original_prompt_from_user[:70].strip() + "..." if len(original_prompt_from_user) > 70 else original_prompt_from_user.strip()
+            original_prompt_from_user[:70].strip() + "..."
+            if len(original_prompt_from_user) > 70
+            else original_prompt_from_user.strip()
         )
         active_session = models.ChatSession(
             user_id=current_user.id,
             title=session_title,
-            status='loading',
+            status="loading",
             mode=current_mode,
         )
         logger.info(
@@ -1320,7 +1785,7 @@ async def collaborative_answer_mode_endpoint(
 
     db.add(user_message_db)
     active_session.updated_at = func.now()  # セッションの最終更新日時を更新
-    active_session.status = 'loading'
+    active_session.status = "loading"
     db.add(active_session)  # 明示的に追加して更新をトラッキング
     db.commit()
     db.refresh(user_message_db)
@@ -1328,7 +1793,6 @@ async def collaborative_answer_mode_endpoint(
     logger.info(
         f"ユーザーメッセージ保存成功: MsgID={user_message_db.id}, SessionID={active_session.id}"
     )
-
 
     # DB保存後に、AIに渡すチャット履歴を再構築 (現在のプロンプトも含むようにする)
     # ただし、各モードフロー関数側で現在のプロンプトを履歴の最後に追加する方が柔軟性が高い。
@@ -1348,15 +1812,6 @@ async def collaborative_answer_mode_endpoint(
                 initial_user_prompt_for_session=initial_user_prompt_for_session,
                 request=request,
                 user_memories=user_memories_from_request,
-            )
-        elif current_mode in ("search", "search3"):
-            response_shell = await run_search_mode_flow(
-                original_prompt=final_prompt_for_ai_flow,
-                response_shell=response_shell,
-                chat_history_for_ai=list(chat_history_for_ai),
-                user_memories=user_memories_from_request,
-                request=request,
-                initial_user_prompt_for_session=initial_user_prompt_for_session,
             )
         elif current_mode in ("search6", "supersearch"):
             response_shell = await run_super_search_mode_flow(
@@ -1407,7 +1862,7 @@ async def collaborative_answer_mode_endpoint(
         else:
             raise HTTPException(
                 status_code=400,
-                detail=f"無効なモード「{current_mode}」が指定されました。"
+                detail=f"無効なモード「{current_mode}」が指定されました。",
             )
 
         # --- 5. AIの応答をDBに保存 ---
@@ -1430,16 +1885,26 @@ async def collaborative_answer_mode_endpoint(
         final_response_object_for_db: Optional[schemas.IndividualAIResponse] = None
 
         # 全てのモードで、主要な最終応答は step7_final_answer_v2_openai に格納されることを期待する
-        if response_shell.step7_final_answer_v2_openai and response_shell.step7_final_answer_v2_openai.response:
+        if (
+            response_shell.step7_final_answer_v2_openai
+            and response_shell.step7_final_answer_v2_openai.response
+        ):
             final_response_object_for_db = response_shell.step7_final_answer_v2_openai
             final_ai_response_content_for_db = final_response_object_for_db.response
-            final_ai_source_text_for_db = final_response_object_for_db.source or f"Final Output ({mode.capitalize()} Mode)"
+            final_ai_source_text_for_db = (
+                final_response_object_for_db.source
+                or f"Final Output ({mode.capitalize()} Mode)"
+            )
         elif response_shell.overall_error:  # モード実行全体でエラーがあった場合
-            final_ai_response_content_for_db = f"処理中にエラーが発生しました: {response_shell.overall_error}"
+            final_ai_response_content_for_db = (
+                f"処理中にエラーが発生しました: {response_shell.overall_error}"
+            )
             final_ai_source_text_for_db = f"Error in {mode.capitalize()} Mode"
         else:  # 有効な応答も全体エラーもない場合
             final_ai_response_content_for_db = "AIから有効な応答がありませんでした。"
-            final_ai_source_text_for_db = f"No Valid Response in {mode.capitalize()} Mode"
+            final_ai_source_text_for_db = (
+                f"No Valid Response in {mode.capitalize()} Mode"
+            )
             # この場合、final_response_object_for_db は None のまま
 
         # DB保存処理 (この部分は以前の修正から流用・確認)
@@ -1449,42 +1914,53 @@ async def collaborative_answer_mode_endpoint(
                 role="ai",
                 content=final_ai_response_content_for_db,  # 整形済み断片リスト本体など
                 ai_model=final_ai_source_text_for_db,
-                user_id=None
+                user_id=None,
             )
             db.add(ai_message_db)
             active_session.updated_at = func.now()
-            active_session.status = 'complete'
+            active_session.status = "complete"
             db.add(active_session)  # 明示的なadd
             db.commit()
             db.refresh(ai_message_db)
             db.refresh(active_session)
-            logger.info(f"AIレスポンス保存成功: MsgID={ai_message_db.id}, SessionID={active_session.id}, Source='{final_ai_source_text_for_db}'")
+            logger.info(
+                f"AIレスポンス保存成功: MsgID={ai_message_db.id}, SessionID={active_session.id}, Source='{final_ai_source_text_for_db}'"
+            )
         elif response_shell.overall_error:
-            logger.info(f"AI処理でエラー発生のためDBへのAI応答保存をスキップ: {response_shell.overall_error}")
+            logger.info(
+                f"AI処理でエラー発生のためDBへのAI応答保存をスキップ: {response_shell.overall_error}"
+            )
             if active_session:  # セッションステータスだけは更新
-                active_session.status = 'error'
+                active_session.status = "error"
                 db.commit()
-                db.refresh(active_session) # refresh を追加
+                db.refresh(active_session)  # refresh を追加
         else:
-            logger.info(f"AIからの最終応答が見つからないか内容が空のためDBへのAI応答保存をスキップ: Mode='{mode}'")
+            logger.info(
+                f"AIからの最終応答が見つからないか内容が空のためDBへのAI応答保存をスキップ: Mode='{mode}'"
+            )
             if active_session:
-                active_session.status = 'complete_no_response'  # 例えば
+                active_session.status = "complete_no_response"  # 例えば
                 db.commit()
-                db.refresh(active_session) # refresh を追加
+                db.refresh(active_session)  # refresh を追加
 
     except ValueError as ve:
         error_message = f"モード '{mode}' の処理中にエラーが発生しました: {str(ve)}"
-        logger.info(f"ValueError in collaborative_answer_mode_endpoint: {error_message}")
+        logger.info(
+            f"ValueError in collaborative_answer_mode_endpoint: {error_message}"
+        )
         response_shell.overall_error = error_message
-        return response_shell # エラー時もレスポンスシェルを返す
+        return response_shell  # エラー時もレスポンスシェルを返す
 
-    except HTTPException as he: # FastAPIのHTTPExceptionを再raise
+    except HTTPException as he:  # FastAPIのHTTPExceptionを再raise
         raise he
     except Exception as e:
         import traceback
+
         error_trace = traceback.format_exc()
         error_message = f"予期せぬエラーが発生しました: {str(e)}"
-        logger.info(f"Unexpected Error in collaborative_answer_mode_endpoint: {error_message}\nTrace: {error_trace}")
+        logger.info(
+            f"Unexpected Error in collaborative_answer_mode_endpoint: {error_message}\nTrace: {error_trace}"
+        )
         # response_shell.overall_error = f"サーバー内部で予期せぬエラーが発生しました。" # ユーザーにはシンプルなエラーを
         # エラー内容をもう少し具体的にクライアントに返したい場合は調整
         response_shell.overall_error = f"サーバー処理中にエラーが発生しました: {str(e)}"
@@ -1495,7 +1971,11 @@ async def collaborative_answer_mode_endpoint(
 
     # --- 最終ステップ: ファイル出力処理 (もしあれば) ---
     # ユーザーの「最初の」プロンプト (ファイル処理前のもの) を解析
-    output_format_match = re.search(r"「(.+?)形式で出力」|「(.+?)として出力」|出力形式は\s*([a-zA-Z0-9]+)", original_prompt_from_user, re.IGNORECASE)
+    output_format_match = re.search(
+        r"「(.+?)形式で出力」|「(.+?)として出力」|出力形式は\s*([a-zA-Z0-9]+)",
+        original_prompt_from_user,
+        re.IGNORECASE,
+    )
     requested_output_format_str: Optional[str] = None
     if output_format_match:
         for group in output_format_match.groups():
@@ -1503,11 +1983,31 @@ async def collaborative_answer_mode_endpoint(
                 requested_output_format_str = group.strip().lower()
                 break
 
-    if requested_output_format_str and response_shell.step7_final_answer_v2_openai and response_shell.step7_final_answer_v2_openai.response:
-        final_ai_text_content_for_file = response_shell.step7_final_answer_v2_openai.response
+    if (
+        requested_output_format_str
+        and response_shell.step7_final_answer_v2_openai
+        and response_shell.step7_final_answer_v2_openai.response
+    ):
+        final_ai_text_content_for_file = (
+            response_shell.step7_final_answer_v2_openai.response
+        )
 
         # サポートするテキストベースの拡張子を定義
-        supported_text_extensions = ["txt", "md", "markdown", "json", "py", "html", "css", "js", "csv", "xml", "yaml", "yml", "log"]
+        supported_text_extensions = [
+            "txt",
+            "md",
+            "markdown",
+            "json",
+            "py",
+            "html",
+            "css",
+            "js",
+            "csv",
+            "xml",
+            "yaml",
+            "yml",
+            "log",
+        ]
         # より複雑な変換が必要な形式
         # supported_conversion_extensions = ["pdf", "docx"] # これらは別途変換処理が必要
 
@@ -1525,18 +2025,26 @@ async def collaborative_answer_mode_endpoint(
         if actual_extension in supported_text_extensions:
             try:
                 # 安全なファイル名 (セッションIDやタイムスタンプ、UUIDを含める)
-                session_prefix = f"s{active_session.id}_" if active_session and active_session.id else ""
+                session_prefix = (
+                    f"s{active_session.id}_"
+                    if active_session and active_session.id
+                    else ""
+                )
                 user_prefix = f"u{current_user.id}_"
                 unique_id = str(uuid.uuid4())[:8]
 
                 base_filename = f"{user_prefix}{session_prefix}output_{unique_id}"
                 output_filename_with_ext = f"{base_filename}.{actual_extension}"
-                full_output_path = os.path.join(GENERATED_FILES_DIR, output_filename_with_ext)
+                full_output_path = os.path.join(
+                    GENERATED_FILES_DIR, output_filename_with_ext
+                )
 
                 async with aiofiles.open(full_output_path, "w", encoding="utf-8") as f:
                     await f.write(final_ai_text_content_for_file)
 
-                response_shell.generated_download_url = f"/download_generated_file/{output_filename_with_ext}"
+                response_shell.generated_download_url = (
+                    f"/download_generated_file/{output_filename_with_ext}"
+                )
                 response_shell.generated_file_name = output_filename_with_ext
                 output_file_generated = True
                 logger.info(f"テキストファイル生成成功: {full_output_path}")
@@ -1548,378 +2056,74 @@ async def collaborative_answer_mode_endpoint(
                 # final_ai_response_content_for_db += success_output_message # DBにも保存する場合
 
             except Exception as e_file_write:
-                logger.info(f"ファイル「{output_filename_with_ext if 'output_filename_with_ext' in locals() else 'unknown'}」の書き出しに失敗: {e_file_write}")
+                logger.info(
+                    f"ファイル「{output_filename_with_ext if 'output_filename_with_ext' in locals() else 'unknown'}」の書き出しに失敗: {e_file_write}"
+                )
                 traceback.print_exc()
                 # final_ai_response_content_for_db にエラーメッセージを追記または response_shell.overall_error に設定
 
         elif actual_extension == "pdf" or actual_extension == "docx":
             try:
-                session_prefix = f"s{active_session.id}_" if active_session and active_session.id else ""
+                session_prefix = (
+                    f"s{active_session.id}_"
+                    if active_session and active_session.id
+                    else ""
+                )
                 user_prefix = f"u{current_user.id}_"
                 unique_id = str(uuid.uuid4())[:8]
-                base_filename_for_conversion = f"{user_prefix}{session_prefix}output_{unique_id}"
+                base_filename_for_conversion = (
+                    f"{user_prefix}{session_prefix}output_{unique_id}"
+                )
 
                 generated_file_full_path = await convert_markdown_to_format_with_pandoc(
                     markdown_content=final_ai_text_content_for_file,
                     output_filename_base=base_filename_for_conversion,
                     output_format=actual_extension,
-                    temp_dir=GENERATED_FILES_DIR
+                    temp_dir=GENERATED_FILES_DIR,
                 )
 
-                if generated_file_full_path and os.path.exists(generated_file_full_path):
+                if generated_file_full_path and os.path.exists(
+                    generated_file_full_path
+                ):
                     generated_filename_only = os.path.basename(generated_file_full_path)
-                    response_shell.generated_download_url = f"/download_generated_file/{generated_filename_only}"
+                    response_shell.generated_download_url = (
+                        f"/download_generated_file/{generated_filename_only}"
+                    )
                     response_shell.generated_file_name = generated_filename_only
                     output_file_generated = True
-                    logger.info(f"{actual_extension.upper()}ファイル生成成功: {generated_file_full_path}")
+                    logger.info(
+                        f"{actual_extension.upper()}ファイル生成成功: {generated_file_full_path}"
+                    )
                 else:
-                    logger.info(f"Pandocによる{actual_extension.upper()}ファイル生成に失敗しました。")
+                    logger.info(
+                        f"Pandocによる{actual_extension.upper()}ファイル生成に失敗しました。"
+                    )
 
             except Exception as e_conversion:
-                logger.info(f"{actual_extension.upper()}への変換処理中にエラー: {e_conversion}")
+                logger.info(
+                    f"{actual_extension.upper()}への変換処理中にエラー: {e_conversion}"
+                )
                 traceback.print_exc()
 
         if not output_file_generated:
             if response_shell.step7_final_answer_v2_openai:
-                response_shell.step7_final_answer_v2_openai.response = (response_shell.step7_final_answer_v2_openai.response or "") + unsupported_output_message
+                response_shell.step7_final_answer_v2_openai.response = (
+                    response_shell.step7_final_answer_v2_openai.response or ""
+                ) + unsupported_output_message
 
     logger.info(f"Endpoint (normal path) is about to return response_shell.")
     if response_shell:
-        logger.info(f"Final content of response_shell: {response_shell.model_dump_json(indent=2)}")
+        logger.info(
+            f"Final content of response_shell: {response_shell.model_dump_json(indent=2)}"
+        )
     else:
         # このパスには到達しないはずだが、万が一 response_shell が None になった場合のログ
         logger.info("Error: response_shell is None before returning from endpoint.")
         # 何らかのデフォルトエラーレスポンスを返すか、HTTPExceptionを発生させるべき
-        raise HTTPException(status_code=500, detail="サーバー内部エラー: レスポンスオブジェクトがnullです。")
-
-    return response_shell
-
-
-# --- 6段階超検索モード ---
-async def run_super_search_mode_flow(
-    original_prompt: str,
-    response_shell: schemas.CollaborativeResponseV2,
-    chat_history_for_ai: List[Dict[str, str]],
-    initial_user_prompt_for_session: Optional[str],
-    request: Request,
-    user_memories: Optional[List[schemas.UserMemoryResponse]] = None,
-    max_refinement_loops: int = 1
-) -> schemas.CollaborativeResponseV2:
-    logger.info("\n--- 新・超検索特化モード（ペイルの叡智）開始 ---")
-    response_shell.search_summary_text = None
-    response_shell.search_mode_warnings = {}
-    response_shell.step7_final_answer_v2_openai = None
-
-    current_chat_history_with_prompt = list(chat_history_for_ai) # コピー
-    current_chat_history_with_prompt.append({"role": "user", "content": original_prompt})
-
-    all_collected_fragments: List[schemas.IndividualAIResponse] = []
-    queries_to_process: List[str] = [original_prompt]
-    processed_queries: set[str] = set() # 無限ループ防止
-
-    try:
-        for loop_count in range(max_refinement_loops + 1): # 初期検索 + 再検索ループ
-            current_round_queries = [q for q in queries_to_process if q not in processed_queries]
-            if not current_round_queries:
-                logger.info(f"超検索モード ループ {loop_count + 1}: 新規クエリがないため終了。")
-                break
-
-            queries_to_process = [] # 次のラウンドのためにクリア
-            logger.info(f"超検索モード ループ {loop_count + 1}: 処理対象クエリ数 = {len(current_round_queries)}")
-
-            search_tasks = []
-            for query_to_search in current_round_queries:
-                processed_queries.add(query_to_search)
-                logger.info(f"  並列検索タスク準備中 (クエリ: {query_to_search[:50]}...)")
-
-                # Perplexity検索タスク (より詳細な情報を求めるプロンプト)
-                perplexity_prompt = (
-                    f"ユーザーの主要な関心事は「{original_prompt}」です。"
-                    f"現在調査中の具体的な観点は「{query_to_search}」です。"
-                    f"この観点について、ウェブ、ニュース、SNS投稿、レビュー、学術論文の抄録など、考えうるあらゆる情報源から、「可能な限り原文のまま、一切省略せずに」詳細な情報を収集してください。"
-                    f"各情報には、出典URL、発行日、著者/発信者名、コンテンツの種類（例：ニュース記事、SNS投稿、レビュー原文など）を必ず付記してください。"
-                    f"情報の網羅性と詳細度を最優先し、多様な視点からの情報を集めてください。"
-                )
-                search_tasks.append(
-                    get_perplexity_response(
-                        prompt_for_perplexity=perplexity_prompt,
-                        model="sonar-reasoning-pro",
-                        user_memories=user_memories,
-                        initial_user_prompt=initial_user_prompt_for_session,
-                    )
-                )
-
-                # (オプション) Gemini Web Search など他の検索APIタスクも追加
-                # gemini_web_search_prompt = f"「{query_to_search}」に関する最新かつ多様な情報をウェブから収集し、それぞれの情報源（URL、サイト名、日付など）と共に詳細をリストアップしてください。要約は不要です。"
-                # search_tasks.append(get_gemini_response(prompt_text=gemini_web_search_prompt, system_instruction="PALEAI_SEARCH_FORMATTING_TASK_MARKER\nWeb情報収集専門AI", model_name="gemini-pro")) # Geminiの検索に適したモデル
-
-            if not search_tasks:
-                if loop_count == 0 and not all_collected_fragments:
-                    response_shell.overall_error = "超検索モード：初期クエリで検索タスクを生成できませんでした。"
-                    return response_shell
-                else:
-                    logger.info("超検索モード：これ以上処理する新規クエリがありません。")
-                    break
-
-            logger.info(f"  {len(search_tasks)}件の並列検索タスクを実行します...")
-            search_results_raw = await asyncio.gather(*search_tasks, return_exceptions=True)
-            logger.info(f"  並列検索タスク完了。結果数: {len(search_results_raw)}")
-
-            # 並列検索結果を整理して all_collected_fragments に追加
-            query_idx_for_tasks = 0 # search_tasksとsearch_results_rawの対応を取るため
-            for raw_res in search_results_raw:
-                # current_round_queriesのどのクエリに対応する結果かを特定する必要がある
-                # 簡単のため、タスク作成順と結果の順が一致すると仮定
-                original_search_query = current_round_queries[query_idx_for_tasks] if query_idx_for_tasks < len(current_round_queries) else "不明なクエリ"
-                query_idx_for_tasks += 1
-
-                frag_to_add = None
-                if isinstance(raw_res, Exception):
-                    logger.info(f"  並列検索中にエラー (クエリ: {original_search_query}): {raw_res}")
-                    frag_to_add = schemas.IndividualAIResponse(
-                        source=f"並列検索エラー ({original_search_query[:20]}...)", query=original_search_query, error=str(raw_res)
-                    )
-                elif isinstance(raw_res, schemas.IndividualAIResponse):
-                    # ここでPerplexity等のAPI応答からメタデータ（URL、日付、著者など）を抽出・設定する
-                    # この例では簡略化し、応答テキストとリンクのみを扱う
-                    frag_to_add = schemas.IndividualAIResponse(
-                        source=raw_res.source or "不明な検索ソース",
-                        response=raw_res.response,
-                        links=raw_res.links,
-                        error=raw_res.error,
-                        query=original_search_query,
-                        intent=f"超検索 ループ{loop_count+1}",
-                        source_url=raw_res.links[0] if raw_res.links else None, # 代表URL (仮)
-                        # published_date, author, content_type はAPI応答のパースが必要
-                    )
-                else:
-                    frag_to_add = schemas.IndividualAIResponse(
-                        source="不明な検索結果型", query=original_search_query, error=f"予期しない型: {type(raw_res)}"
-                    )
-
-                if frag_to_add:
-                    all_collected_fragments.append(frag_to_add)
-
-            # --- ステップ2 (ループ内): 不足論点/矛盾/信頼性等を分析し、次のクエリ候補を生成 ---
-            if loop_count < max_refinement_loops: # 最終ループでは不足観点抽出は不要
-                logger.info(f"\n超検索モード ループ {loop_count + 1} - 分析と次クエリ生成中...")
-                current_all_info_text = ""
-                for idx, frag in enumerate(all_collected_fragments):
-                    if frag.response:
-                        frag_header = f"--- 情報断片 {idx+1} (ソース: {frag.source}, クエリ: {frag.query or 'N/A'}) ---\n"
-                        current_all_info_text += f"{frag_header}{frag.response}\n"
-                        if frag.source_url: current_all_info_text += f"  URL: {frag.source_url}\n"
-                        if frag.published_date: current_all_info_text += f"  日付: {frag.published_date}\n"
-                        current_all_info_text += "\n"
-
-                if not current_all_info_text.strip():
-                    logger.info("  収集情報が空のため、分析と次クエリ生成をスキップ。")
-                else:
-                    analysis_system_prompt = ( # キャラ口調なし
-                        "PALEAI_SEARCH_FORMATTING_TASK_MARKER\n"
-                        "あなたは高度な情報分析AIです。複数の情報源から得られた複雑な情報を比較検討し、その情報の完全性、一貫性、信頼性、客観性を評価する専門家です。\n"
-                        "あなたの主なタスクは、以下の通りです。\n"
-                        "1.  **不足している論点や情報**: まだカバーされていない重要な側面や、さらに深掘りすべき具体的なトピックを特定し、それらを新しい検索クエリとして使える形で【3つ以内、各20字程度で】提案してください。\n"
-                        "2.  **情報間の矛盾や食い違い**: 異なる情報源間で明確に矛盾している点があれば、具体的に指摘してください。（出力に含める）\n"
-                        "3.  **信頼性に疑問がある情報**: 情報源の信憑性が低い、データが古い、客観性に欠けるなど、信頼性に懸念がある情報があれば指摘してください。（出力に含める）\n"
-                        "4.  **潜在的なバイアス**: 特定の意見に偏っている、一方的な視点のみが提示されているなど、バイアスが疑われる箇所があれば指摘してください。（出力に含める）\n"
-                        "5.  **要再検証・最新情報確認が必要な観点**: 時間経過により情報が変化している可能性が高いトピックや、最新の動向を確認すべき点を挙げてください。（出力に含める）\n"
-                        "出力は、まず「新たな検索クエリ候補：」として1で提案されたクエリリストを提示し、その後「分析結果と指摘事項：」として2～5の分析結果を記述してください。"
-                    )
-                    analysis_user_prompt = (
-                        f"ユーザーの主要な関心事は「{original_prompt}」です。\n"
-                        f"以下は、これまでに収集された関連情報群です。\n\n"
-                        f"--- 収集情報全体 ---\n{current_all_info_text.strip()}\n--- 収集情報全体ここまで ---\n\n"
-                        f"上記のシステム指示に従い、この全情報を徹底的に分析し、新たな検索クエリ候補と、その他の分析結果・指摘事項を提示してください。"
-                    )
-                    # Claude Opus または GPT-4 Turbo/GPT-4o が適任
-                    analysis_res = await get_claude_response(
-                        prompt_text=analysis_user_prompt,
-                        system_instruction=analysis_system_prompt,
-                        model="claude-opus-4-20250514",
-                        initial_user_prompt=initial_user_prompt_for_session,
-                        user_memories=user_memories,
-                    )
-
-                    if analysis_res.response:
-                        # 分析結果全体を一時的な断片として保存
-                        all_collected_fragments.append(schemas.IndividualAIResponse(
-                            source="Claude/GPT 情報分析・評価", response=analysis_res.response, intent="情報分析と次クエリ候補"
-                        ))
-                        # 分析結果から新しいクエリ候補を抽出 (AIの出力形式に依存)
-                        # 例: "新たな検索クエリ候補：" の後に続く行から抽出
-                        # ここでは簡易的に、応答全体からキーワードらしきものを抽出する。実際のパースはAIの出力形式に合わせること。
-                        raw_queries_section = ""
-                        if "新たな検索クエリ候補：" in analysis_res.response:
-                            raw_queries_section = analysis_res.response.split("新たな検索クエリ候補：", 1)[1].split("分析結果と指摘事項：", 1)[0]
-
-                        for line in raw_queries_section.splitlines():
-                            clean_query = line.strip().lstrip("-・* ").rstrip("?")
-                            if clean_query and len(clean_query) > 3 and len(clean_query) < 50 and clean_query not in processed_queries:
-                                if len(queries_to_process) < 3: # 次のラウンドのクエリ数を制限
-                                    queries_to_process.append(clean_query)
-                        logger.info(f"  次のループで処理する新規クエリ候補: {queries_to_process}")
-                    if analysis_res.error:
-                        logger.info(f"  情報分析・評価ステップでエラー: {analysis_res.error}")
-                        all_collected_fragments.append(schemas.IndividualAIResponse(
-                            source="Claude/GPT 情報分析・評価エラー", error=analysis_res.error
-                        ))
-
-            if not queries_to_process and loop_count < max_refinement_loops : # 次のクエリがないが、まだループが残っている場合
-                logger.info("次の検索クエリ候補が見つかりませんでした。ループを早期終了します。")
-                break
-
-
-        # Webスクレイピングや論文API、SNS APIの自動活用 (このフェーズは高度な実装が必要なため、今回は概念のみ)
-        # if loop_count > 0 : # 例えば2ループ目以降で検討
-        #    logger.info("  (概念) Webスクレイピング、論文API、SNS APIの活用を検討...")
-        #    # 特定のURLが見つかればスクレイピング、キーワードで論文検索など
-
-        # --- ループ終了後: 全取得情報を最終的に整形・分類 ---
-        logger.info("\n超検索特化モード: 全情報の最終整形・分類中...")
-        if not any(f.response for f in all_collected_fragments):
-            response_shell.overall_error = "超検索モードで情報が収集できませんでした。"
-            response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-                source="SuperSearch Orchestrator", error="情報収集ステップで有効な結果が得られませんでした。"
-            )
-            response_shell.search_fragments = all_collected_fragments
-            return response_shell
-
-        final_all_fragments_text_for_formatting = ""
-        for idx, frag in enumerate(all_collected_fragments):
-            # if frag.response: # 有効な応答のみ整形対象とする (分析結果なども含む)
-            frag_header = (
-                f"--- 情報断片 {idx+1}: (ソース: {frag.source}) ---\n"
-                f"  元クエリ: {frag.query or 'N/A'}\n"
-                f"  意図/種類: {frag.intent or 'N/A'}\n"
-            )
-            frag_content = frag.response or frag.error or "内容なし"
-            frag_metadata_lines = []
-            if frag.source_url: frag_metadata_lines.append(f"  - 出典URL: {frag.source_url}")
-            if frag.published_date: frag_metadata_lines.append(f"  - 発行日: {frag.published_date}")
-            if frag.author: frag_metadata_lines.append(f"  - 著者/発信者: {frag.author}")
-            if frag.content_type: frag_metadata_lines.append(f"  - コンテンツ種類: {frag.content_type}")
-            # 信頼性・バイアスラベル (もしあれば)
-            if frag.reliability_label: frag_metadata_lines.append(f"  - 信頼性評価(仮): {frag.reliability_label}")
-            if frag.bias_label: frag_metadata_lines.append(f"  - バイアス評価(仮): {frag.bias_label}")
-            if frag.issues_detected: frag_metadata_lines.append(f"  - 指摘事項: {', '.join(frag.issues_detected)}")
-
-            frag_links_text = "\n".join([f"  - 関連リンク: {link}" for link in frag.links]) if frag.links and not frag.source_url else ""
-
-            final_all_fragments_text_for_formatting += f"{frag_header}{frag_content}\n"
-            if frag_metadata_lines: final_all_fragments_text_for_formatting += "\n".join(frag_metadata_lines) + "\n"
-            if frag_links_text: final_all_fragments_text_for_formatting += frag_links_text + "\n"
-            final_all_fragments_text_for_formatting += "\n\n"
-
-        if not final_all_fragments_text_for_formatting.strip():
-            response_shell.overall_error = "超検索モード：最終整形対象となる有効な情報がありませんでした。"
-            response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(source="SuperSearch Orchestrator", error="整形対象情報なし")
-            response_shell.search_fragments = all_collected_fragments
-            return response_shell
-
-        final_formatting_system_prompt = (
-            "PALEAI_SEARCH_FORMATTING_TASK_MARKER\n"
-            "あなたは、提供された膨大な量の情報断片とAIによる分析結果を、ユーザーが詳細に理解できるよう整理・構造化する、最高位のAIリサーチアナリスト兼編集長です。\n"
-            "あなたの使命は、以下の指示に厳密に従って、包括的で詳細な情報レポートを作成することです。\n"
-            "1. **情報の完全なインライン展開と構造化**: 提供された全ての情報断片（原文抜粋、URL、日付、発信者、SNS投稿、レビュー本文、AIによる分析コメントなど）について、その**内容全文を一切省略・圧縮・要約することなく、そのままの形で**レポートに含めてください。「内容: (上記に全文掲載済み)」のような参照形式は使用せず、全てのテキストをインラインで展開してください。\n"
-            "2. **多次元的な分類とメタデータ**: 各情報断片を、以下の観点に基づいて多次元的に分類し、それぞれの情報を明記してください。\n"
-            "    - **情報源**: (例: PerplexityAI 初期検索結果, Claude 情報分析・評価, PerplexityAI 追加検索結果(クエリ:XXX) など、入力で提供されたソース名)\n"
-            "    - **元の検索クエリ**: (もしあれば)\n"
-            "    - **収集意図/種類**: (もしあれば)\n"
-            "    - **出典URL**: (もしあれば、必ず記載)\n"
-            "    - **発行日/投稿日**: (もしあれば、必ず記載)\n"
-            "    - **著者/発信者**: (もしあれば、必ず記載)\n"
-            "    - **コンテンツの種類**: (例: ニュース記事、学術論文抄録、SNS投稿、製品レビュー、ウェブページ、AI分析コメントなど)\n"
-            "    - **信頼性・バイアス等 (AI分析結果より)**: (もしあれば、例: 「信頼性: 高」「バイアス: 肯定的意見に偏り」「指摘事項: 要追加検証」など、AI分析ステップで付与されたラベルやコメントをそのまま引用または要約して記載)\n"
-            "    - **主要トピック/サブトピック**: (内容に基づいて適切にグルーピング)\n"
-            "    - **時系列**: (可能な範囲で、発行日やイベント発生順など)\n"
-            "    - **意見の傾向**: (意見が含まれる情報の場合、肯定的/否定的/中立的など)\n"
-            "   これらの情報を各断片に付随させ、全体を論理的かつ視覚的に分かりやすい構造（例: 大見出し、中見出し、箇条書き、表などを適切に活用）で提示してください。\n"
-            "3. **解釈の排除**: あなた自身の解釈、意見、追加情報は一切含めず、客観的な情報の整理と構造化された提示に徹してください。\n"
-            "4. **最終サマリーと留意点の生成**: 全ての構造化された情報断片を提示した後、**必ず最後に**「【最終サマリーと留意点】」という見出しを付け、その後に2～3段落程度の総合的な概要（収集された情報の主要なポイント、多様な視点、特筆すべき傾向など）と、情報全体の信頼性やバイアスに関する一般的な注意点（AI分析結果や収集情報全体から判断される留意事項など）を記述してください。この部分以外では、絶対に情報を要約したり、個人的な意見を述べたりしないでください。\n"
-            "出力は、まず構造化・分類された情報断片の完全なリスト（内容全文とメタデータを含む）、その次に「【最終サマリーと留意点】」とそれに続く記述、という形式にしてください。"
+        raise HTTPException(
+            status_code=500,
+            detail="サーバー内部エラー: レスポンスオブジェクトがnullです。",
         )
-        final_formatting_user_prompt = (
-            f"ユーザーの元の主要な関心事は「{original_prompt}」です。\n"
-            f"以下に、この関心事について多角的に収集・分析された膨大な量の情報断片群があります。\n\n"
-            f"--- 全情報断片・分析結果ここから ---\n{final_all_fragments_text_for_formatting.strip()}\n--- 全情報断片・分析結果ここまで ---\n\n"
-            f"上記のシステム指示に厳密に従い、これらの全情報を一切省略・要約せず、多次元的に分類・整形し、提示してください。"
-            f"特に、各情報源のURL、発行日、発信者といったメタ情報は可能な限り保持し、表示してください。"
-            f"最後に2～3段落の「最終サマリーと留意点」だけを「【最終サマリーと留意点】」という見出しで付与してください。"
-        )
-
-        # GPT-4o や Claude Opus, Gemini 1.5 Pro など高性能モデル推奨
-        final_formatting_res = await get_gemini_response(
-            request=request,
-            prompt_text=final_formatting_user_prompt,
-            system_instruction=final_formatting_system_prompt,
-            model_name="gemini-2.5-pro-preview-05-06",
-            initial_user_prompt=initial_user_prompt_for_session,
-            user_memories=user_memories,
-        )
-
-        if final_formatting_res.response:
-            summary_marker_super = "【最終サマリーと留意点】"
-            formatted_super_fragments_display = final_formatting_res.response
-            super_summary_text = "（AIによる自動最終サマリーと留意点はありませんでした）" # デフォルト
-    
-            # 信頼性・バイアス警告の抽出 (簡易的な例、AIの出力形式に依存)
-            extracted_warnings = {}
-            # 例えば、整形済み応答から特定のキーワードで始まるセクションを探すなど
-            # if "信頼性に関する警告：" in formatted_super_fragments_display:
-            #     extracted_warnings["reliability"] = formatted_super_fragments_display.split("信頼性に関する警告：",1)[1].split("\n\n",1)[0]
-            # if "バイアスに関する指摘：" in formatted_super_fragments_display:
-            #     extracted_warnings["bias"] = formatted_super_fragments_display.split("バイアスに関する指摘：",1)[1].split("\n\n",1)[0]
-            # response_shell.search_mode_warnings = extracted_warnings
-    
-            if summary_marker_super in formatted_super_fragments_display:
-                parts = formatted_super_fragments_display.split(summary_marker_super, 1)
-                formatted_super_fragments_display = parts[0].strip()
-                if len(parts) > 1 and parts[1].strip():
-                    super_summary_text = parts[1].strip()
-                else:
-                    super_summary_text = "最終サマリーと留意点部分が空でした。"
-            else:
-                logger.info(f"警告: 超検索の最終整形結果に{summary_marker_super}マーカーが見つかりませんでした。")
-    
-            response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-                source="超検索 最終整形結果 (Gemini/GPT-4o/Claude Opus)",
-                response=formatted_super_fragments_display, # 分類・整形された断片情報リスト本体
-                query=original_prompt,
-                intent="超検索 全情報整形済みリスト"
-            )
-            response_shell.search_summary_text = super_summary_text # 分離したまとめと留意点
-        else:
-                response_shell.overall_error = "超検索モードの最終的な情報の整形・分類に失敗しました。"
-                response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-                    source="SuperSearch Orchestrator", error=f"超検索最終整形ステップでエラー: {final_formatting_res.error or '応答なし'}"
-                )
-    
-                response_shell.search_fragments = all_collected_fragments  # 生の断片情報もレスポンスに含める
-                logger.info("--- 新・超検索特化モード（ペイルの叡智）終了 ---")
-
-    except ValueError as ve:
-        error_message = f"超検索特化モードの処理中にエラー: {str(ve)}"
-        logger.info(error_message)
-        response_shell.overall_error = error_message
-        response_shell.search_fragments = all_collected_fragments
-        if not response_shell.step7_final_answer_v2_openai:
-            response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-                source="SuperSearch Error", error=str(ve)
-            )
-    except Exception as e:
-        import traceback
-        error_trace = traceback.format_exc()
-        error_message = f"超検索特化モードで予期せぬエラー: {str(e)}"
-        logger.info(f"{error_message}\nTrace: {error_trace}")
-        response_shell.overall_error = "サーバー内部で予期せぬエラーが発生しました（超検索）。"
-        response_shell.search_fragments = all_collected_fragments
-        if not response_shell.step7_final_answer_v2_openai:
-            response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-                source="SuperSearch Unexpected Error", error=str(e)
-            )
-
-        return response_shell
 
     return response_shell
 
@@ -1946,17 +2150,152 @@ async def run_balance_mode_flow(
         request=request,
     )
     logger.info("--- ハイクオリティモード終了 ---")
-    logger.info(f"run_balance_mode_flow が返却する response_shell の内容 (JSON): {res.model_dump_json(indent=2) if res else None}")
+    logger.info(
+        f"run_balance_mode_flow が返却する response_shell の内容 (JSON): {res.model_dump_json(indent=2) if res else None}"
+    )
     return res
 
+
+async def run_super_search_mode_flow(
+    original_prompt: str,
+    response_shell: schemas.CollaborativeResponseV2,
+    chat_history_for_ai: List[Dict[str, str]],
+    initial_user_prompt_for_session: Optional[str],
+    request: Request,
+    user_memories: Optional[List[schemas.UserMemoryResponse]] = None,
+) -> schemas.CollaborativeResponseV2:
+    """Five-step Perplexity search with final Claude summary."""
+    perplexity_client = request.app.state.perplexity_sync_client
+    claude_client = request.app.state.anthropic_client
+    if not perplexity_client or not claude_client:
+        response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
+            source="SuperSearch",
+            error="必要なAIクライアントが初期化されていません。",
+        )
+        return response_shell
+
+    from datetime import datetime
+
+    current_dt = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+    def dedup_lines(text: str) -> str:
+        seen = set()
+        lines = []
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped and stripped not in seen:
+                lines.append(line)
+                seen.add(stripped)
+        return "\n".join(lines)
+
+    results: List[str] = []
+    summaries: List[str] = []
+
+    for step in range(5):
+        if step == 0:
+            prompt = (
+                f"{current_dt} 時点での最新情報を調査してください。以下のテーマについて、1000文字以上の密度ある回答を作成してください：\n\n"
+                f"「{original_prompt}」\n\n"
+                "この出力を作成する前に、必ず以下を厳守してください：\n"
+                "1. ユーザーメモリ（User Memory）を全て参照し、重要な指示・要望があれば反映してください（ただし、プロンプト内容を最優先）。\n"
+                "2. それまでのチャット履歴全体を読み込み、会話の流れや一貫性、話の背景、過去に触れた話題を確認してください。\n"
+                "3. トークン制限は無視して構いません。1000文字未満の出力は認められません。"
+            )
+        else:
+            summary_lines = "\n".join(
+                [f"- 要約{i+1}：{summaries[i][:300]}..." for i in range(step)]
+            )
+            prompt = (
+                f"{current_dt} 時点での最新情報を再調査してください。\n\n"
+                f"対象テーマ：「{original_prompt}」\n\n"
+                "前回までに得られた情報（重複禁止）：\n" + summary_lines + "\n\n"
+                "今回のタスク：\n"
+                "- 上記の要約と重複しない新しい観点・角度・情報源から、最低1000文字以上の新たな回答を出力してください。\n"
+                "- 視点が異なる専門領域、実例、地理的差異、時系列変化、統計、法規制、社会的論争などからアプローチして構いません。\n"
+                "- 単なる言い換えや抽象化ではなく、具体的な追加情報や文脈の広がりを含めてください。\n\n"
+                "必ず以下を実施：\n"
+                "1. ユーザーメモリ（User Memory）全体を読み取り、使えそうな情報があれば反映。\n"
+                "2. チャット履歴を全読破し、文脈や目的意識を保ち、一貫性のある内容に。\n"
+                "3. 出力は必ず1000文字以上。満たさない場合は再度新しい観点で再検索してください。"
+            )
+
+        res = await get_perplexity_response(
+            prompt_for_perplexity=prompt,
+            model="sonar-reasoning-pro",
+            user_memories=user_memories,
+            initial_user_prompt=initial_user_prompt_for_session,
+        )
+        text = res.response or ""
+        text = dedup_lines(text)
+        tries = 0
+        while len(text) < 1000 and not res.error and tries < 2:
+            extra = await get_perplexity_response(
+                prompt_for_perplexity=(
+                    "前回の情報と重複しない新しい観点から、さらに詳しく1000文字以上で説明してください:\n"
+                    + prompt
+                ),
+                model="sonar-reasoning-pro",
+                user_memories=user_memories,
+                initial_user_prompt=initial_user_prompt_for_session,
+            )
+            if extra.response:
+                text += "\n" + extra.response
+                text = dedup_lines(text)
+            tries += 1
+
+        results.append(text)
+        summaries.append(text[:500])
+
+    summary_prompt = (
+        "以下に、5段階に分けて収集した情報があります。\nこれらを1つの統一された読みやすく魅力的な日本語文章にまとめてください。\n\n"
+        "【絶対条件】\n"
+        "- 出力は5000文字以上でなければなりません。\n"
+        "- 内容は削除せず、むしろ適度に補足しながら流れを整えてください。\n"
+        "- 読者の興味を引く構成（導入→展開→結論）で、話題の全体像を掴めるようにしてください。\n"
+        "- 論点が散らばらないよう、全体構成を練ってください。\n\n"
+        "【使用する情報（5つの視点）】\n---\n①："
+        + results[0]
+        + "\n---\n②："
+        + results[1]
+        + "\n---\n③："
+        + results[2]
+        + "\n---\n④："
+        + results[3]
+        + "\n---\n⑤："
+        + results[4]
+        + "\n---\n\n"
+        "【開始前に必ず実行すること】\n"
+        "1. ユーザーメモリ（User Memory）全体を精読し、内容に反映可能な情報があれば自然な形で取り入れてください。\n"
+        "2. チャット履歴全体を全読破し、文脈、トーン、一貫性、以前の議論と矛盾しないよう注意してください。\n"
+        "3. トークン制限や処理時間は一切考慮せず、最高の内容品質を最優先としてください。"
+    )
+
+    summary_res = await get_claude_response(
+        prompt_text=summary_prompt,
+        system_instruction=initial_user_prompt_for_session or "",
+        model="claude-opus-4-20250514",
+        chat_history=chat_history_for_ai,
+        initial_user_prompt=initial_user_prompt_for_session,
+        user_memories=user_memories,
+    )
+
+    response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
+        source="Claude (claude-opus-4-20250514)",
+        response=summary_res.response,
+        error=summary_res.error,
+    )
+    return response_shell
 
 
 import re
 
+
 def format_code_mode_output(code: str, explanation: str, tests: str) -> str:
     # コード部分の前後に余計な```がないか除去（AI出力にはよく含まれる）
     code_clean = re.sub(r"^```[a-z]*\n?|\n?```$", "", code.strip(), flags=re.IGNORECASE)
-    tests_clean = re.sub(r"^```[a-z]*\n?|\n?```$", "", tests.strip(), flags=re.IGNORECASE)
+    tests_clean = re.sub(
+        r"^```[a-z]*\n?|\n?```$", "", tests.strip(), flags=re.IGNORECASE
+    )
     explanation_clean = explanation.strip()
 
     return (
@@ -1974,262 +2313,6 @@ def format_code_mode_output(code: str, explanation: str, tests: str) -> str:
     )
 
 
-
-
-
-async def run_search_mode_flow(
-    original_prompt: str,
-    response_shell: schemas.CollaborativeResponseV2,
-    chat_history_for_ai: List[Dict[str, str]],
-    user_memories: Optional[List[schemas.UserMemoryResponse]],
-    request: Request,
-    initial_user_prompt_for_session: Optional[str] = None
-) -> schemas.CollaborativeResponseV2:
-    logger.info("\n--- 新・検索特化モード（ペイルの知恵）開始 ---")
-    # response_shell.search_fragments は [] で初期化されている想定 (pydanticのdefault_factory)
-    response_shell.search_summary_text = None # 初期化
-    response_shell.step7_final_answer_v2_openai = None # 初期化
-
-    # このターンでAIに渡す完全な会話履歴 (モードフロー内で必要に応じて使用)
-    current_chat_history_with_prompt = list(chat_history_for_ai) # コピー
-    current_chat_history_with_prompt.append({"role": "user", "content": original_prompt})
-
-    collected_fragments: List[schemas.IndividualAIResponse] = []
-
-    try:
-        # --- ステップ1: 最初のクエリでPerplexity検索 ---
-        logger.info("検索特化モード ステップ1: Perplexityによる初期検索中...")
-        perplexity_initial_prompt = (
-            f"ユーザーリクエスト「{original_prompt}」について、関連する情報を幅広く検索してください。\n"
-            f"特に、ウェブページ、ニュース記事、SNS投稿、レビュー、学術論文の要旨など、多様な情報源からの情報を探してください。\n"
-            f"見つかった各情報については、「可能な限り原文のまま、一切省略せずに」その内容をリストアップしてください。\n"
-            f"さらに、各情報には、取得可能な範囲で「出典URL」「発行日」「著者名」「コンテンツの種類（例：ニュース記事、SNS投稿など）」を必ず付記してください。\n"
-            f"情報の質と量を重視し、詳細なデータ収集を目的とします。"
-        )
-        step1_res_perplexity = await get_perplexity_response(
-            prompt_for_perplexity=perplexity_initial_prompt,
-            model="sonar-reasoning-pro"
-        )
-        if step1_res_perplexity.response:
-            # Perplexityの応答をパースしてメタデータを付与する処理が必要 (ここでは簡略化)
-            # 実際のPerplexity APIの応答形式に合わせてパース処理を実装してください。
-            # 以下は仮のメタデータ付与です。
-            collected_fragments.append(schemas.IndividualAIResponse(
-                source="Perplexity 初期検索",
-                response=step1_res_perplexity.response,
-                links=step1_res_perplexity.links,
-                query=original_prompt,
-                intent="初期情報収集",
-                source_url=step1_res_perplexity.links[0] if step1_res_perplexity.links else None,
-                content_type="search_result_summary", # Perplexityは多様なソースを返す
-                # published_date, author などもAPI応答から抽出できれば設定
-            ))
-        if step1_res_perplexity.error:
-            logger.info(f"ステップ1 Perplexity検索エラー: {step1_res_perplexity.error}")
-            collected_fragments.append(schemas.IndividualAIResponse(
-                source="Perplexity 初期検索エラー", error=step1_res_perplexity.error, query=original_prompt
-            ))
-
-        # --- ステップ2: Claude（またはGPT-4）で“抜けている観点”を自動抽出 ---
-        logger.info("\n検索特化モード ステップ2: 不足観点の抽出中...")
-        missing_aspects_list: List[str] = []
-        if not collected_fragments or not collected_fragments[-1].response:
-            logger.info("ステップ1の検索結果がないため、不足観点抽出をスキップします。")
-        else:
-            initial_search_results_text = "\n\n".join([f.response for f in collected_fragments if f.response])
-
-            missing_aspects_system_prompt = ( # キャラ口調なし、検索モード専用マーカー付与
-                "PALEAI_SEARCH_FORMATTING_TASK_MARKER\n" # このマーカーでAIヘルパー側でキャラ口調を抑制
-                "あなたは、与えられた情報群を分析し、まだ触れられていない重要な論点、深掘りすべき追加情報、あるいは異なる視点を的確に見つけ出す専門家です。\n"
-                "提案する観点は、次の検索ステップで具体的な検索クエリとして使用できるような、簡潔かつ明確な言葉で表現してください。\n"
-                "出力は、提案される検索クエリのリストのみとし、各クエリは20字程度に収め、最大で5つまでとしてください。説明や前置きは一切不要です。"
-            )
-            missing_aspects_user_prompt_claude = (
-                f"ユーザーの当初のリクエストは「{original_prompt}」です。\n"
-                f"以下に、このリクエストに対する初期検索で得られた情報群を示します。\n\n"
-                f"--- 初期検索結果群 ---\n{initial_search_results_text}\n--- 初期検索結果群ここまで ---\n\n"
-                f"これらの情報を踏まえ、ユーザーがさらに知りたいであろう「まだカバーされていない重要な論点」や「深掘りすべき追加のキーワードや質問」を、"
-                f"具体的な検索クエリとしてリスト形式で提案してください。提案は最大5つまで、各20字程度でお願いします。リスト以外の説明文は不要です。"
-            )
-            step2_res_claude = await get_claude_response( # または get_openai_response
-                prompt_text=missing_aspects_user_prompt_claude,
-                system_instruction=missing_aspects_system_prompt, # 専用システムプロンプト
-                model="claude-opus-4-20250514", # Opusより高速・安価なモデルで十分な場合も
-                # chat_history=current_chat_history_with_prompt, # 必要に応じて文脈として渡す
-                initial_user_prompt=initial_user_prompt_for_session
-            )
-            if step2_res_claude.response:
-                collected_fragments.append(schemas.IndividualAIResponse(
-                    source="Claude 不足観点抽出", response=step2_res_claude.response, intent="不足観点リスト"
-                ))
-                # クエリリストをパース (AIの出力形式に依存するため、適宜調整が必要)
-                missing_aspects_list = [q.strip().lstrip("-・* ").rstrip("?") for q in step2_res_claude.response.splitlines() if q.strip() and len(q.strip()) > 3] # 簡単なフィルタ
-            if step2_res_claude.error:
-                logger.info(f"ステップ2 不足観点抽出エラー: {step2_res_claude.error}")
-                collected_fragments.append(schemas.IndividualAIResponse(
-                    source="Claude 不足観点抽出エラー", error=step2_res_claude.error
-                ))
-
-        # --- ステップ3: 抜け観点ごとに再びPerplexity（またはGemini Web/News）で深掘り追加検索 ---
-        logger.info(f"\n検索特化モード ステップ3: {len(missing_aspects_list)}件の不足観点で追加検索中...")
-        for i, aspect_query in enumerate(missing_aspects_list):
-            if not aspect_query: continue
-            logger.info(f"  追加検索 {i+1}/{len(missing_aspects_list)}: 「{aspect_query}」")
-            perplexity_followup_prompt = (
-                f"ユーザーの当初のリクエストは「{original_prompt}」でした。\n"
-                f"それに関連する深掘り観点として「{aspect_query}」が特定されました。\n"
-                f"この「{aspect_query}」について、関連情報を幅広く検索し、ウェブページ、ニュース記事、SNS投稿、レビュー、論文の要旨など、見つかった情報を「可能な限り原文のまま、省略せずに」リストアップしてください。\n"
-                f"各情報には、出典URL、発行日、著者名、コンテンツの種類を可能な限り付記してください。"
-            )
-            # Perplexityを使うが、GeminiのWeb検索機能や他の検索APIも検討可能
-            step3_sub_res_perplexity = await get_perplexity_response(
-                prompt_for_perplexity=perplexity_followup_prompt, model="sonar-reasoning-pro"
-            )
-            if step3_sub_res_perplexity.response:
-                collected_fragments.append(schemas.IndividualAIResponse(
-                    source=f"Perplexity 追加検索 ({aspect_query[:20]}...)",
-                    response=step3_sub_res_perplexity.response,
-                    links=step3_sub_res_perplexity.links,
-                    query=aspect_query,
-                    intent=f"深掘り ({aspect_query[:20]}...)",
-                    source_url=step3_sub_res_perplexity.links[0] if step3_sub_res_perplexity.links else None,
-                    content_type="search_result_summary_followup"
-                    # published_date, author などもAPI応答から抽出できれば設定
-                ))
-            if step3_sub_res_perplexity.error:
-                logger.info(f"  追加検索「{aspect_query}」エラー: {step3_sub_res_perplexity.error}")
-                collected_fragments.append(schemas.IndividualAIResponse(
-                    source=f"Perplexity 追加検索エラー ({aspect_query[:20]}...)",
-                    error=step3_sub_res_perplexity.error, query=aspect_query
-                ))
-
-        # --- ステップ4: 全取得情報をまとめて、Gemini AdvancedまたはGPT-4に成形・分類だけさせる ---
-        logger.info("\n検索特化モード ステップ4: 全情報の整形・分類中...")
-        if not any(f.response for f in collected_fragments): # 有効な情報断片がない場合
-            response_shell.overall_error = "検索結果がありませんでした。"
-            response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-                source="Search Mode Orchestrator", error="情報収集ステップで有効な結果が得られませんでした。"
-            )
-            response_shell.search_fragments = collected_fragments # エラー情報だけでも返す
-            return response_shell
-
-        all_fragments_text_for_formatting = ""
-        for idx, frag in enumerate(collected_fragments):
-            if frag.response: # 有効な応答のみを整形対象とする
-                frag_header = f"--- 情報断片 {idx+1}: (ソース: {frag.source}, クエリ: {frag.query or 'N/A'}, 意図: {frag.intent or 'N/A'}) ---\n"
-                frag_content = frag.response
-                frag_metadata_lines = []
-                if frag.source_url: frag_metadata_lines.append(f"  - 出典URL: {frag.source_url}")
-                if frag.published_date: frag_metadata_lines.append(f"  - 発行日: {frag.published_date}")
-                if frag.author: frag_metadata_lines.append(f"  - 著者/発信者: {frag.author}")
-                if frag.content_type: frag_metadata_lines.append(f"  - コンテンツ種類: {frag.content_type}")
-                frag_links_text = "\n".join([f"  - 関連リンク: {link}" for link in frag.links]) if frag.links and not frag.source_url else "" # source_urlと重複する可能性があるので注意
-
-                all_fragments_text_for_formatting += f"{frag_header}{frag_content}\n"
-                if frag_metadata_lines: all_fragments_text_for_formatting += "\n".join(frag_metadata_lines) + "\n"
-                if frag_links_text: all_fragments_text_for_formatting += frag_links_text + "\n"
-                all_fragments_text_for_formatting += "\n\n"
-
-        if not all_fragments_text_for_formatting.strip():
-             response_shell.overall_error = "整形対象となる有効な検索情報がありませんでした。"
-             response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(source="Search Orchestrator", error="有効な情報断片なし")
-             response_shell.search_fragments = collected_fragments
-             return response_shell
-
-        # 整形用システムプロンプト (キャラクター性抑制マーカー付き)
-        formatting_system_prompt_gemini = (
-            "PALEAI_SEARCH_FORMATTING_TASK_MARKER\n"
-            "あなたは、提供された複数の情報断片を、ユーザーが理解しやすいように整理・構造化する専門のAI編集者です。\n"
-            "あなたのタスクは以下の通りです。\n"
-            "1. **情報断片の完全な提示**: 提供された各情報断片（原文抜粋、検索結果の応答、ニュース記事の断片、SNS投稿のテキスト、レビュー内容など）を、「一切省略・圧縮・要約せず」、その内容全文を保持してください。\n"
-            "2. **構造化とメタデータ付与**: 各情報断片について、以下の情報を可能な限り抽出し、明記してください。\n"
-            "    - 元の情報源 (例: Perplexity 初期検索, Claude 不足観点抽出 など、入力で提供されたソース名)\n"
-            "    - 元の検索クエリ (もしあれば)\n"
-            "    - 情報収集の意図 (もしあれば)\n"
-            "    - 出典URL (もしあれば)\n"
-            "    - 発行日 (もしあれば)\n"
-            "    - 著者/発信者 (もしあれば)\n"
-            "    - コンテンツの種類 (もしあれば)\n"
-            "3. **分類とグループ化**: 上記のメタデータを付与した上で、収集された全情報断片を、内容の関連性やトピック、情報源の種類など、最も適切と思われる観点からグループ化し、見出しや区切り線などを用いて視覚的に分かりやすく構造化して提示してください。あなたの解釈や意見、追加情報は一切含めないでください。\n"
-            "4. **最終まとめの生成**: 全ての構造化された情報断片を提示した後、**必ず最後に**「【最終まとめ】」という見出しを付け、その後に1～2段落程度の非常に短い概要（収集された情報のハイライトや傾向など）を記述してください。このまとめ部分以外では、絶対に情報を要約したり、個人的な意見を述べたりしないでください。\n"
-            "出力は、まず構造化された情報断片のリスト、その次に「【最終まとめ】」とそれに続く短い概要、という形式にしてください。"
-        )
-        formatting_user_prompt_gemini = (
-            f"ユーザーの当初の質問は「{original_prompt}」です。\n"
-            f"以下に、この質問に関連して収集された複数の情報断片（原文抜粋、検索結果の応答、ニュース記事の断片、SNS投稿のテキスト、レビュー内容など）と、それらに付随するメタデータ（出典URL、発行日、著者、コンテンツ種類など）があります。\n\n"
-            f"--- 全情報断片ここから ---\n{all_fragments_text_for_formatting.strip()}\n--- 全情報断片ここまで ---\n\n"
-            f"上記のシステム指示に従い、これらの情報断片とメタデータを一切省略・要約せず、分野・時系列・ソースの種類別などに適切に分類・整形し、提示してください。\n"
-            f"各断片には、収集時の情報（ソース、クエリ、意図、URL、日付、著者など）を可能な限り明記してください。\n"
-            f"最後に1～2段落の「超短いまとめ」だけを「【最終まとめ】」という見出しで付与してください。"
-        )
-
-        step4_formatting_res_gemini = await get_gemini_response(
-            request=request,
-            prompt_text=formatting_user_prompt_gemini,
-            system_instruction=formatting_system_prompt_gemini,
-            model_name="gemini-2.5-pro-preview-05-06",
-            initial_user_prompt=initial_user_prompt_for_session,
-            user_memories=user_memories,
-        )
-
-        if step4_formatting_res_gemini.response:
-            summary_marker = "【最終まとめ】"
-            formatted_fragments_display = step4_formatting_res_gemini.response
-            summary_text = "（AIによる自動まとめはありませんでした）" # デフォルト
-
-            if summary_marker in formatted_fragments_display:
-                parts = formatted_fragments_display.split(summary_marker, 1)
-                formatted_fragments_display = parts[0].strip()
-                if len(parts) > 1 and parts[1].strip():
-                    summary_text = parts[1].strip()
-                else: # マーカーはあるが中身がない場合
-                    summary_text = "まとめ部分が空でした。"
-            else:
-                logger.info("警告: 整形結果に【最終まとめ】マーカーが見つかりませんでした。応答全体を断片情報として扱います。")
-
-            # 整形されたメインコンテンツ (断片リスト) を格納
-            response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-                source="Gemini 整形・分類結果",
-                response=formatted_fragments_display,
-                query=original_prompt, # この整形タスクの元のトリガー
-                intent="全情報整形済みリスト"
-            )
-            response_shell.search_summary_text = summary_text # 分離したまとめ
-        else:
-            response_shell.overall_error = "最終的な情報の整形・分類に失敗しました。"
-            response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-                source="Search Mode Orchestrator", error=f"最終整形ステップでエラー: {step4_formatting_res_gemini.error or '応答なし'}"
-            )
-
-        # 生の断片情報もレスポンスに含める
-        response_shell.search_fragments = collected_fragments
-        logger.info("--- 新・検索特化モード（ペイルの知恵）終了 ---")
-
-    except ValueError as ve:
-        error_message = f"検索特化モードの処理中にエラー: {str(ve)}"
-        logger.info(error_message)
-        response_shell.overall_error = error_message
-        response_shell.search_fragments = collected_fragments # ここまでの断片は返す
-        if not response_shell.step7_final_answer_v2_openai:
-            response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-                source="Search Mode Error", error=str(ve)
-            )
-    except Exception as e:
-        import traceback
-        error_trace = traceback.format_exc()
-        error_message = f"検索特化モードで予期せぬエラー: {str(e)}"
-        logger.info(f"{error_message}\nTrace: {error_trace}")
-        response_shell.overall_error = "サーバー内部で予期せぬエラーが発生しました（検索特化）。"
-        response_shell.search_fragments = collected_fragments
-        if not response_shell.step7_final_answer_v2_openai:
-            response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-                source="Search Mode Unexpected Error", error=str(e)
-            )
-
-    return response_shell
-  
-
-
 # 修正後
 async def run_code_mode_flow(
     original_prompt: str,
@@ -2237,7 +2320,7 @@ async def run_code_mode_flow(
     chat_history_for_ai: List[Dict[str, str]],
     initial_user_prompt_for_session: Optional[str],
     request: Request,
-    user_memories: Optional[List[schemas.UserMemoryResponse]] = None
+    user_memories: Optional[List[schemas.UserMemoryResponse]] = None,
 ) -> schemas.CollaborativeResponseV2:
     """Run the multi-step code generation flow.
 
@@ -2266,7 +2349,9 @@ async def run_code_mode_flow(
     code_explanation = ""
 
     current_chat_history_for_this_turn = list(chat_history_for_ai)
-    current_chat_history_for_this_turn.append({"role": "user", "content": original_prompt})
+    current_chat_history_for_this_turn.append(
+        {"role": "user", "content": original_prompt}
+    )
     logger.info(
         f"Code Mode: このターンでAIに渡す完全な履歴は {len(current_chat_history_for_this_turn)} 件, メモリ: {len(user_memories) if user_memories else 0}件"
     )
@@ -2295,9 +2380,13 @@ async def run_code_mode_flow(
         )
         steps_executed.append(c0_res)
         if c0_res.error or not c0_res.response:
-            raise ValueError(f"コードモード ステップC0 (プロンプト精密化) 失敗: {c0_res.error or '応答がありませんでした。'}")
+            raise ValueError(
+                f"コードモード ステップC0 (プロンプト精密化) 失敗: {c0_res.error or '応答がありませんでした。'}"
+            )
         refined_requirements = c0_res.response
-        logger.info(f"ステップC0 - 精密化された要件:\n{refined_requirements[:300].strip()}...")
+        logger.info(
+            f"ステップC0 - 精密化された要件:\n{refined_requirements[:300].strip()}..."
+        )
 
         # ステップC1: 詳細仕様の策定と疑似コード/ロジック設計
         logger.info("\nコードモード ステップC1: 詳細仕様と疑似コード策定中...")
@@ -2315,15 +2404,19 @@ async def run_code_mode_flow(
             prompt_text=c1_user_prompt,
             system_instruction=c1_system_instruction,
             model="claude-opus-4-20250514",
-            chat_history=list(current_chat_history_for_this_turn), # C0の結果を含む履歴
+            chat_history=list(current_chat_history_for_this_turn),  # C0の結果を含む履歴
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
         )
         steps_executed.append(c1_res)
         if c1_res.error or not c1_res.response:
-            raise ValueError(f"コードモード ステップC1 (詳細仕様策定) 失敗: {c1_res.error or '応答がありませんでした。'}")
+            raise ValueError(
+                f"コードモード ステップC1 (詳細仕様策定) 失敗: {c1_res.error or '応答がありませんでした。'}"
+            )
         detailed_specs_and_pseudo = c1_res.response
-        logger.info(f"ステップC1 - 詳細仕様と疑似コード (冒頭):\n{detailed_specs_and_pseudo[:300].strip()}...")
+        logger.info(
+            f"ステップC1 - 詳細仕様と疑似コード (冒頭):\n{detailed_specs_and_pseudo[:300].strip()}..."
+        )
 
         # ... (以降のステップ C2～C6 も同様に、各AIヘルパー関数呼び出し時に chat_history と initial_user_prompt を渡し、
         #     システムプロンプトや指示プロンプトにこれらの文脈情報を適切に組み込む) ...
@@ -2344,15 +2437,19 @@ async def run_code_mode_flow(
             prompt_text=c2_user_prompt,
             system_role_description=c2_system_role_description,
             model="gpt-4o",
-            chat_history=list(current_chat_history_for_this_turn), # C1の結果を含む履歴
+            chat_history=list(current_chat_history_for_this_turn),  # C1の結果を含む履歴
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
         )
         steps_executed.append(c2_res)
         if c2_res.error or not c2_res.response:
-            raise ValueError(f"コードモード ステップC2 (第1コード生成) 失敗: {c2_res.error or '応答がありませんでした。'}")
+            raise ValueError(
+                f"コードモード ステップC2 (第1コード生成) 失敗: {c2_res.error or '応答がありませんでした。'}"
+            )
         generated_code_v1 = c2_res.response
-        logger.info(f"ステップC2 - 生成されたコード V1 (冒頭):\n{generated_code_v1[:300].strip()}...")
+        logger.info(
+            f"ステップC2 - 生成されたコード V1 (冒頭):\n{generated_code_v1[:300].strip()}..."
+        )
 
         # ステップC3: コードレビュー
         logger.info("\nコードモード ステップC3: コードレビュー中...")
@@ -2370,18 +2467,22 @@ async def run_code_mode_flow(
             prompt_text=c3_user_prompt,
             system_instruction=c3_system_instruction,
             model="claude-opus-4-20250514",
-            chat_history=list(current_chat_history_for_this_turn), # C2の結果を含む履歴
+            chat_history=list(current_chat_history_for_this_turn),  # C2の結果を含む履歴
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
         )
         steps_executed.append(c3_res)
         if c3_res.error or not c3_res.response:
-            logger.info(f"コードモード ステップC3 (コードレビュー) でエラーまたは応答なし: {c3_res.error or '応答なし'}")
-            code_review_feedback = "AIによるコードレビューはありませんでした。" 
+            logger.info(
+                f"コードモード ステップC3 (コードレビュー) でエラーまたは応答なし: {c3_res.error or '応答なし'}"
+            )
+            code_review_feedback = "AIによるコードレビューはありませんでした。"
         else:
             code_review_feedback = c3_res.response
-        logger.info(f"ステップC3 - コードレビュー結果 (冒頭):\n{code_review_feedback[:300].strip()}...")
-        
+        logger.info(
+            f"ステップC3 - コードレビュー結果 (冒頭):\n{code_review_feedback[:300].strip()}..."
+        )
+
         # ステップC4: 改善版コード生成
         logger.info("\nコードモード ステップC4: 改善版コード生成中...")
         c4_system_role_description = (
@@ -2399,15 +2500,19 @@ async def run_code_mode_flow(
             prompt_text=c4_user_prompt,
             system_role_description=c4_system_role_description,
             model="gpt-4o",
-            chat_history=list(current_chat_history_for_this_turn), # C3の結果を含む履歴
+            chat_history=list(current_chat_history_for_this_turn),  # C3の結果を含む履歴
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
         )
         steps_executed.append(c4_res)
         if c4_res.error or not c4_res.response:
-            raise ValueError(f"コードモード ステップC4 (改善版コード生成) 失敗: {c4_res.error or '応答がありませんでした。'}")
+            raise ValueError(
+                f"コードモード ステップC4 (改善版コード生成) 失敗: {c4_res.error or '応答がありませんでした。'}"
+            )
         generated_code_v2 = c4_res.response
-        logger.info(f"ステップC4 - 生成された改善版コード V2 (冒頭):\n{generated_code_v2[:300].strip()}...")
+        logger.info(
+            f"ステップC4 - 生成された改善版コード V2 (冒頭):\n{generated_code_v2[:300].strip()}..."
+        )
 
         # ステップC5: テストケース提案
         logger.info("\nコードモード ステップC5: テストケース提案中...")
@@ -2425,17 +2530,21 @@ async def run_code_mode_flow(
             prompt_text=c5_user_prompt,
             system_instruction=c5_system_instruction,
             model="claude-opus-4-20250514",
-            chat_history=list(current_chat_history_for_this_turn), # C4の結果を含む履歴
+            chat_history=list(current_chat_history_for_this_turn),  # C4の結果を含む履歴
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
         )
         steps_executed.append(c5_res)
         if c5_res.error or not c5_res.response:
-            logger.info(f"コードモード ステップC5 (テストケース提案) でエラーまたは応答なし: {c5_res.error or '応答なし'}")
+            logger.info(
+                f"コードモード ステップC5 (テストケース提案) でエラーまたは応答なし: {c5_res.error or '応答なし'}"
+            )
             test_cases_suggestion = "AIによるテストケースの提案はありませんでした。"
         else:
             test_cases_suggestion = c5_res.response
-        logger.info(f"ステップC5 - テストケース提案 (冒頭):\n{test_cases_suggestion[:300].strip()}...")
+        logger.info(
+            f"ステップC5 - テストケース提案 (冒頭):\n{test_cases_suggestion[:300].strip()}..."
+        )
 
         # ステップC6: コードの使い方説明・解説
         logger.info("\nコードモード ステップC6: コードの使い方説明・解説中...")
@@ -2454,27 +2563,30 @@ async def run_code_mode_flow(
             prompt_text=c6_user_prompt,
             system_role_description=c6_system_role_description,
             model="gpt-4o",
-            chat_history=list(current_chat_history_for_this_turn), # C5の結果を含む履歴
+            chat_history=list(current_chat_history_for_this_turn),  # C5の結果を含む履歴
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
         )
         steps_executed.append(c6_res)
         if c6_res.error or not c6_res.response:
-            logger.info(f"コードモード ステップC6 (コード解説) でエラーまたは応答なし: {c6_res.error or '応答なし'}")
+            logger.info(
+                f"コードモード ステップC6 (コード解説) でエラーまたは応答なし: {c6_res.error or '応答なし'}"
+            )
             code_explanation = "AIによるコードの解説はありませんでした。"
         else:
             code_explanation = c6_res.response
-        logger.info(f"ステップC6 - コード解説 (冒頭):\n{code_explanation[:300].strip()}...")
-        
+        logger.info(
+            f"ステップC6 - コード解説 (冒頭):\n{code_explanation[:300].strip()}..."
+        )
+
         final_code_mode_output = format_code_mode_output(
             generated_code_v2,
             code_explanation,
             test_cases_suggestion,
         )
-        
+
         response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-            source="Code Mode (Full Flow C0-C6)",
-            response=final_code_mode_output
+            source="Code Mode (Full Flow C0-C6)", response=final_code_mode_output
         )
         response_shell.code_mode_details = steps_executed
         logger.info("--- コード生成特化モード (全ステップ完了) 終了 ---")
@@ -2484,13 +2596,16 @@ async def run_code_mode_flow(
         logger.info(error_message)
         response_shell.overall_error = error_message
         response_shell.code_mode_details = steps_executed
-        if not response_shell.step7_final_answer_v2_openai: # エラー時に最終応答フィールドが空なら設定
+        if (
+            not response_shell.step7_final_answer_v2_openai
+        ):  # エラー時に最終応答フィールドが空なら設定
             response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-                source="Code Mode Error Step", 
+                source="Code Mode Error Step",
                 error=str(e),
-                response=f"申し訳ありません、コード生成処理中にエラーが発生しました。\nエラー内容: {str(e)}"
+                response=f"申し訳ありません、コード生成処理中にエラーが発生しました。\nエラー内容: {str(e)}",
             )
     return response_shell
+
 
 async def run_writing_mode_flow(
     original_prompt: str,
@@ -2498,7 +2613,7 @@ async def run_writing_mode_flow(
     chat_history_for_ai: List[Dict[str, str]],
     initial_user_prompt_for_session: Optional[str],
     request: Request,
-    user_memories: Optional[List[schemas.UserMemoryResponse]] = None
+    user_memories: Optional[List[schemas.UserMemoryResponse]] = None,
 ) -> schemas.CollaborativeResponseV2:
 
     logger.info("\n--- 執筆特化モード開始 ---")
@@ -2512,7 +2627,9 @@ async def run_writing_mode_flow(
     final_article_content = ""
 
     current_chat_history_for_this_turn = list(chat_history_for_ai)
-    current_chat_history_for_this_turn.append({"role": "user", "content": original_prompt})
+    current_chat_history_for_this_turn.append(
+        {"role": "user", "content": original_prompt}
+    )
     logger.info(
         f"Writing Mode: このターンでAIに渡す完全な履歴は {len(current_chat_history_for_this_turn)} 件, メモリ: {len(user_memories) if user_memories else 0}件"
     )
@@ -2540,10 +2657,14 @@ async def run_writing_mode_flow(
         )
         steps_executed.append(w0_res)
         if w0_res.error or not w0_res.response:
-            raise ValueError(f"執筆モード ステップW0 (要件確認) 失敗: {w0_res.error or '応答がありませんでした。'}")
+            raise ValueError(
+                f"執筆モード ステップW0 (要件確認) 失敗: {w0_res.error or '応答がありませんでした。'}"
+            )
         defined_requirements = w0_res.response
-        logger.info(f"ステップW0 - 定義された執筆要件 (冒頭):\n{defined_requirements[:300].strip()}...")
-        
+        logger.info(
+            f"ステップW0 - 定義された執筆要件 (冒頭):\n{defined_requirements[:300].strip()}..."
+        )
+
         # ... (finalized_requirements の作成は変更なし) ...
         supplemented_info = f"""
 【開発者による補足情報（ステップW0のAIからの質問への一般的な回答方針）】
@@ -2560,8 +2681,9 @@ async def run_writing_mode_flow(
             f"AIによる要件整理(W0):\n{defined_requirements}\n\n"
             f"{supplemented_info}"
         )
-        logger.info(f"ステップW0後 - 最終的な執筆要件 (補足情報込み):\n{finalized_requirements[:500].strip()}...")
-
+        logger.info(
+            f"ステップW0後 - 最終的な執筆要件 (補足情報込み):\n{finalized_requirements[:500].strip()}..."
+        )
 
         # ステップW1: 構成案・プロット作成
         logger.info("\n執筆モード ステップW1: 構成案・プロット作成中...")
@@ -2580,15 +2702,19 @@ async def run_writing_mode_flow(
             prompt_text=w1_user_prompt,
             system_instruction=w1_system_instruction,
             model="claude-opus-4-20250514",
-            chat_history=list(current_chat_history_for_this_turn), # W0の結果を含む履歴
+            chat_history=list(current_chat_history_for_this_turn),  # W0の結果を含む履歴
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
         )
         steps_executed.append(w1_res)
         if w1_res.error or not w1_res.response:
-            raise ValueError(f"執筆モード ステップW1 (構成案作成) 失敗: {w1_res.error or '応答がありませんでした。'}")
+            raise ValueError(
+                f"執筆モード ステップW1 (構成案作成) 失敗: {w1_res.error or '応答がありませんでした。'}"
+            )
         article_outline = w1_res.response
-        logger.info(f"ステップW1 - 作成された構成案/プロット (冒頭):\n{article_outline[:300].strip()}...")
+        logger.info(
+            f"ステップW1 - 作成された構成案/プロット (冒頭):\n{article_outline[:300].strip()}..."
+        )
 
         # ... (以降のステップ W2～W5 も同様に、各AIヘルパー関数呼び出し時に chat_history と initial_user_prompt を渡し、
         #     システムプロンプトや指示プロンプトにこれらの文脈情報を適切に組み込む) ...
@@ -2611,15 +2737,19 @@ async def run_writing_mode_flow(
             prompt_text=w2_user_prompt,
             system_role_description=w2_system_role_description,
             model="gpt-4o",
-            chat_history=list(current_chat_history_for_this_turn), # W1の結果を含む履歴
+            chat_history=list(current_chat_history_for_this_turn),  # W1の結果を含む履歴
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
         )
         steps_executed.append(w2_res)
         if w2_res.error or not w2_res.response:
-            raise ValueError(f"執筆モード ステップW2 (初稿執筆) 失敗: {w2_res.error or '応答がありませんでした。'}")
+            raise ValueError(
+                f"執筆モード ステップW2 (初稿執筆) 失敗: {w2_res.error or '応答がありませんでした。'}"
+            )
         draft_content = w2_res.response
-        logger.info(f"ステップW2 - 作成された初稿 (冒頭):\n{draft_content[:300].strip()}...")
+        logger.info(
+            f"ステップW2 - 作成された初稿 (冒頭):\n{draft_content[:300].strip()}..."
+        )
 
         # ステップW3: 内容レビューと改善提案
         logger.info("\n執筆モード ステップW3: 内容レビューと改善提案中...")
@@ -2639,15 +2769,19 @@ async def run_writing_mode_flow(
             prompt_text=w3_user_prompt,
             system_instruction=w3_system_instruction,
             model="claude-opus-4-20250514",
-            chat_history=list(current_chat_history_for_this_turn), # W2の結果を含む履歴
+            chat_history=list(current_chat_history_for_this_turn),  # W2の結果を含む履歴
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
         )
         steps_executed.append(w3_res)
         if w3_res.error or not w3_res.response:
-            raise ValueError(f"執筆モード ステップW3 (レビュー) 失敗: {w3_res.error or '応答がありませんでした。'}")
+            raise ValueError(
+                f"執筆モード ステップW3 (レビュー) 失敗: {w3_res.error or '応答がありませんでした。'}"
+            )
         review_and_suggestions = w3_res.response
-        logger.info(f"ステップW3 - レビューと改善提案 (冒頭):\n{review_and_suggestions[:300].strip()}...")
+        logger.info(
+            f"ステップW3 - レビューと改善提案 (冒頭):\n{review_and_suggestions[:300].strip()}..."
+        )
 
         # ステップW4: 推敲・リライト
         logger.info("\n執筆モード ステップW4: 推敲・リライト中...")
@@ -2668,15 +2802,19 @@ async def run_writing_mode_flow(
             prompt_text=w4_user_prompt,
             preamble=w4_preamble_cohere,
             model="command-a-03-2025",
-            chat_history=list(current_chat_history_for_this_turn), # W3の結果を含む履歴
+            chat_history=list(current_chat_history_for_this_turn),  # W3の結果を含む履歴
             initial_user_prompt=initial_user_prompt_for_session,
             user_memories=user_memories,
         )
         steps_executed.append(w4_res)
         if w4_res.error or not w4_res.response:
-            raise ValueError(f"執筆モード ステップW4 (推敲・リライト) 失敗: {w4_res.error or '応答がありませんでした。'}")
+            raise ValueError(
+                f"執筆モード ステップW4 (推敲・リライト) 失敗: {w4_res.error or '応答がありませんでした。'}"
+            )
         revised_draft_content = w4_res.response
-        logger.info(f"ステップW4 - 推敲・リライトされた第2稿 (冒頭):\n{revised_draft_content[:300].strip()}...")
+        logger.info(
+            f"ステップW4 - 推敲・リライトされた第2稿 (冒頭):\n{revised_draft_content[:300].strip()}..."
+        )
 
         # ステップW5: 最終校正と仕上げ
         logger.info("\n執筆モード ステップW5: 最終校正と仕上げ中...")
@@ -2686,16 +2824,16 @@ async def run_writing_mode_flow(
 
         w5_system_instruction_parts = [
             "あなたは最高の編集長兼最終ライターです。与えられた執筆物（第2稿）を、以下の指示に従って完璧な最終版に仕上げてください。",
-            "最終出力は小説・物語本文のみとし、章立て案や解説、ストーリー案内、コメントなど本文以外の要素は一切含めないでください。出力が途中で止まった場合は、続きの物語本文のみを書き足してください。"
+            "最終出力は小説・物語本文のみとし、章立て案や解説、ストーリー案内、コメントなど本文以外の要素は一切含めないでください。出力が途中で止まった場合は、続きの物語本文のみを書き足してください。",
         ]
         # スタイル指定は現在適用しない
-        
+
         w5_system_instruction_parts.append(
             f"\nこの会話全体の主要な目的は「{initial_user_prompt_for_session}」であり、ユーザーの元々のリクエストは「{original_prompt}」であったことを常に念頭に置いてください。"
             # ... (最終校正の指示の残りは変更なし) ...
         )
         w5_final_system_instruction = "\n\n".join(w5_system_instruction_parts)
-        
+
         w5_user_prompt = (
             f"以下の執筆物（第2稿）を、上記のシステム指示に従って最終校正し、指定された口調（もしあれば）で最高の形に仕上げてください。\n"
             "出力は物語本文のみとし、案内文やコメント、章立て解説を一切含めないでください。続きが必要な場合は本文だけを書き足してください。\n\n"
@@ -2712,15 +2850,18 @@ async def run_writing_mode_flow(
         )
         steps_executed.append(w5_res)
         if w5_res.error or not w5_res.response:
-            raise ValueError(f"執筆モード ステップW5 (最終校正・仕上げ) 失敗: {w5_res.error or '応答がありませんでした。'}")
+            raise ValueError(
+                f"執筆モード ステップW5 (最終校正・仕上げ) 失敗: {w5_res.error or '応答がありませんでした。'}"
+            )
         final_article_content = w5_res.response
-        logger.info(f"ステップW5 - 完成版コンテンツ (冒頭):\n{final_article_content[:300].strip()}...")
-
-        final_step_response = schemas.IndividualAIResponse( # <<< schemas. を追加
-            source="Writing Mode (W5 - Final Content)",
-            response=final_article_content
+        logger.info(
+            f"ステップW5 - 完成版コンテンツ (冒頭):\n{final_article_content[:300].strip()}..."
         )
-        
+
+        final_step_response = schemas.IndividualAIResponse(  # <<< schemas. を追加
+            source="Writing Mode (W5 - Final Content)", response=final_article_content
+        )
+
         response_shell.step7_final_answer_v2_openai = final_step_response
         response_shell.writing_mode_details = steps_executed
         logger.info("--- 執筆特化モード (全ステップ完了) 終了 ---")
@@ -2730,13 +2871,16 @@ async def run_writing_mode_flow(
         logger.info(error_message)
         response_shell.overall_error = error_message
         response_shell.writing_mode_details = steps_executed
-        if not response_shell.step7_final_answer_v2_openai: # エラー時に最終応答フィールドが空なら設定
-            response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse( # <<< schemas. を追加
-                source="Writing Mode Error Step", 
+        if (
+            not response_shell.step7_final_answer_v2_openai
+        ):  # エラー時に最終応答フィールドが空なら設定
+            response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(  # <<< schemas. を追加
+                source="Writing Mode Error Step",
                 error=str(e),
-                response=f"申し訳ありません、処理中にエラーが発生しました。\nエラー内容: {str(e)}"
+                response=f"申し訳ありません、処理中にエラーが発生しました。\nエラー内容: {str(e)}",
             )
     return response_shell
+
 
 # --- 超長文執筆モード ---
 async def run_ultra_writing_mode_flow(
@@ -2746,12 +2890,14 @@ async def run_ultra_writing_mode_flow(
     initial_user_prompt_for_session: Optional[str],
     user_memories: Optional[List[schemas.UserMemoryResponse]] = None,
     desired_char_count: Optional[int] = None,
-    request: Request = None
+    request: Request = None,
 ) -> schemas.CollaborativeResponseV2:
 
     logger.info("\n--- 超長文執筆モード開始 ---")
     steps_executed: List[schemas.IndividualAIResponse] = []
-    logger.info(f"Ultra Writing Mode: メモリ: {len(user_memories) if user_memories else 0}件")
+    logger.info(
+        f"Ultra Writing Mode: メモリ: {len(user_memories) if user_memories else 0}件"
+    )
 
     current_context_history = list(chat_history_for_ai)
     current_context_history.append({"role": "user", "content": original_prompt})
@@ -2772,7 +2918,9 @@ async def run_ultra_writing_mode_flow(
         final_text = ""
         for ch_idx, ch_title in enumerate(chapters):
             logger.info(f"  章 {ch_idx+1}/{len(chapters)} 「{ch_title}」を執筆中...")
-            chapter_prompt = f"以下の章「{ch_title}」について、詳細な本文を執筆してください。"
+            chapter_prompt = (
+                f"以下の章「{ch_title}」について、詳細な本文を執筆してください。"
+            )
             if final_text:
                 chapter_prompt += f"\n\nこれまでのあらすじや主要な流れを簡単に振り返ると、『{final_text[-500:]}...』といった内容でした。\nこれを踏まえて執筆を続けてください。"
 
@@ -2786,19 +2934,40 @@ async def run_ultra_writing_mode_flow(
             steps_executed.append(chapter_res)
             if chapter_res.response:
                 final_text += f"\n## {ch_title}\n\n{chapter_res.response.strip()}\n"
-                current_context_history.append({"role": "assistant", "content": chapter_res.response.strip()})
+                current_context_history.append(
+                    {"role": "assistant", "content": chapter_res.response.strip()}
+                )
                 if ch_idx + 1 < len(chapters):
-                    current_context_history.append({"role": "user", "content": f"ありがとうございます。次の章『{chapters[ch_idx+1]}』に進んでください。"})
+                    current_context_history.append(
+                        {
+                            "role": "user",
+                            "content": f"ありがとうございます。次の章『{chapters[ch_idx+1]}』に進んでください。",
+                        }
+                    )
                 else:
-                    current_context_history.append({"role": "user", "content": "ありがとうございます。これで全ての章が完了しました。"})
+                    current_context_history.append(
+                        {
+                            "role": "user",
+                            "content": "ありがとうございます。これで全ての章が完了しました。",
+                        }
+                    )
 
-        if desired_char_count and isinstance(desired_char_count, int) and desired_char_count > 0:
+        if (
+            desired_char_count
+            and isinstance(desired_char_count, int)
+            and desired_char_count > 0
+        ):
             loop_count = 0
             max_expansion_loops = 5
-            while len(final_text) < desired_char_count and loop_count < max_expansion_loops:
+            while (
+                len(final_text) < desired_char_count
+                and loop_count < max_expansion_loops
+            ):
                 loop_count += 1
                 remaining_chars = desired_char_count - len(final_text)
-                logger.info(f"  文字数調整ループ {loop_count}: 残り約{remaining_chars}文字...")
+                logger.info(
+                    f"  文字数調整ループ {loop_count}: 残り約{remaining_chars}文字..."
+                )
                 expansion_prompt = (
                     f"現在の文章は以下の通りです。\n{final_text[-1000:]}...\n\n"
                     f"この文章全体の内容をさらに詳細に、具体的に、物語であれば描写を豊かに、説明文であれば具体例や補足情報を加えて拡張してください。"
@@ -2814,13 +2983,19 @@ async def run_ultra_writing_mode_flow(
                 if not add_res.response or not add_res.response.strip():
                     break
                 final_text += f"\n\n{add_res.response.strip()}\n"
-                current_context_history.append({"role": "assistant", "content": add_res.response.strip()})
+                current_context_history.append(
+                    {"role": "assistant", "content": add_res.response.strip()}
+                )
                 if len(final_text) < desired_char_count:
-                    current_context_history.append({"role": "user", "content": "ありがとうございます。さらに内容を拡張してください。"})
+                    current_context_history.append(
+                        {
+                            "role": "user",
+                            "content": "ありがとうございます。さらに内容を拡張してください。",
+                        }
+                    )
 
         response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-            source="Ultra LongWriting Final",
-            response=final_text
+            source="Ultra LongWriting Final", response=final_text
         )
         response_shell.ultra_writing_mode_details = steps_executed
         logger.info("--- 超長文執筆モード終了 ---")
@@ -2834,7 +3009,7 @@ async def run_ultra_writing_mode_flow(
             response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
                 source="Ultra LongWriting Error",
                 error=str(e),
-                response=f"申し訳ありません、処理中にエラーが発生しました。\nエラー内容: {str(e)}"
+                response=f"申し訳ありません、処理中にエラーが発生しました。\nエラー内容: {str(e)}",
             )
 
     return response_shell
@@ -2847,10 +3022,12 @@ async def run_fast_chat_mode_flow(
     initial_user_prompt_for_session: Optional[str],
     user_memories: Optional[List[schemas.UserMemoryResponse]] = None,
     model: str = "gpt-4o",
-    request: Request = None
+    request: Request = None,
 ) -> schemas.CollaborativeResponseV2:
     logger.info("\n--- 高速チャットモード開始 ---")
-    logger.info(f"Fast Chat Mode: メモリ: {len(user_memories) if user_memories else 0}件, 履歴件数(AIへ): {len(chat_history_for_ai)}")
+    logger.info(
+        f"Fast Chat Mode: メモリ: {len(user_memories) if user_memories else 0}件, 履歴件数(AIへ): {len(chat_history_for_ai)}"
+    )
     res = await get_openai_response(
         prompt_text=original_prompt,
         system_role_description="Fast Chat Mode",
