@@ -2206,6 +2206,7 @@ async def run_super_search_mode_flow(
             source="SuperSearch",
             error="必要なAIクライアントが初期化されていません。",
         )
+        response_shell.overall_error = "必要なAIクライアントが初期化されていません。"
         return response_shell
 
     from datetime import datetime
@@ -2229,6 +2230,7 @@ async def run_super_search_mode_flow(
 
     results: List[str] = []
     summaries: List[str] = []
+    all_perplexity_step_results: List[schemas.IndividualAIResponse] = []
 
     for step in range(5):
         if step == 0:
@@ -2264,6 +2266,7 @@ async def run_super_search_mode_flow(
             user_memories=user_memories,
             initial_user_prompt=initial_user_prompt_for_session,
         )
+        all_perplexity_step_results.append(res)
         text = res.response or ""
         text = dedup_lines(text)
         tries = 0
@@ -2277,6 +2280,10 @@ async def run_super_search_mode_flow(
                 user_memories=user_memories,
                 initial_user_prompt=initial_user_prompt_for_session,
             )
+            # Assuming extra_res is similar structure to res and should also be appended if it's a distinct call
+            # For now, the task asks to append `res` which is the primary response of the step.
+            # If `extra` is a substantial, separate Perplexity call that should be part of fragments, 
+            # this might need adjustment. Current interpretation: `extra` augments `text` for the current step.
             if extra.response:
                 text += "\n" + extra.response
                 text = dedup_lines(text)
@@ -2284,6 +2291,12 @@ async def run_super_search_mode_flow(
 
         results.append(text)
         summaries.append(text[:500])
+        # If the original `res` object for the step needs to be updated with the augmented text,
+        # this would be the place, e.g., by creating a new IndividualAIResponse or updating res.response.
+        # However, the instruction is to append `res` as obtained from get_perplexity_response.
+        # If `all_perplexity_step_results` should reflect the *final* text of the step (including `extra`),
+        # then `res.response = text` would be needed before appending, or append a modified copy.
+        # For now, sticking to appending the initial `res` of the step.
 
     summary_prompt = (
         "以下に、5段階に分けて収集した情報があります。\nこれらを1つの統一された読みやすく魅力的な日本語文章にまとめてください。\n\n"
@@ -2309,9 +2322,11 @@ async def run_super_search_mode_flow(
         "3. トークン制限や処理時間は一切考慮せず、最高の内容品質を最優先としてください。"
     )
 
+    claude_system_instruction = "あなたは、複数の検索結果を統合し、詳細かつ網羅的な一つの日本語の報告書にまとめる専門家です。提供された情報を元に、指示通り5000文字以上で、内容を削らず、構成を整えて出力してください。"
+
     summary_res = await get_claude_response(
         prompt_text=summary_prompt,
-        system_instruction=initial_user_prompt_for_session or "",
+        system_instruction=claude_system_instruction,
         model="claude-opus-4-20250514",
         chat_history=chat_history_for_ai,
         initial_user_prompt=initial_user_prompt_for_session,
@@ -2328,13 +2343,15 @@ async def run_super_search_mode_flow(
         response=formatted_response,
         error=summary_res.error,
     )
+    response_shell.search_fragments = all_perplexity_step_results
     return response_shell
 
 
 import re
 
 
-def format_code_mode_output(code: str, explanation: str, tests: str) -> str:
+# def format_code_mode_output(code: str, explanation: str, tests: str) -> str: # OLD
+def format_code_mode_output(code: str, explanation: str, tests: str, language: str = "python") -> str: # NEW
     # コード部分の前後に余計な```がないか除去（AI出力にはよく含まれる）
     code_clean = re.sub(r"^```[a-z]*\n?|\n?```$", "", code.strip(), flags=re.IGNORECASE)
     tests_clean = re.sub(
@@ -2345,7 +2362,7 @@ def format_code_mode_output(code: str, explanation: str, tests: str) -> str:
     return (
         "## 生成されたコード\n"
         "このコードをそのまま使えます。下記をコピペしてください。\n\n"
-        "```python\n"
+        f"```{language}\n"  # Use the language parameter
         f"{code_clean}\n"
         "```\n\n"
         "## コードの解説\n"
@@ -2406,7 +2423,8 @@ async def run_code_mode_flow(
         c0_system_instruction = (
             "あなたはユーザーの曖昧なコード生成リクエストを分析し、後続のAIが具体的なコードを生成するために必要な情報を明確にする専門家です。"
             "不足している情報があれば、ユーザーに確認を促すような質問形式で補足することも考慮してください。"
-            f"この会話全体の主要な目的は「{initial_user_prompt_for_session}」です。"
+            f"この会話全体の主要な目的は「{initial_user_prompt_for_session}」です。\n"
+            "このステップの応答では、ウキヨザルのキャラクター性は一切含めず、技術的かつ専門的なトーンで記述してください。"
         )
         c0_user_prompt = (
             f"現在のユーザーリクエストは「{original_prompt}」です。\n"
@@ -2432,13 +2450,44 @@ async def run_code_mode_flow(
             f"ステップC0 - 精密化された要件:\n{refined_requirements[:300].strip()}..."
         )
 
+        detected_language = "python" # Default
+        for line in refined_requirements.splitlines():
+            if line.lower().startswith("言語:") or line.lower().startswith("language:"):
+                lang_candidate = line.split(":", 1)[1].strip().lower()
+                if lang_candidate == "javascript":
+                    detected_language = "javascript"
+                elif lang_candidate == "typescript":
+                    detected_language = "typescript"
+                elif lang_candidate == "java":
+                    detected_language = "java"
+                elif lang_candidate == "csharp":
+                    detected_language = "csharp"
+                elif lang_candidate == "c++":
+                    detected_language = "cpp"
+                elif lang_candidate == "php":
+                    detected_language = "php"
+                elif lang_candidate == "ruby":
+                    detected_language = "ruby"
+                elif lang_candidate == "go":
+                    detected_language = "go"
+                elif lang_candidate == "swift":
+                    detected_language = "swift"
+                elif lang_candidate == "kotlin":
+                    detected_language = "kotlin"
+                # Add more common languages or use the raw candidate if it's likely a valid markdown lang id
+                else:
+                    detected_language = lang_candidate # use what's found
+                logger.info(f"コードモード: ステップC0で検出された言語: {detected_language}")
+                break
+
         # ステップC1: 詳細仕様の策定と疑似コード/ロジック設計
         logger.info("\nコードモード ステップC1: 詳細仕様と疑似コード策定中...")
         c1_system_instruction = (
             "あなたは経験豊富なソフトウェアアーキテクトです。"
             "提示されたプログラム要件を基に、より詳細な技術仕様、主要な関数やモジュールの設計、そして中心となるアルゴリズムや処理フローの疑似コードを作成してください。"
             f"この会話全体の主要な目的は「{initial_user_prompt_for_session}」であり、ユーザーの元々のリクエストは「{original_prompt}」でした。"
-            "考慮すべきエッジケースや、適切なエラーハンドリングについても言及をお願いします。"
+            "考慮すべきエッジケースや、適切なエラーハンドリングについても言及をお願いします。\n"
+            "このステップの応答では、ウキヨザルのキャラクター性は一切含めず、技術的かつ専門的なトーンで記述してください。"
         )
         c1_user_prompt = (
             f"以下のプログラム要件（ステップC0で明確化されたもの）があります:\n--- 要件ここから ---\n{refined_requirements}\n--- 要件ここまで ---\n"
@@ -2468,18 +2517,19 @@ async def run_code_mode_flow(
         # ステップC2: 第1コード生成
         logger.info("\nコードモード ステップC2: 第1コード生成中...")
         c2_system_role_description = (
-            "あなたは、提示された詳細な技術仕様と疑似コードに基づいて、高品質で、読みやすく、コメントが適切に付与されたPythonコードを生成する熟練のプログラマーです。"
+            f"あなたは、提示された詳細な技術仕様と疑似コードに基づいて、高品質で、読みやすく、コメントが適切に付与された{detected_language}コードを生成する熟練のプログラマーです。"
             f"この会話全体の主要な目的は「{initial_user_prompt_for_session}」であり、ユーザーの元々のリクエストは「{original_prompt}」でした。"
-            "仕様に沿って、効率的で堅牢なコードを作成してください。"
+            "仕様に沿って、効率的で堅牢なコードを作成してください。\n"
+            "このステップの応答では、ウキヨザルのキャラクター性は一切含めず、技術的かつ専門的なトーンで記述してください。"
         )
         c2_user_prompt = (
-            f"以下の詳細仕様と疑似コードに基づいて、Pythonでコードを生成してください。\n\n"
+            f"以下の詳細仕様と疑似コードに基づいて、{detected_language}でコードを生成してください。\n\n"
             f"--- 詳細仕様と疑似コードここから ---\n{detailed_specs_and_pseudo}\n--- 詳細仕様と疑似コードここまで ---\n\n"
-            "生成するコードは、上記の仕様とロジックを正確に実装し、適切な変数名、関数名、そして理解を助けるコメントを含めてください。"
+            f"生成するコードは、上記の仕様とロジックを正確に実装し、適切な変数名、関数名、そして理解を助けるコメントを{detected_language}の慣習に従って含めてください。"
         )
         c2_res = await get_openai_response(
             prompt_text=c2_user_prompt,
-            system_role_description=c2_system_role_description,
+            system_role_description=c2_system_role_description, # Already includes persona control
             model="gpt-4o",
             chat_history=list(current_chat_history_for_this_turn),  # C1の結果を含む履歴
             initial_user_prompt=initial_user_prompt_for_session,
@@ -2500,16 +2550,17 @@ async def run_code_mode_flow(
         c3_system_instruction = (
             "あなたは非常に経験豊富で、細部まで注意深くコードをレビューするシニアソフトウェアエンジニアです。"
             f"この会話全体の主要な目的は「{initial_user_prompt_for_session}」であり、ユーザーの元々のリクエストは「{original_prompt}」でした。"
-            "提示されたPythonコードを精査し、具体的な改善提案をリスト形式で挙げてください。"
+            f"提示された{detected_language}コードを精査し、具体的な改善提案をリスト形式で挙げてください。\n"
+            "このステップの応答では、ウキヨザルのキャラクター性は一切含めず、技術的かつ専門的なトーンで記述してください。"
             # ... (レビュー観点は省略) ...
         )
         c3_user_prompt = (
-            f"以下のPythonコードについて、詳細なレビューと具体的な改善提案をお願いします。\n\n"
+            f"以下の{detected_language}コードについて、詳細なレビューと具体的な改善提案をお願いします。\n\n"
             f"--- コードここから ---\n{generated_code_v1}\n--- コードここまで ---\n"
         )
         c3_res = await get_claude_response(
             prompt_text=c3_user_prompt,
-            system_instruction=c3_system_instruction,
+            system_instruction=c3_system_instruction, # Already includes persona control
             model="claude-opus-4-20250514",
             chat_history=list(current_chat_history_for_this_turn),  # C2の結果を含む履歴
             initial_user_prompt=initial_user_prompt_for_session,
@@ -2530,19 +2581,20 @@ async def run_code_mode_flow(
         # ステップC4: 改善版コード生成
         logger.info("\nコードモード ステップC4: 改善版コード生成中...")
         c4_system_role_description = (
-            "あなたは、提示された元のPythonコードと、それに対する詳細なレビューおよび改善提案を理解し、レビューでの指摘事項を的確に反映させてコードを修正・改善する専門のプログラマーです。"
+            f"あなたは、提示された元の{detected_language}コードと、それに対する詳細なレビューおよび改善提案を理解し、レビューでの指摘事項を的確に反映させてコードを修正・改善する専門のプログラマーです。"
             f"この会話全体の主要な目的は「{initial_user_prompt_for_session}」であり、ユーザーの元々のリクエストは「{original_prompt}」でした。"
-            "元のコードの主要な機能は維持しつつ、品質を向上させてください。"
+            "元のコードの主要な機能は維持しつつ、品質を向上させてください。\n"
+            "このステップの応答では、ウキヨザルのキャラクター性は一切含めず、技術的かつ専門的なトーンで記述してください。"
         )
         c4_user_prompt = (
-            f"以下のオリジナルのPythonコードと、それに対するレビューおよび改善提案があります。\n\n"
+            f"以下のオリジナルの{detected_language}コードと、それに対するレビューおよび改善提案があります。\n\n"
             f"--- オリジナルコード (V1) ここから ---\n{generated_code_v1}\n--- オリジナルコード (V1) ここまで ---\n\n"
             f"--- レビューと改善提案 ここから ---\n{code_review_feedback}\n--- レビューと改善提案 ここまで ---\n\n"
-            "上記のレビューと改善提案をすべて慎重に検討し、指摘された点を修正・反映した改善版のPythonコード（バージョン2）を生成してください。"
+            f"上記のレビューと改善提案をすべて慎重に検討し、指摘された点を修正・反映した改善版の{detected_language}コード（バージョン2）を生成してください。"
         )
         c4_res = await get_openai_response(
             prompt_text=c4_user_prompt,
-            system_role_description=c4_system_role_description,
+            system_role_description=c4_system_role_description, # Already includes persona control
             model="gpt-4o",
             chat_history=list(current_chat_history_for_this_turn),  # C3の結果を含む履歴
             initial_user_prompt=initial_user_prompt_for_session,
@@ -2561,18 +2613,21 @@ async def run_code_mode_flow(
         # ステップC5: テストケース提案
         logger.info("\nコードモード ステップC5: テストケース提案中...")
         c5_system_instruction = (
-            "あなたは経験豊富なソフトウェアテストエンジニアです。提示されたPythonコードを分析し、その機能が正しく動作することを確認するためのテストケースを包括的に提案してください。"
-            f"この会話全体の主要な目的は「{initial_user_prompt_for_session}」であり、ユーザーの元々のリクエストは「{original_prompt}」でした。"
+            "あなたは経験豊富なソフトウェアテストエンジニアです。"
+            f"提示された{detected_language}コードを分析し、その機能が正しく動作することを確認するためのテストケースを包括的に提案してください。"
+            f"この会話全体の主要な目的は「{initial_user_prompt_for_session}」であり、ユーザーの元々のリクエストは「{original_prompt}」でした。\n"
+            "テストケースは、主要な機能、エッジケース、エラーハンドリングを網羅するようにしてください。可能であれば、テストフレームワーク（例: Pythonのunittestやpytest、JavaScriptのJestなど）に基づいた形式で記述してください。\n"
+            "このステップの応答では、ウキヨザルのキャラクター性は一切含めず、技術的かつ専門的なトーンで記述してください。"
             # ... (テストケースの記述形式指示は省略) ...
         )
         c5_user_prompt = (
-            f"以下のPythonコードについて、詳細なテストケースを提案してください。\n\n"
+            f"以下の{detected_language}コードについて、詳細なテストケースを提案してください。\n\n"
             f"--- 対象コード (バージョン2) ---\n{generated_code_v2}\n--- 対象コードここまで ---\n\n"
             "上記のシステム指示に従い、できるだけ多くの観点から、具体的で検証可能なテストケースを提案してください。"
         )
         c5_res = await get_claude_response(
             prompt_text=c5_user_prompt,
-            system_instruction=c5_system_instruction,
+            system_instruction=c5_system_instruction, # Already includes persona control
             model="claude-opus-4-20250514",
             chat_history=list(current_chat_history_for_this_turn),  # C4の結果を含む履歴
             initial_user_prompt=initial_user_prompt_for_session,
@@ -2593,19 +2648,20 @@ async def run_code_mode_flow(
         # ステップC6: コードの使い方説明・解説
         logger.info("\nコードモード ステップC6: コードの使い方説明・解説中...")
         c6_system_role_description = (
-            "あなたは熟練したテクニカルライターであり、Pythonコードを初心者にも分かりやすく解説する専門家です。"
+            f"あなたは熟練したテクニカルライターであり、{detected_language}コードを初心者にも分かりやすく解説する専門家です。"
             f"この会話全体の主要な目的は「{initial_user_prompt_for_session}」であり、ユーザーの元々のリクエストは「{original_prompt}」でした。"
-            "提示されたPythonコードについて、以下の点を網羅的に、かつ平易な言葉で説明してください。"
+            f"提示された{detected_language}コードについて、以下の点を網羅的に、かつ平易な言葉で説明してください。\n"
+            "このステップの応答では、ウキヨザルのキャラクター性は一切含めず、技術的かつ専門的なトーンで記述してください。"
             # ... (解説項目指示は省略) ...
         )
         c6_user_prompt = (
-            f"以下のPythonコードについて、詳細な使い方と解説をお願いします。\n\n"
+            f"以下の{detected_language}コードについて、詳細な使い方と解説をお願いします。\n\n"
             f"--- 対象コード (バージョン2) ---\n{generated_code_v2}\n--- 対象コードここまで ---\n\n"
             "上記のシステム指示に従い、このコードを初めて見る人でも理解しやすく、すぐに使えるような親切な解説を作成してください。"
         )
         c6_res = await get_openai_response(
             prompt_text=c6_user_prompt,
-            system_role_description=c6_system_role_description,
+            system_role_description=c6_system_role_description, # Already includes persona control
             model="gpt-4o",
             chat_history=list(current_chat_history_for_this_turn),  # C5の結果を含む履歴
             initial_user_prompt=initial_user_prompt_for_session,
@@ -2627,6 +2683,7 @@ async def run_code_mode_flow(
             generated_code_v2,
             code_explanation,
             test_cases_suggestion,
+            language=detected_language  # Pass detected language
         )
 
         response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
