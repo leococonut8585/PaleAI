@@ -157,16 +157,36 @@ async def _process_pdf_with_pandoc(content: bytes, filename: str) -> Tuple[Optio
 
         def run_pandoc_command_sync():
             logger.debug("Running command: %s", " ".join(cmd))
-            process = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=60)
-            if process.returncode != 0:
-                logger.warning(
-                    "Pandoc command failed for '%s' (code %s). Stderr: %s",
+            try:
+                process = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=60)
+                if process.returncode != 0:
+                    logger.warning(
+                        "Pandoc command failed for '%s' (code %s). Stderr: %s",
+                        filename,
+                        process.returncode,
+                        process.stderr.strip(),
+                    )
+                    # This specific warning is already good. The generic "failed, trying next" will be in except block.
+                    return None
+                return process.stdout
+            except FileNotFoundError: # Specific handling for FileNotFoundError inside the thread
+                logger.error(
+                    "Pandocが見つかりません。インストールされているか、PATHが正しく設定されているか確認してください。 ('%s')",
                     filename,
-                    process.returncode,
-                    process.stderr.strip(),
+                    exc_info=True # Keep traceback for this critical setup error
                 )
-                return None
-            return process.stdout
+                # No "trying next" here as it's a setup issue for Pandoc itself.
+                # The main function's FileNotFoundError will catch if run_in_threadpool itself fails this way,
+                # but this provides more immediate feedback if pandoc is missing during the subprocess call.
+                raise # Re-raise to be caught by the outer FileNotFoundError block if necessary or other exception.
+            except subprocess.TimeoutExpired:
+                logger.error("Pandoc command timed out for '%s'.", filename, exc_info=True)
+                # "Trying next" will be in the outer TimeoutExpired block
+                raise # Re-raise
+            except Exception as e_sync: # Catch other potential errors within sync function
+                logger.error("Error during Pandoc sync execution for '%s': %s", filename, e_sync, exc_info=True)
+                # "Trying next" will be in the outer generic Exception block
+                raise # Re-raise
 
         extracted_text = await run_in_threadpool(run_pandoc_command_sync)
         if extracted_text and extracted_text.strip():
@@ -181,12 +201,19 @@ async def _process_pdf_with_pandoc(content: bytes, filename: str) -> Tuple[Optio
         return extracted_text, "Pandoc"
     except subprocess.TimeoutExpired:
         logger.error("Pandoc processing for '%s' timed out.", filename, exc_info=True)
+        logger.info("Pandocによる処理に失敗しました。次の処理 (AWS Textract) を試みます。 (Timeout for '%s')", filename)
         return None, "Pandoc - Timeout"
     except FileNotFoundError:
-        logger.error("Pandoc command not found. Ensure it's installed and in PATH.", exc_info=True)
+        logger.error(
+            "Pandocが見つかりません。インストールされているか、PATHが正しく設定されているか確認してください。 ('%s')",
+            filename,
+            exc_info=True # Good to have traceback for this
+        )
+        logger.info("Pandocによる処理に失敗しました。次の処理 (AWS Textract) を試みます。 (FileNotFound for '%s')", filename)
         return None, "Pandoc - Not Found"
     except Exception as e:
         logger.error("Pandoc processing error for '%s': %s", filename, e, exc_info=True)
+        logger.info("Pandocによる処理に失敗しました。次の処理 (AWS Textract) を試みます。 (Error for '%s')", filename)
         return None, "Pandoc - Error"
     finally:
         if temp_pdf_path and os.path.exists(temp_pdf_path):
@@ -197,8 +224,16 @@ async def _process_pdf_with_pandoc(content: bytes, filename: str) -> Tuple[Optio
 
 
 async def _process_pdf_with_textract(filename: str, content: bytes, textract_client: Optional[boto3.client]) -> Tuple[Optional[str], str]:
-    if not textract_client:
-        logger.warning("AWS Textract client not configured. Cannot process '%s'.", filename)
+    # Check if textract_client is not None and is an instance of a boto3 client
+    # A more robust check might involve checking for specific attributes if BaseClient is too generic or not accessible
+    # For now, checking against None and basic type can be a start.
+    # If `boto3.client("textract")` returns a specific class, that could be used.
+    # However, `boto3.client` typically returns `botocore.client.BaseClient` instances.
+    if not isinstance(textract_client, boto3.session.Session.client().__class__): # Check if it's a boto3 client instance
+        logger.warning(
+            "AWS Textractクライアントが設定されていません。この処理はスキップされます。 ('%s')",
+            filename
+        )
         return None, "AWS Textract (Not Configured)"
 
     logger.info("Starting AWS Textract processing for '%s'", filename)
@@ -236,7 +271,8 @@ async def _process_pdf_with_textract(filename: str, content: bytes, textract_cli
 
     except (ClientError, BotoCoreError) as e: # Catch specific AWS SDK errors
         error_message = str(e)
-        logger.error("AWS Textract API error for '%s': %s", filename, error_message, exc_info=True)
+        # The existing logger.error call already includes exc_info=True for stack trace
+        logger.error("AWS Textract API error for '%s': %s (%s)", filename, error_message, e.__class__.__name__, exc_info=True)
         # Check for common error types to provide more specific feedback
         if "UnsupportedDocumentException" in error_message:
             return None, "AWS Textract - Unsupported Document"
