@@ -1559,7 +1559,22 @@ async def collaborative_answer_mode_endpoint(
 
             response_shell.file_processing_step = file_processing_log
 
-            if processed_file_text_for_ai:
+            # Check if file processing resulted in an error to modify final_prompt_for_ai_flow
+            if file_processing_log and file_processing_log.error:
+                logger.warning(f"ファイル処理エラー発生: {file.filename}, エラー: {file_processing_log.error}")
+                fixed_error_message_for_ai = f"ファイル「{file.filename}」の処理中にエラーが発生しました。ファイルの内容は利用できません。"
+                
+                # Construct prompt informing AI about the file processing error
+                final_prompt_for_ai_flow = (
+                    f"ユーザーはファイル「{file.filename}」をアップロードしましたが、その内容の処理中にエラーが発生したため利用できません。\n"
+                    f"ファイル内容に関する通知: 「{fixed_error_message_for_ai}」\n"
+                    f"この状況を踏まえ、以下のユーザーの指示に対応してください。\n---\n"
+                    f"ユーザーの指示: 「{original_prompt_from_user}」"
+                )
+                logger.info(f"ファイル処理エラーのため、AIへのプロンプトをエラー情報で置き換えました。Prompt preview: {final_prompt_for_ai_flow[:200]}...")
+                response_shell.prompt = final_prompt_for_ai_flow # Update response_shell.prompt as well
+            elif processed_file_text_for_ai:
+                logger.info(f"ファイル処理成功: {file.filename}, 抽出テキスト長: {len(processed_file_text_for_ai)}")
                 final_prompt_for_ai_flow = (
                     f"ユーザーは次のファイルをアップロードしました。\n"
                     f"ファイル名: {file.filename}\n"
@@ -1567,12 +1582,21 @@ async def collaborative_answer_mode_endpoint(
                     f"(上記はアップロードされたファイルの内容です。これを踏まえて、以下のユーザーの指示に対応してください。)\n---\n"
                     f"ユーザーの指示: 「{original_prompt_from_user}」"
                 )
+                logger.info(f"ファイル内容をAIプロンプトに含めました。Prompt preview: {final_prompt_for_ai_flow[:200]}...")
                 response_shell.prompt = final_prompt_for_ai_flow
             else:
+                # This case means no error, but no text extracted (e.g., empty file or non-textual part of PDF)
+                logger.warning(f"ファイル「{file.filename}」からテキスト情報を抽出できませんでしたが、エラーは報告されていません。")
+                # This specific message might need refinement based on how empty content should be treated.
+                # For now, similar to error, but message notes "no text" rather than "error".
+                no_content_message_for_ai = f"ファイル「{file.filename}」は処理されましたが、抽出可能なテキスト情報が含まれていませんでした。"
                 final_prompt_for_ai_flow = (
-                    f"ユーザーはファイル「{file.filename}」をアップロードしましたが、そこからテキスト情報を抽出できませんでした。\n"
+                    f"ユーザーはファイル「{file.filename}」をアップロードしましたが、抽出可能なテキスト情報が含まれていませんでした。\n"
+                    f"ファイル内容に関する通知: 「{no_content_message_for_ai}」\n"
+                    f"この状況を踏まえ、以下のユーザーの指示に対応してください。\n---\n"
                     f"ユーザーの指示: 「{original_prompt_from_user}」"
                 )
+                logger.info(f"ファイル内容が空のため、AIへのプロンプトをその旨の情報で構成しました。Prompt preview: {final_prompt_for_ai_flow[:200]}...")
                 response_shell.prompt = final_prompt_for_ai_flow
 
         except HTTPException as he:
