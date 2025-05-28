@@ -43,12 +43,14 @@ async def run_quality_chat_mode_flow(
             source="Perplexity (sonar-reasoning-pro)",
             error="Perplexity client not initialized.",
         )
+        response_shell.overall_error = "Perplexity client not initialized."
         return response_shell
     if not claude_client:
         response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
             source="Claude (claude-opus-4-20250514)", # Corrected model name
             error="Claude client not initialized.",
         )
+        response_shell.overall_error = "Claude client not initialized."
         return response_shell
 
     from datetime import datetime
@@ -107,10 +109,7 @@ async def run_quality_chat_mode_flow(
         error=step1_res_perplexity.error,
     )
 
-    system_prompt = initial_user_prompt_for_session or ""
-    system_prompt = (
-        system_prompt + "\n\n" if system_prompt else ""
-    ) + "特に口調を柔らかく、親しみやすい表現でまとめてください。"
+    system_instruction_for_claude = "特に口調を柔らかく、親しみやすい表現でまとめてください。"
 
     summary_prompt = (
         "以下の情報をもとに、魅力的で構成の整った日本語の文章にしてください。\n"
@@ -120,7 +119,7 @@ async def run_quality_chat_mode_flow(
 
     step2_res_claude = await get_claude_response(
         prompt_text=summary_prompt,
-        system_instruction=system_prompt,
+        system_instruction=system_instruction_for_claude,
         model="claude-opus-4-20250514", # Corrected model name
         chat_history=chat_history_for_ai,
         initial_user_prompt=initial_user_prompt_for_session,
@@ -292,7 +291,10 @@ async def run_sw_longform_composition_flow(
 
     # Step 1: Perplexity
     logger.info(f"SW Longform - Step 1: Perplexity - Getting initial sources")
-    prompt_step1 = f"最新情報を3～5ソース取得してください（引用・リンク付き）。テーマ: {original_prompt}"
+    prompt_step1 = (
+        f"最新情報を3～5ソース取得してください（引用・リンク付き）。テーマ: {original_prompt}\n"
+        "このステップの応答では、ウキヨザルのキャラクター性は一切含めず、客観的かつ分析的なトーンで記述してください。"
+    )
     step1_res = await get_perplexity_response(
         prompt_for_perplexity=prompt_step1, user_memories=user_memories, initial_user_prompt=initial_user_prompt_for_session
     )
@@ -308,8 +310,14 @@ async def run_sw_longform_composition_flow(
     # Step 2: Gemini
     logger.info(f"SW Longform - Step 2: Gemini - Structuring Perplexity output")
     prompt_step2 = f"以下の情報群から構造化された要約（章立て候補や情報群）を作成してください:\n{step1_res.response}"
+    system_instruction_step2 = "このステップの応答では、ウキヨザルのキャラクター性は一切含めず、客観的かつ分析的なトーンで記述してください。"
     step2_res = await get_gemini_response(
-        request=request, prompt_text=prompt_step2, user_memories=user_memories, initial_user_prompt=initial_user_prompt_for_session, chat_history=chat_history_for_ai
+        request=request, 
+        prompt_text=prompt_step2, 
+        system_instruction=system_instruction_step2,
+        user_memories=user_memories, 
+        initial_user_prompt=initial_user_prompt_for_session, 
+        chat_history=chat_history_for_ai
     )
     intermediate_steps_details.append(step2_res)
     if step2_res.error or not step2_res.response:
@@ -323,8 +331,14 @@ async def run_sw_longform_composition_flow(
     # Step 3: GPT-4o
     logger.info(f"SW Longform - Step 3: GPT-4o - Generating questions/prompts")
     prompt_step3 = f"以下の構造情報と元のテーマ「{original_prompt}」に基づいて、「問い」（深掘りの観点提案）、非重複の検索プロンプト生成、コンテンツの焦点提案を行ってください:\n{step2_res.response}"
+    system_role_description_step3 = "このステップの応答では、ウキヨザルのキャラクター性は一切含めず、客観的かつ分析的なトーンで記述してください。"
     step3_res = await get_openai_response(
-        prompt_text=prompt_step3, model="gpt-4o", user_memories=user_memories, initial_user_prompt=initial_user_prompt_for_session, chat_history=chat_history_for_ai
+        prompt_text=prompt_step3, 
+        model="gpt-4o", 
+        system_role_description=system_role_description_step3,
+        user_memories=user_memories, 
+        initial_user_prompt=initial_user_prompt_for_session, 
+        chat_history=chat_history_for_ai
     )
     intermediate_steps_details.append(step3_res)
     if step3_res.error or not step3_res.response:
@@ -337,7 +351,10 @@ async def run_sw_longform_composition_flow(
 
     # Step 4: Perplexity (Recursive)
     logger.info(f"SW Longform - Step 4: Perplexity - Recursive search")
-    prompt_step4 = f"以下の「問い」や検索プロンプトに基づいて再度情報を収集してください (政治・技術・文化などの各視点ごとに追加情報収集):\n{step3_res.response}"
+    prompt_step4 = (
+        f"以下の「問い」や検索プロンプトに基づいて再度情報を収集してください (政治・技術・文化などの各視点ごとに追加情報収集):\n{step3_res.response}\n"
+        "このステップの応答では、ウキヨザルのキャラクター性は一切含めず、客観的かつ分析的なトーンで記述してください。"
+    )
     step4_res = await get_perplexity_response(
         prompt_for_perplexity=prompt_step4, user_memories=user_memories, initial_user_prompt=initial_user_prompt_for_session
     )
@@ -355,8 +372,13 @@ async def run_sw_longform_composition_flow(
     # Step 5: Cohere
     logger.info(f"SW Longform - Step 5: Cohere - Refinement/Deduplication")
     prompt_step5 = f"以下の情報を分析し、重複を排除しつつ、主要な論点を構造的に整理してください:\n{all_text_for_cohere}"
+    preamble_step5 = "このステップの応答では、ウキヨザルのキャラクター性は一切含めず、客観的かつ分析的なトーンで記述してください。"
     step5_res = await get_cohere_response(
-        prompt_text=prompt_step5, user_memories=user_memories, initial_user_prompt=initial_user_prompt_for_session, chat_history=chat_history_for_ai
+        prompt_text=prompt_step5, 
+        preamble=preamble_step5,
+        user_memories=user_memories, 
+        initial_user_prompt=initial_user_prompt_for_session, 
+        chat_history=chat_history_for_ai
     )
     intermediate_steps_details.append(step5_res)
     final_data_for_claude = ""
@@ -403,9 +425,14 @@ async def run_sw_longform_composition_flow(
 - トークン制限や文字制限を一切気にせず、最高の品質で書き切ってください (最大トークン数は設定済みです)
 - ユーザーの操作は一切不要です。あなたがすべて自動で判断・執筆・整形してください
 """
+    system_instruction_for_claude_step6 = (
+        initial_user_prompt_for_session + "\n\n" if initial_user_prompt_for_session else ""
+    )
+    system_instruction_for_claude_step6 += "最終的な文章のトーンは、ユーザーの指示と執筆テーマに最も適した、知的で魅力的な文体としてください。ウキヨザルのキャラクター性は反映しないでください。"
+
     step6_res = await get_claude_response(
         prompt_text=claude_system_prompt, 
-        system_instruction=initial_user_prompt_for_session, 
+        system_instruction=system_instruction_for_claude_step6, 
         user_memories=user_memories,
         chat_history=chat_history_for_ai 
     )
@@ -451,8 +478,17 @@ async def run_sw_short_text_flow(
     # Step 2: Claude
     logger.info(f"SW Short Text - Step 2: Claude - Generating short text")
     prompt_step2 = f"以下の情報をもとに、テーマ「{original_prompt}」について自然で簡潔な短文を作成してください:\n{step1_res.response}\n\n【書式指示】\n各段落やリスト項目の間には十分な改行を入れ、視認性を高めてください。重要な箇所やタイトルにはMarkdownの見出しを使用してください。"
+    system_instruction_for_claude_step2 = (
+        "あなたは、与えられた情報を元に、自然で簡潔な高品質の短文を作成する専門家です。"
+        "文体は、ユーザーの指示とテーマに応じて適切に調整し、特に指定がない場合は中立的かつプロフェッショナルなトーンを使用してください。"
+        "ウキヨザルのキャラクター性は反映しないでください。"
+    )
     step2_res = await get_claude_response(
-        prompt_text=prompt_step2, user_memories=user_memories, initial_user_prompt=initial_user_prompt_for_session, chat_history=chat_history_for_ai
+        prompt_text=prompt_step2, 
+        system_instruction=system_instruction_for_claude_step2,
+        user_memories=user_memories, 
+        initial_user_prompt=initial_user_prompt_for_session, 
+        chat_history=chat_history_for_ai
     )
     intermediate_steps_details.append(step2_res)
     response_shell.step7_final_answer_v2_openai = step2_res
@@ -480,7 +516,10 @@ async def run_sw_thesis_report_flow(
 
     # Step 1: Perplexity
     logger.info(f"SW Thesis/Report - Step 1: Perplexity - Initial research")
-    prompt_step1 = f"論文・レポートのテーマ「{original_prompt}」に関する最新かつ信頼性の高い情報を包括的に調査してください。"
+    prompt_step1 = (
+        f"論文・レポートのテーマ「{original_prompt}」に関する最新かつ信頼性の高い情報を包括的に調査してください。\n"
+        "この調査は学術的な目的のためのものです。応答は客観的かつ分析的なトーンで、ウキヨザルのキャラクター性は一切含めないでください。"
+    )
     step1_res = await get_perplexity_response(
         prompt_for_perplexity=prompt_step1, user_memories=user_memories, initial_user_prompt=initial_user_prompt_for_session
     )
@@ -496,8 +535,17 @@ async def run_sw_thesis_report_flow(
     # Step 2: Gemini
     logger.info(f"SW Thesis/Report - Step 2: Gemini - Structuring research")
     prompt_step2 = f"以下の調査結果に基づき、テーマ「{original_prompt}」の論文・レポートのための詳細な構成案（章立て、各セクションの主要な論点）を作成してください:\n{step1_res.response}"
+    system_instruction_step2 = (
+        "あなたは学術論文の構成案を作成する専門家です。客観的かつ構造的な提案を、プロフェッショナルなトーンで行ってください。"
+        "ウキヨザルのキャラクター性は反映しないでください。"
+    )
     step2_res = await get_gemini_response(
-        request=request, prompt_text=prompt_step2, user_memories=user_memories, initial_user_prompt=initial_user_prompt_for_session, chat_history=chat_history_for_ai
+        request=request, 
+        prompt_text=prompt_step2, 
+        system_instruction=system_instruction_step2,
+        user_memories=user_memories, 
+        initial_user_prompt=initial_user_prompt_for_session, 
+        chat_history=chat_history_for_ai
     )
     intermediate_steps_details.append(step2_res)
     if step2_res.error or not step2_res.response:
@@ -511,8 +559,17 @@ async def run_sw_thesis_report_flow(
     # Step 3: GPT-4o
     logger.info(f"SW Thesis/Report - Step 3: GPT-4o - Refining outline and questions")
     prompt_step3 = f"テーマ「{original_prompt}」に関する以下の調査結果と構成案をレビューし、各セクションで展開すべき議論や必要な追加調査項目、論点を深めるための問いを生成してください:\n調査結果概要:\n{step1_res.response[:1000] if step1_res.response else ''}...\n\n構成案:\n{step2_res.response}"
+    system_role_description_step3 = (
+        "あなたは学術的な議論を深めるための問いを生成するリサーチアシスタントです。"
+        "応答は分析的かつ客観的な視点から、専門的なトーンで行ってください。ウキヨザルのキャラクター性は一切含めないでください。"
+    )
     step3_res = await get_openai_response(
-        prompt_text=prompt_step3, model="gpt-4o", user_memories=user_memories, initial_user_prompt=initial_user_prompt_for_session, chat_history=chat_history_for_ai
+        prompt_text=prompt_step3, 
+        model="gpt-4o", 
+        system_role_description=system_role_description_step3,
+        user_memories=user_memories, 
+        initial_user_prompt=initial_user_prompt_for_session, 
+        chat_history=chat_history_for_ai
     )
     intermediate_steps_details.append(step3_res)
     if step3_res.error or not step3_res.response:
@@ -548,8 +605,17 @@ async def run_sw_thesis_report_flow(
 - 章や節のタイトルにはMarkdownの見出し（例: ## タイトル）を適切に使用してください。
 - 表を作成する場合は、Markdown形式で記述してください。
 """
+    system_instruction_for_claude_step4 = (
+        (initial_user_prompt_for_session + "\n\n" if initial_user_prompt_for_session else "") +
+        "最終的な論文・レポートは、指示された通り厳密に学術的な文体で記述し、ウキヨザルのキャラクター性は一切反映しないでください。"
+        "客観性と論理性を最優先してください。"
+    )
     step4_res = await get_claude_response(
-        prompt_text=prompt_step4, user_memories=user_memories, initial_user_prompt=initial_user_prompt_for_session, chat_history=chat_history_for_ai
+        prompt_text=prompt_step4, 
+        system_instruction=system_instruction_for_claude_step4,
+        user_memories=user_memories, 
+        initial_user_prompt=initial_user_prompt_for_session, # This is now part of system_instruction_for_claude_step4 implicitly
+        chat_history=chat_history_for_ai
     )
     intermediate_steps_details.append(step4_res)
     response_shell.step7_final_answer_v2_openai = step4_res
@@ -582,7 +648,10 @@ async def run_sw_summary_classification_flow(
     perplexity_output_text = original_prompt
     step1_res: Optional[schemas.IndividualAIResponse] = None 
     if not is_text_input:
-        prompt_step1_perplexity = f"テーマ「{original_prompt}」に関する情報を収集してください。"
+        prompt_step1_perplexity = (
+            f"テーマ「{original_prompt}」に関する情報を収集してください。\n"
+            "この情報収集は分析目的です。応答は客観的かつ事実に即したトーンで、ウキヨザルのキャラクター性は一切含めないでください。"
+        )
         step1_res = await get_perplexity_response(
             prompt_for_perplexity=prompt_step1_perplexity, user_memories=user_memories, initial_user_prompt=initial_user_prompt_for_session
         )
@@ -601,8 +670,17 @@ async def run_sw_summary_classification_flow(
     # Step 2: Gemini
     logger.info(f"SW Summary/Classify - Step 2: Gemini - Structuring input")
     prompt_step2_gemini = f"以下の情報を分析し、主要なトピックやセクションに構造化してください。もしこれが単一のテキストであれば、その要点を整理してください:\n{perplexity_output_text}"
+    system_instruction_step2 = (
+        "あなたはテキストを分析し、構造化する専門家です。応答は客観的かつ論理的なトーンで、主要なトピックや要点を整理してください。"
+        "ウキヨザルのキャラクター性は反映しないでください。"
+    )
     step2_res = await get_gemini_response(
-        request=request, prompt_text=prompt_step2_gemini, user_memories=user_memories, initial_user_prompt=initial_user_prompt_for_session, chat_history=chat_history_for_ai
+        request=request, 
+        prompt_text=prompt_step2_gemini, 
+        system_instruction=system_instruction_step2,
+        user_memories=user_memories, 
+        initial_user_prompt=initial_user_prompt_for_session, 
+        chat_history=chat_history_for_ai
     )
     intermediate_steps_details.append(step2_res)
     if step2_res.error or not step2_res.response:
@@ -616,8 +694,16 @@ async def run_sw_summary_classification_flow(
     # Step 3: Cohere
     logger.info(f"SW Summary/Classify - Step 3: Cohere - Summarize/Classify/Tag")
     prompt_step3_cohere = f"以下の構造化されたテキストまたは要点に基づいて、詳細な要約を作成し、主要な分類を行い、関連するキーワードやタグを抽出してください:\n{step2_res.response}\n\n【書式指示】\n要約、分類、キーワードは、それぞれMarkdownの見出しを使って区切ってください。リスト項目は改行を適切に使用し、視認性を高めてください。"
+    preamble_step3 = (
+        "あなたはテキストの要約、分類、キーワード抽出を行う分析AIです。"
+        "応答は客観的かつ簡潔なトーンで、指定されたフォーマットに従ってください。ウキヨザルのキャラクター性は一切含めないでください。"
+    )
     step3_res = await get_cohere_response(
-        prompt_text=prompt_step3_cohere, user_memories=user_memories, initial_user_prompt=initial_user_prompt_for_session, chat_history=chat_history_for_ai
+        prompt_text=prompt_step3_cohere, 
+        preamble=preamble_step3,
+        user_memories=user_memories, 
+        initial_user_prompt=initial_user_prompt_for_session, 
+        chat_history=chat_history_for_ai
     )
     intermediate_steps_details.append(step3_res)
     response_shell.step7_final_answer_v2_openai = step3_res
