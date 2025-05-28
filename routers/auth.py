@@ -47,8 +47,8 @@ async def create_profile_image(user: models.User, db: Session, openai_api_client
 @router.post("/register", response_model=schemas.User)
 async def register_user(
     user_in: schemas.UserCreate,
+    request: Request, 
     bg: BackgroundTasks,
-    request: Request, # Added request
     db: Session = Depends(database.get_db),
 ):
     """
@@ -85,8 +85,8 @@ async def register_user(
 
 @router.post("/login", response_model=schemas.Token)
 async def login_for_access_token(
+    request: Request, 
     form_data: OAuth2PasswordRequestForm = Depends(), 
-    request: Request, # Added request
     db: Session = Depends(database.get_db)
 ):
     """
