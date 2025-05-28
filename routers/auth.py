@@ -5,6 +5,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from datetime import timedelta
 import logging
+from typing import Any # Added
+from fastapi import Request # Added
 
 # プロジェクトルートにあるモジュールを直接インポート
 import database
@@ -22,7 +24,7 @@ router = APIRouter(
 
 logger = logging.getLogger(__name__)
 
-async def create_profile_image(user: models.User, db: Session) -> None:
+async def create_profile_image(user: models.User, db: Session, openai_api_client: Any) -> None:
     """Generate and save the user's profile image."""
     unique_name = f"{user.id}_{uuid.uuid4().hex}.png"
     path = f"/static/profile/{unique_name}"
@@ -30,8 +32,9 @@ async def create_profile_image(user: models.User, db: Session) -> None:
     user.profile_image_url = path
     db.commit()
     try:
+        # Pass the openai_api_client to generate_and_save
         await generate_and_save(
-            user.color1, user.color2, user.gender, user.id, file_name=unique_name
+            user.color1, user.color2, user.gender, user.id, openai_api_client, file_name=unique_name
         )
         if old_path:
             try:
@@ -45,6 +48,7 @@ async def create_profile_image(user: models.User, db: Session) -> None:
 async def register_user(
     user_in: schemas.UserCreate,
     bg: BackgroundTasks,
+    request: Request, # Added request
     db: Session = Depends(database.get_db),
 ):
     """
@@ -73,14 +77,16 @@ async def register_user(
     db.refresh(new_user)
     new_user.profile_image_url = f"/static/profile/{new_user.id}.png"
     db.commit()
+    openai_client_instance = request.app.state.openai_client # Get client instance
     bg.add_task(
-        generate_and_save, new_user.color1, new_user.color2, new_user.gender, new_user.id
+        generate_and_save, new_user.color1, new_user.color2, new_user.gender, new_user.id, openai_client_instance, None # Pass client and None for file_name
     )
     return new_user
 
 @router.post("/login", response_model=schemas.Token)
 async def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(), 
+    request: Request, # Added request
     db: Session = Depends(database.get_db)
 ):
     """
@@ -101,7 +107,8 @@ async def login_for_access_token(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="非アクティブなアカウントです。")
 
     if not user.profile_image_url:
-        await create_profile_image(user, db)
+        openai_client_instance = request.app.state.openai_client # Get client instance
+        await create_profile_image(user, db, openai_api_client=openai_client_instance) # Pass client
 
     access_token_expires = timedelta(minutes=auth_utils.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = auth_utils.create_access_token(

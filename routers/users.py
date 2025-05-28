@@ -1,6 +1,7 @@
 # routers/users.py
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request # Added Request
 from sqlalchemy.orm import Session
+from typing import Any # Added Any
 
 # プロジェクトルートにあるモジュールを直接インポート
 import schemas
@@ -25,18 +26,20 @@ async def read_users_me(current_user: models.User = Depends(dependencies.get_cur
 
 @router.put("/me", response_model=schemas.User)
 async def update_users_me(
-    update: schemas.UserUpdate,
+    update_data: schemas.UserUpdate, # Changed 'update' to 'update_data'
+    request: Request, # Added request
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(dependencies.get_current_active_user),
-):
+) -> models.User: # Explicitly added -> models.User return type
     """Update current user's gender or colors and regenerate profile image."""
-    if update.gender is not None:
-        current_user.gender = update.gender
-    if update.color1 is not None:
-        current_user.color1 = update.color1
-    if update.color2 is not None:
-        current_user.color2 = update.color2
+    if update_data.gender is not None:
+        current_user.gender = update_data.gender
+    if update_data.color1 is not None:
+        current_user.color1 = update_data.color1
+    if update_data.color2 is not None:
+        current_user.color2 = update_data.color2
     db.commit()
-    await auth.create_profile_image(current_user, db)
+    openai_client_instance = request.app.state.openai_client # Get client instance
+    await auth.create_profile_image(current_user, db, openai_api_client=openai_client_instance) # Pass client
     db.refresh(current_user)
     return current_user
