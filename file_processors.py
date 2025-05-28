@@ -449,7 +449,10 @@ async def process_image_file(filename: str, content: bytes, mime_type: Optional[
         prompt = "この画像に何が写っているか詳細に説明してください。画像内のテキストも読み取ってください。"
 
         async def generate_image_description():
-            response = await gemini_vision_client.generate_content_async([prompt, image_part])
+            response = await gemini_vision_client.generate_content_async(
+                [prompt, image_part],
+                request_options={"timeout": 600},
+            )
             return response.text
 
         description = await generate_image_description()

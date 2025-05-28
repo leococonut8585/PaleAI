@@ -135,16 +135,13 @@ else:
     # Timeout should be set on individual model instances if possible.
     genai.configure(api_key=google_api_key)
     app.state.gemini_vision_client = genai.GenerativeModel(
-        "gemini-2.5-pro-preview-05-06",
-        request_options={"timeout": 600}
+        "gemini-2.5-pro-preview-05-06"
     )
     app.state.gemini_pro_model = genai.GenerativeModel(
-        "gemini-2.5-pro-preview-05-06",
-        request_options={"timeout": 600}
+        "gemini-2.5-pro-preview-05-06"
     )
     app.state.gemini_flash_model = genai.GenerativeModel(
-        "gemini-2.5-flash-preview-04-17",
-        request_options={"timeout": 600}
+        "gemini-2.5-flash-preview-04-17"
     )
 
 # Cohere
@@ -840,7 +837,8 @@ async def get_gemini_response(
         }
         res = await active_gemini_model.generate_content_async(
             contents=contents_for_api,
-            generation_config=gemini_generation_config
+            generation_config=gemini_generation_config,
+            request_options={"timeout": 600}
         )
 
         content_response = ""
