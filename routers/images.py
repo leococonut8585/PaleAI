@@ -8,10 +8,13 @@ import base64
 import logging
 # import httpx  # removed: upscale_image no longer uses it
 # import tempfile  # removed: upscale_image no longer uses it
+import asyncio # Added for Stable Diffusion (Replicate)
+import io # Added for DALL-E 2 image editing
 
 import models
 from dependencies import get_current_active_user
 from utils.openai_client import openai_client # Added for DALL-E 3
+from utils.sd_client import sd_client, MODEL_ID # Added for Stable Diffusion (Replicate)
 
 router = APIRouter(prefix="/images", tags=["Images"])
 
@@ -367,21 +370,261 @@ async def generate_new_image(
             )
 
     elif payload.generation_mode == "speedy":
-        # Logic for Stable Diffusion will go here
-        # Requires: payload.prompt, payload.negative_prompt, payload.image_settings
-        pass
+        logger.info("Processing 'speedy' (Stable Diffusion/Replicate) image generation request.")
+
+        if "REPLACE_WITH_ACTUAL_HASH" in MODEL_ID:
+            logger.error("Stable Diffusion MODEL_ID is not configured in utils/sd_client.py.")
+            raise HTTPException(
+                status_code=500,
+                detail={"type": "configuration_error", "message": "Stable Diffusion model not configured."}
+            )
+
+        width, height = 1024, 1024 # Default size
+        if payload.image_settings.size:
+            try:
+                w_str, h_str = payload.image_settings.size.split('x')
+                parsed_w, parsed_h = int(w_str), int(h_str)
+                # Add validation for allowed SD sizes if necessary, or let Replicate handle it
+                width, height = parsed_w, parsed_h
+            except ValueError:
+                logger.warning(f"Invalid size format '{payload.image_settings.size}', using default {width}x{height}.")
+        
+        api_input = {
+            "prompt": payload.prompt,
+            "width": width,
+            "height": height,
+        }
+        if payload.negative_prompt:
+            api_input["negative_prompt"] = payload.negative_prompt
+        
+        # Placeholder for other SD-specific settings from payload.image_settings if added later
+        # e.g., api_input["num_inference_steps"] = payload.image_settings.steps or 50
+        # e.g., api_input["guidance_scale"] = payload.image_settings.cfg_scale or 7.5
+
+        logger.debug(f"Stable Diffusion (Replicate) API input: {api_input}")
+
+        try:
+            output_urls = await asyncio.to_thread(sd_client.run, MODEL_ID, input=api_input)
+            
+            if not output_urls or not isinstance(output_urls, list) or not output_urls[0]:
+                logger.error("Stable Diffusion (Replicate) response did not contain expected image URLs.")
+                raise HTTPException(
+                    status_code=500,
+                    detail={"type": "api_error", "message": "Stable Diffusion (Replicate) did not return image URLs."}
+                )
+            
+            logger.info(f"Stable Diffusion (Replicate) images generated successfully: {output_urls}")
+            
+            images_data = [{"url": url, "prompt_used": payload.prompt} for url in output_urls]
+
+            return {
+                "success": True,
+                "images": images_data, # Assuming output_urls is a list of URLs
+                "metadata": {
+                    "mode_used": "speedy",
+                    "settings_applied": {
+                        "model_id": MODEL_ID,
+                        "prompt": payload.prompt,
+                        "negative_prompt": payload.negative_prompt,
+                        "width": width,
+                        "height": height,
+                        # Add other applied settings here
+                    }
+                }
+            }
+        except HTTPException as http_exc: # Re-raise HTTPExceptions directly
+            raise http_exc
+        except Exception as e:
+            logger.error(f"Stable Diffusion (Replicate) API call failed: {e}", exc_info=True)
+            error_details = {"error_type": type(e).__name__, "message": str(e)}
+            # Replicate client errors sometimes have more details in e.args or other attributes
+            if hasattr(e, 'response') and e.response is not None: # type: ignore
+                 error_details['replicate_response_status'] = e.response.status_code # type: ignore
+                 try:
+                     error_details['replicate_response_body'] = e.response.json() # type: ignore
+                 except:
+                     error_details['replicate_response_body'] = e.response.text # type: ignore
+
+            raise HTTPException(
+                status_code=500,
+                detail={"type": "api_error", "message": "Failed to generate image with Stable Diffusion (Replicate).", "details": error_details}
+            )
+
     elif payload.generation_mode == "arrange_image":
-        if not image_file:
+        logger.info("Processing 'arrange_image' (DALL·E 2 Edit) request.")
+        if not image_file: # This check is technically redundant due to the one below, but good for clarity
             raise HTTPException(status_code=400, detail="Image file is required for 'arrange_image' mode.")
-        # Logic for DALL·E 2 (image editing/arrangement) will go here
-        # Requires: payload.prompt, image_file, payload.image_settings
-        pass
+
+        try:
+            image_bytes = await image_file.read()
+            image_file_like = io.BytesIO(image_bytes)
+            
+            # DALL·E 2 edit supports "256x256", "512x512", "1024x1024"
+            valid_sizes_dalle2 = ["256x256", "512x512", "1024x1024"]
+            dalle2_size = payload.image_settings.size if payload.image_settings.size in valid_sizes_dalle2 else "1024x1024"
+            
+            # No specific quality or style for DALL-E 2 edit, only size and prompt
+            api_params = {
+                "prompt": payload.prompt,
+                "n": 1, # For Phase 1, batch_count is not yet used for multiple 'n' values
+                "size": dalle2_size,
+                "response_format": "url",
+            }
+            logger.debug(f"DALL·E 2 Edit API parameters: {api_params}")
+
+            # Pass the image as a tuple: (filename, file_object)
+            # The filename helps the API determine the type, or use content_type if available and needed
+            response = await openai_client.images.edit(
+                image=(image_file.filename, image_file_like), # Pass as tuple
+                prompt=api_params["prompt"],
+                n=api_params["n"],
+                size=api_params["size"],
+                response_format=api_params.get("response_format", "url") # type: ignore
+            )
+
+            if not response.data or not response.data[0].url:
+                logger.error("DALL·E 2 Edit response did not contain expected data.")
+                raise HTTPException(
+                    status_code=500,
+                    detail={"type": "api_error", "message": "DALL·E 2 Edit response missing data."}
+                )
+            
+            image_url = response.data[0].url
+            logger.info(f"DALL·E 2 Edit image generated successfully: {image_url}")
+            
+            return {
+                "success": True,
+                "images": [{"url": image_url, "prompt_used": payload.prompt}],
+                "metadata": {
+                    "mode_used": "arrange_image",
+                    "settings_applied": api_params 
+                }
+            }
+
+        except HTTPException as http_exc: # Re-raise HTTPExceptions directly
+            raise http_exc
+        except Exception as e:
+            logger.error(f"DALL·E 2 Edit API call failed: {e}", exc_info=True)
+            error_details = {"error_type": type(e).__name__, "message": str(e)}
+            if hasattr(e, 'body'): # For OpenAI specific errors
+                error_details['body'] = e.body
+            
+            raise HTTPException(
+                status_code=500,
+                detail={"type": "api_error", "message": "Failed to edit image with DALL·E 2.", "details": error_details}
+            )
+
     elif payload.generation_mode == "generate_from_image":
-        if not image_file:
+        logger.info("Processing 'generate_from_image' (GPT-4V + DALL·E 3) request.")
+        if not image_file: # This check is redundant due to the FastAPI File(...) default, but good for explicit check
             raise HTTPException(status_code=400, detail="Image file is required for 'generate_from_image' mode.")
-        # Logic for GPT-4V + DALL·E 3 will go here
-        # Requires: payload.prompt, image_file, payload.image_settings
-        pass
+
+        try:
+            image_bytes = await image_file.read()
+            base64_image = base64.b64encode(image_bytes).decode('utf-8')
+            
+            mime_type = image_file.content_type
+            if not mime_type or mime_type == "application/octet-stream": # Fallback if content_type is generic
+                filename = image_file.filename or ""
+                if filename.lower().endswith(".png"):
+                    mime_type = "image/png"
+                elif filename.lower().endswith((".jpg", ".jpeg")):
+                    mime_type = "image/jpeg"
+                elif filename.lower().endswith(".webp"):
+                    mime_type = "image/webp"
+                else: # Default if extension is unknown or not provided
+                    mime_type = "image/png" 
+            
+            logger.info(f"Using MIME type: {mime_type} for GPT-4V input from file: {image_file.filename}")
+
+            gpt4v_prompt_instruction = (
+                f"Analyze the style, content, and composition of the provided image. "
+                f"Then, generate a detailed and specific DALL·E 3 prompt that captures the essence of this image "
+                f"but reinterprets it or creates a new scene based on the following user request: '{payload.prompt}'. "
+                f"The DALL·E 3 prompt should be suitable for generating a new image that harmonizes the uploaded image's feel with the user's request. "
+                f"Only output the DALL·E 3 prompt itself, without any surrounding text or explanation."
+            )
+            
+            gpt4v_messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": gpt4v_prompt_instruction},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{mime_type};base64,{base64_image}"},
+                        },
+                    ],
+                }
+            ]
+            logger.debug("Sending request to GPT-4V (gpt-4o) for DALL·E prompt generation.")
+
+            gpt4v_response = await openai_client.chat.completions.create(
+                model="gpt-4o", # Using gpt-4o as specified
+                messages=gpt4v_messages, # type: ignore
+                max_tokens=350 
+            )
+
+            if not gpt4v_response.choices or not gpt4v_response.choices[0].message or not gpt4v_response.choices[0].message.content:
+                logger.error("GPT-4V did not return a valid prompt.")
+                raise HTTPException(status_code=500, detail={"type": "api_error", "message": "Failed to generate DALL·E prompt using GPT-4V."})
+            
+            dalle_prompt_from_gpt4v = gpt4v_response.choices[0].message.content.strip()
+            if not dalle_prompt_from_gpt4v:
+                logger.error("GPT-4V returned an empty prompt.")
+                raise HTTPException(status_code=500, detail={"type": "api_error", "message": "GPT-4V generated an empty DALL·E prompt."})
+            
+            logger.info(f"DALL·E 3 prompt generated by GPT-4V: {dalle_prompt_from_gpt4v}")
+
+            # DALL·E 3 Image Generation using the new prompt
+            valid_sizes_dalle3 = ["1024x1024", "1024x1792", "1792x1024"]
+            dalle3_size = payload.image_settings.size if payload.image_settings.size in valid_sizes_dalle3 else "1024x1024"
+            valid_qualities_dalle3 = ["standard", "hd"]
+            dalle3_quality = payload.image_settings.quality if payload.image_settings.quality in valid_qualities_dalle3 else "standard"
+            valid_styles_dalle3 = ["vivid", "natural"]
+            dalle3_style = payload.image_settings.style if payload.image_settings.style in valid_styles_dalle3 else "vivid"
+
+            api_params_dalle3 = {
+                "model": "dall-e-3",
+                "prompt": dalle_prompt_from_gpt4v,
+                "n": 1,
+                "size": dalle3_size,
+                "quality": dalle3_quality,
+                "style": dalle3_style,
+                "response_format": "url",
+            }
+            logger.debug(f"DALL·E 3 API parameters (generated from GPT-4V prompt): {api_params_dalle3}")
+            
+            dalle3_response = await openai_client.images.generate(**api_params_dalle3)
+
+            if not dalle3_response.data or not dalle3_response.data[0].url:
+                logger.error("DALL·E 3 (after GPT-4V) response did not contain expected data.")
+                raise HTTPException(status_code=500, detail={"type": "api_error", "message": "DALL·E 3 (after GPT-4V) response missing data."})
+
+            final_image_url = dalle3_response.data[0].url
+            logger.info(f"DALL·E 3 image generated successfully from GPT-4V prompt: {final_image_url}")
+
+            return {
+                "success": True,
+                "images": [{"url": final_image_url, "prompt_used": dalle_prompt_from_gpt4v}],
+                "metadata": {
+                    "mode_used": "generate_from_image",
+                    "original_user_prompt": payload.prompt,
+                    "settings_applied": api_params_dalle3
+                }
+            }
+
+        except HTTPException as http_exc:
+            raise http_exc
+        except Exception as e:
+            logger.error(f"Error in 'generate_from_image' mode: {e}", exc_info=True)
+            error_details = {"error_type": type(e).__name__, "message": str(e)}
+            if hasattr(e, 'body'):
+                error_details['body'] = e.body
+            raise HTTPException(
+                status_code=500,
+                detail={"type": "api_error", "message": "Failed in 'generate_from_image' mode.", "details": error_details}
+            )
     else:
         raise HTTPException(status_code=400, detail=f"Invalid generation_mode: {payload.generation_mode}")
 
