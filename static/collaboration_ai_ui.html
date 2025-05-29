@@ -483,22 +483,20 @@
                         <select id="imageGenerationModeSelect" class="mt-1 block w-full p-2 border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500 text-sm">
                             <option value="high_quality" selected>精密描画モード (DALL·E 3)</option>
                             <option value="speedy">感覚描画モード (Stable Diffusion)</option>
-                            <option value="high_quality" selected>精密描画モード (DALL·E 3)</option>
-                            <option value="speedy">感覚描画モード (Stable Diffusion)</option>
                             <option value="arrange_image">画像をアレンジ (DALL·E 2)</option>
                             <option value="generate_from_image">画像から生成 (GPT-4V + DALL·E 3)</option>
                         </select>
                     </div>
 
-                    <div class="mt-2">
+                    <div id="imagePromptGroup0" class="mt-2 image-prompt-group">
                         <label for="imagePromptInput" class="block text-sm font-medium text-gray-700">プロンプト:</label>
                         <textarea id="imagePromptInput" rows="3" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500 text-sm" placeholder="画像生成プロンプトを入力..."></textarea>
-                    </div>
 
-                    <div class="mt-2">
-                        <label for="imageUploadButtonForGeneration" class="block text-sm font-medium text-gray-700">アップロード画像 (必要なモード時):</label>
+                        <label for="imageUploadButtonForGeneration" class="block text-sm font-medium text-gray-700 mt-2">アップロード画像 (必要なモード時):</label>
                         <input type="file" id="imageUploadButtonForGeneration" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-teal-50 file:text-teal-700 hover:file:bg-teal-100" style="display:none;">
                     </div>
+
+                    <div id="additionalPromptGroups"></div>
 
                     <div class="grid grid-cols-3 gap-4 mt-2">
                         <div>
@@ -521,8 +519,20 @@
                         </div>
                     </div>
                     
-                    <div id="imageBatchCountSettingPlaceholder" class="mt-3 mb-3 p-2 border border-dashed border-gray-300 rounded-md text-sm text-gray-500">
-                        同時生成枚数設定UI (現在の `imageCountWrapper` の機能をここに統合予定)
+                    <div id="imageBatchCountSetting" class="mt-3">
+                        <label for="imageBatchCountSelect" class="block text-sm font-medium text-gray-700">同時生成枚数:</label>
+                        <select id="imageBatchCountSelect" class="mt-1 p-2 border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500 text-sm">
+                            <option value="1">1</option>
+                            <option value="2">2</option>
+                            <option value="3">3</option>
+                            <option value="4">4</option>
+                            <option value="5">5</option>
+                            <option value="6">6</option>
+                            <option value="7">7</option>
+                            <option value="8">8</option>
+                            <option value="9">9</option>
+                            <option value="10">10</option>
+                        </select>
                     </div>
                     
                     <button id="executeImageGenerationButton" class="mt-4 w-full bg-teal-500 hover:bg-teal-600 text-white font-semibold py-2 px-4 rounded-md shadow-sm">画像生成実行</button>
@@ -663,8 +673,8 @@
     const imageQualitySetting = document.getElementById('imageQualitySetting');
     const imageSizeSetting = document.getElementById('imageSizeSetting');
     const imageFormatSetting = document.getElementById('imageFormatSetting');
-    // For imageBatchCountSettingPlaceholder, it's still a div, actual input element for batch count will be different.
-    // So, we will get it later when that specific UI element for batch count is decided and added.
+    const additionalPromptGroups = document.getElementById('additionalPromptGroups');
+    const imageBatchCountSelect = document.getElementById('imageBatchCountSelect');
     const executeImageGenerationButton = document.getElementById('executeImageGenerationButton');
     const generatedImageDisplayArea = document.getElementById('generatedImageDisplayArea');
     const loadingIndicator = document.getElementById('loadingIndicator');
@@ -1040,6 +1050,7 @@
     const API_ENDPOINT_TEMPLATES = `${API_BASE_URL}/templates`;
     const API_ENDPOINT_TRANSLATE = `${API_BASE_URL}/translate`;
     const API_ENDPOINT_IMAGE_GEN = `${API_BASE_URL}/images/generate`;
+    const API_ENDPOINT_IMAGE_GEN_NEW = `${API_BASE_URL}/images/generate_new`;
     const API_ENDPOINT_VIDEO_GEN = `${API_BASE_URL}/video/generate`;
     const API_ENDPOINT_TALK_GEN = `${API_BASE_URL}/talk/generate`;
     const API_ENDPOINT_TALK_UPLOAD = `${API_BASE_URL}/talk/upload_audio`;
@@ -2242,18 +2253,190 @@ function highlightMessage(messageId) {
     if (logoutButton) { logoutButton.addEventListener('click', handleLogout); }
 
         function updateImageUploadButtonVisibility() {
-            if (!imageGenerationModeSelect || !imageUploadButtonForGeneration) {
-                // 要素が見つからない場合は何もしない（エラーを防ぐ）
-                // This check is important because the elements might not exist if the user is not logged in
-                // or if the main AI mode is not 'imagegen'.
-                return;
-            }
+            if (!imageGenerationModeSelect) return;
             const selectedMode = imageGenerationModeSelect.value;
-            if (selectedMode === 'arrange_image' || selectedMode === 'generate_from_image') {
-                imageUploadButtonForGeneration.style.display = 'block';
-            } else {
-                imageUploadButtonForGeneration.style.display = 'none';
+            const showUpload = selectedMode === 'arrange_image' || selectedMode === 'generate_from_image';
+            if (imageUploadButtonForGeneration) {
+                imageUploadButtonForGeneration.style.display = showUpload ? 'block' : 'none';
             }
+            if (additionalPromptGroups) {
+                additionalPromptGroups.querySelectorAll('input[type="file"]').forEach(inp => {
+                    inp.style.display = showUpload ? 'block' : 'none';
+                });
+            }
+        }
+
+        function clearOptions(selectEl) {
+            if (!selectEl) return;
+            while (selectEl.firstChild) selectEl.removeChild(selectEl.firstChild);
+        }
+
+        function updateImageSettingOptions() {
+            if (!imageQualitySetting || !imageSizeSetting || !imageFormatSetting) return;
+            const mode = imageGenerationModeSelect ? imageGenerationModeSelect.value : 'high_quality';
+            const setOpts = (el, arr) => {
+                clearOptions(el);
+                arr.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = v; el.appendChild(o); });
+            };
+            if (mode === 'high_quality' || mode === 'generate_from_image') {
+                setOpts(imageQualitySetting, ['standard', 'hd']);
+                setOpts(imageSizeSetting, ['1024x1024', '1024x1792', '1792x1024']);
+                setOpts(imageFormatSetting, ['png', 'jpeg']);
+            } else if (mode === 'speedy') {
+                setOpts(imageQualitySetting, ['standard']);
+                setOpts(imageSizeSetting, ['512x512', '768x768', '1024x1024']);
+                setOpts(imageFormatSetting, ['png', 'jpeg']);
+            } else if (mode === 'arrange_image') {
+                setOpts(imageQualitySetting, ['standard']);
+                setOpts(imageSizeSetting, ['256x256', '512x512', '1024x1024']);
+                setOpts(imageFormatSetting, ['png']);
+            }
+        }
+
+        function createPromptGroup(idx) {
+            const group = document.createElement('div');
+            group.className = 'mt-2 image-prompt-group';
+            const label = document.createElement('label');
+            label.className = 'block text-sm font-medium text-gray-700';
+            label.textContent = `プロンプト${idx + 1}:`;
+            label.htmlFor = `imagePromptInput_${idx}`;
+            const textarea = document.createElement('textarea');
+            textarea.id = `imagePromptInput_${idx}`;
+            textarea.rows = 3;
+            textarea.className = 'mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500 text-sm';
+            const uploadLabel = document.createElement('label');
+            uploadLabel.className = 'block text-sm font-medium text-gray-700 mt-2';
+            uploadLabel.textContent = 'アップロード画像 (必要なモード時):';
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.id = `imageUploadExtra_${idx}`;
+            fileInput.style.display = 'none';
+            fileInput.className = 'mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-teal-50 file:text-teal-700 hover:file:bg-teal-100';
+            group.appendChild(label);
+            group.appendChild(textarea);
+            group.appendChild(uploadLabel);
+            group.appendChild(fileInput);
+            return group;
+        }
+
+        function updatePromptGroupCount() {
+            if (!imageBatchCountSelect || !additionalPromptGroups) return;
+            let desired = parseInt(imageBatchCountSelect.value || '1');
+            desired = Math.max(1, Math.min(10, desired));
+            let current = additionalPromptGroups.querySelectorAll('.image-prompt-group').length + 1;
+            while (current < desired) {
+                const idx = additionalPromptGroups.querySelectorAll('.image-prompt-group').length + 1;
+                additionalPromptGroups.appendChild(createPromptGroup(idx));
+                current++;
+            }
+            while (additionalPromptGroups.querySelectorAll('.image-prompt-group').length + 1 > desired) {
+                additionalPromptGroups.removeChild(additionalPromptGroups.lastElementChild);
+            }
+            updateImageUploadButtonVisibility();
+        }
+
+        async function handleImageGeneration() {
+            if (!getToken()) { alert('ログインしてください'); return; }
+            if (!imagePromptInput) return;
+            generatedImageDisplayArea.innerHTML = '';
+            const count = parseInt(imageBatchCountSelect.value || '1');
+            const mode = imageGenerationModeSelect.value;
+            const quality = imageQualitySetting.value;
+            const size = imageSizeSetting.value;
+            const format = imageFormatSetting.value;
+
+            const groups = [
+                { prompt: imagePromptInput.value, fileInput: imageUploadButtonForGeneration }
+            ];
+            additionalPromptGroups.querySelectorAll('.image-prompt-group').forEach((g, idx) => {
+                const t = g.querySelector('textarea');
+                const f = g.querySelector('input[type="file"]');
+                groups.push({ prompt: t ? t.value : '', fileInput: f });
+            });
+
+            for (let i = 0; i < Math.min(count, groups.length); i++) {
+                const { prompt, fileInput } = groups[i];
+                if (!prompt) continue;
+                const payload = {
+                    generation_mode: mode,
+                    prompt,
+                    image_settings: { quality, size, format },
+                    batch_count: 1
+                };
+                const fd = new FormData();
+                fd.append('payload', JSON.stringify(payload));
+                if (fileInput && fileInput.files && fileInput.files[0]) {
+                    fd.append('image_file', fileInput.files[0]);
+                }
+                try {
+                    const res = await makeAuthenticatedRequest(API_ENDPOINT_IMAGE_GEN_NEW, { method: 'POST', body: fd });
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data.images && Array.isArray(data.images)) {
+                            data.images.forEach(img => renderGeneratedImage(img.url, prompt, mode, quality, size, format));
+                        }
+                    } else {
+                        generatedImageDisplayArea.innerHTML += `<p class="text-red-500 text-sm">エラー: ${res.status}</p>`;
+                    }
+                } catch (e) {
+                    generatedImageDisplayArea.innerHTML += `<p class="text-red-500 text-sm">通信エラー</p>`;
+                }
+            }
+        }
+
+        function renderGeneratedImage(url, originalPrompt, mode, quality, size, format) {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'relative inline-block m-2';
+            const img = document.createElement('img');
+            img.src = url;
+            img.className = 'max-w-xs rounded-md';
+            const dl = document.createElement('a');
+            dl.href = url;
+            dl.download = 'image.png';
+            dl.className = 'absolute bottom-1 right-1 bg-white bg-opacity-70 text-xs px-1 rounded';
+            dl.textContent = 'DL';
+            const redoBtn = document.createElement('button');
+            redoBtn.className = 'absolute bottom-1 right-10 bg-white bg-opacity-70 text-xs px-1 rounded';
+            redoBtn.textContent = 'やり直し';
+            redoBtn.addEventListener('click', () => {
+                if (wrapper.querySelector('.redo-container')) return;
+                const rc = document.createElement('div');
+                rc.className = 'redo-container mt-1 flex';
+                const inp = document.createElement('input');
+                inp.type = 'text';
+                inp.placeholder = '追加指示';
+                inp.className = 'border text-xs flex-grow rounded mr-1';
+                const sb = document.createElement('button');
+                sb.textContent = '再生成';
+                sb.className = 'bg-teal-500 text-white text-xs px-2 rounded';
+                rc.appendChild(inp);
+                rc.appendChild(sb);
+                wrapper.appendChild(rc);
+                sb.addEventListener('click', async () => {
+                    const extra = inp.value.trim();
+                    if (!extra) return;
+                    const newPrompt = `${originalPrompt} ${extra}`;
+                    const payload = { generation_mode: mode, prompt: newPrompt, image_settings: { quality, size, format }, batch_count: 1 };
+                    const fd = new FormData();
+                    fd.append('payload', JSON.stringify(payload));
+                    try {
+                        const res = await makeAuthenticatedRequest(API_ENDPOINT_IMAGE_GEN_NEW, { method: 'POST', body: fd });
+                        if (res.ok) {
+                            const d = await res.json();
+                            if (d.images && d.images[0]) {
+                                img.src = d.images[0].url;
+                                dl.href = d.images[0].url;
+                            }
+                        }
+                    } finally {
+                        wrapper.removeChild(rc);
+                    }
+                });
+            });
+            wrapper.appendChild(img);
+            wrapper.appendChild(dl);
+            wrapper.appendChild(redoBtn);
+            generatedImageDisplayArea.appendChild(wrapper);
         }
 
     function handleLogout() { removeToken(); updateUIAfterLogout(); }
@@ -2687,10 +2870,17 @@ function highlightMessage(messageId) {
         updateTalkInputMode();
         toggleCharCountBox(); // 初期モードに基づいてUI要素を正しく設定
 
-        if (imageGenerationModeSelect) { // Ensure element exists before adding listener
-            imageGenerationModeSelect.addEventListener('change', updateImageUploadButtonVisibility);
+        if (imageGenerationModeSelect) {
+            imageGenerationModeSelect.addEventListener('change', () => {
+                updateImageUploadButtonVisibility();
+                updateImageSettingOptions();
+            });
         }
-        updateImageUploadButtonVisibility(); // New call for initial state
+        if (imageBatchCountSelect) {
+            imageBatchCountSelect.addEventListener('change', updatePromptGroupCount);
+        }
+        updatePromptGroupCount();
+        updateImageSettingOptions();
 
         const sidebar = document.getElementById('sidebar');
         const sidebarToggle = document.getElementById('sidebarToggle');
@@ -2830,6 +3020,10 @@ function highlightMessage(messageId) {
                 templateCategoryInput.value = '';
                 loadTemplates();
             });
+        }
+
+        if (executeImageGenerationButton) {
+            executeImageGenerationButton.addEventListener('click', handleImageGeneration);
         }
     });
 </script>
