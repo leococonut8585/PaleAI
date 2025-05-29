@@ -481,8 +481,10 @@
                     <div class="mb-2">
                         <label for="imageGenerationModeSelect" class="block text-sm font-medium text-gray-700">生成モード:</label>
                         <select id="imageGenerationModeSelect" class="mt-1 block w-full p-2 border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500 text-sm">
-                            <option value="high_quality" selected>ハイクオリティ (DALL·E 3)</option>
-                            <option value="speedy">スピーディー (Stable Diffusion)</option>
+                            <option value="high_quality" selected>精密描画モード (DALL·E 3)</option>
+                            <option value="speedy">感覚描画モード (Stable Diffusion)</option>
+                            <option value="high_quality" selected>精密描画モード (DALL·E 3)</option>
+                            <option value="speedy">感覚描画モード (Stable Diffusion)</option>
                             <option value="arrange_image">画像をアレンジ (DALL·E 2)</option>
                             <option value="generate_from_image">画像から生成 (GPT-4V + DALL·E 3)</option>
                         </select>
@@ -655,8 +657,16 @@
     const imageApiSelectWrapper = document.getElementById('imageApiSelectWrapper'); // 追加
     const imageApiSelect = document.getElementById('imageApiSelect'); // 追加
     const newImageGenerationUIArea = document.getElementById('newImageGenerationUIArea'); // Added for new image UI
-    const imageGenerationModeSelect = document.getElementById('imageGenerationModeSelect');
-    const imageUploadButtonForGeneration = document.getElementById('imageUploadButtonForGeneration');
+    const imageGenerationModeSelect = document.getElementById('imageGenerationModeSelect'); 
+    const imageUploadButtonForGeneration = document.getElementById('imageUploadButtonForGeneration'); 
+    const imagePromptInput = document.getElementById('imagePromptInput');
+    const imageQualitySetting = document.getElementById('imageQualitySetting');
+    const imageSizeSetting = document.getElementById('imageSizeSetting');
+    const imageFormatSetting = document.getElementById('imageFormatSetting');
+    // For imageBatchCountSettingPlaceholder, it's still a div, actual input element for batch count will be different.
+    // So, we will get it later when that specific UI element for batch count is decided and added.
+    const executeImageGenerationButton = document.getElementById('executeImageGenerationButton');
+    const generatedImageDisplayArea = document.getElementById('generatedImageDisplayArea');
     const loadingIndicator = document.getElementById('loadingIndicator');
     const thinkingVideo = document.getElementById('thinkingVideo');
     const chatMessagesContainer = document.getElementById('chatMessagesContainer');
