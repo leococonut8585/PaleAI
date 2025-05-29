@@ -188,13 +188,13 @@ async def _generate_styled_dalle_prompt_with_gpt4v(
         logger.error("No valid reference images were loaded or processed.")
         return None
 
-    gender_specific_details = ""
-    if user_gender == "女性":
-        gender_specific_details = "全体的に柔らかな印象で、やや女性的なニュアンスのスタイル。"
-    elif user_gender == "男性":
-        gender_specific_details = "全体的にシャープな印象で、やや男性的なニュアンスのスタイル。"
-    else:
-        gender_specific_details = "指定なし。中性的な特徴で。"
+    # gender_specific_details = ""
+    # if user_gender == "女性":
+    #     gender_specific_details = "全体的に柔らかな印象で、やや女性的なニュアンスのスタイル。"
+    # elif user_gender == "男性":
+    #     gender_specific_details = "全体的にシャープな印象で、やや男性的なニュアンスのスタイル。"
+    # else:
+    #     gender_specific_details = "指定なし。中性的な特徴で。"
 
     user_message_content_parts: List[Dict[str, Any]] = [
         {"type": "text", "text": "以下の参照画像の芸術的スタイル（線画、配色、陰影技術、キャラクターデザインのモチーフ、全体的な雰囲気、芸術的「タッチ」など）を詳細に分析してください。\n\n参照画像群:"}
@@ -204,7 +204,6 @@ async def _generate_styled_dalle_prompt_with_gpt4v(
     final_text_instruction = (
         "\n\n分析したスタイルに基づき、以下の要素を組み込んだ「サイボーグモンキーのマスコットキャラクターのプロフィールアイコン、透明背景」を描画するための、詳細で具体的なDALL·E 3プロンプトを生成してください："
         f"\n- 主要な体色として「{user_color1_name}」と「{user_color2_name}」を使用。"
-        f"\n- 性別特徴: {gender_specific_details}"
         "\n- スタイル特徴: シンプルな線画、太い黒のアウトライン、フラットで明るい色彩、最小限の陰影。"
         "\n- サイボーグ特徴: 腕の関節、首、ヘッドバンドなど、見える機械部品。"
         "\n- 表情その他: 口を開けた陽気な笑顔、フレンドリーで親しみやすく遊び心のある外見。"
