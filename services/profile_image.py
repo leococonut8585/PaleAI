@@ -190,9 +190,9 @@ async def _generate_styled_dalle_prompt_with_gpt4v(
 
     gender_specific_details = ""
     if user_gender == "女性":
-        gender_specific_details = "女性的な顔つき、細い体、長いまつげ、魅力的なポーズをしています。"
+        gender_specific_details = "全体的に柔らかな印象で、やや女性的なニュアンスのスタイル。"
     elif user_gender == "男性":
-        gender_specific_details = "男性的な顔つき、太い体、短い太いまゆげ、力強いポーズをしています。"
+        gender_specific_details = "全体的にシャープな印象で、やや男性的なニュアンスのスタイル。"
     else:
         gender_specific_details = "指定なし。中性的な特徴で。"
 
