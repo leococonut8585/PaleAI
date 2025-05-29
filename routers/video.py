@@ -27,7 +27,8 @@ from PIL import Image
 try:
     from config import (
         REPLICATE_API_TOKEN, STABILITY_API_KEY, ELEVENLABS_API_KEY, ASSEMBLYAI_API_KEY, DEEPL_API_KEY,
-        REPLICATE_API_URL, REPLICATE_ZEROSCOPE_MODEL, STABILITY_TEXT_TO_IMAGE_API_URL_BASE,
+        REPLICATE_API_URL, REPLICATE_ZEROSCOPE_MODEL_XL, REPLICATE_ZEROSCOPE_MODEL_576W, # Updated for model versions
+        STABILITY_TEXT_TO_IMAGE_API_URL_BASE,
         STABILITY_DEFAULT_ENGINE, STABILITY_AUDIO_API_URL, REPLICATE_POLL_INTERVAL,
         REPLICATE_API_TIMEOUT, STABILITY_API_TIMEOUT, ELEVENLABS_API_TIMEOUT,
         ASSEMBLYAI_POLL_INTERVAL, ASSEMBLYAI_API_TIMEOUT, DEFAULT_FPS,
@@ -45,13 +46,14 @@ except ImportError:
     DEEPL_API_KEY = os.getenv("DEEPL_API_KEY")
 
     REPLICATE_API_URL = "https://api.replicate.com/v1/predictions"
-    REPLICATE_ZEROSCOPE_MODEL = "anotherjesse/zeroscope-v2-xl:9f7476737190e1a712580adfd5446408f14b2de0e6e8e168d68f2029fc221216"
+    REPLICATE_ZEROSCOPE_MODEL_XL = "anotherjesse/zeroscope-v2-xl:9f7476737190e1a712580adfd5446408f14b2de0e6e8e168d68f2029fc221216"
+    REPLICATE_ZEROSCOPE_MODEL_576W = "anotherjesse/zeroscope-v2-576w:1c8f6c34d800a8054187871f754559085323598320e960e699500244a8386153" # Example, replace if different
     STABILITY_TEXT_TO_IMAGE_API_URL_BASE = "https://api.stability.ai/v1/generation/{engine_id}/text-to-image"
     STABILITY_DEFAULT_ENGINE = "stable-diffusion-xl-1024-v1-0"
     STABILITY_AUDIO_API_URL = "https://api.stability.ai/v1/generation/stable-audio-generate-v1" 
     REPLICATE_POLL_INTERVAL = 10
     REPLICATE_API_TIMEOUT = 300.0
-    STABILITY_API_TIMEOUT = 180.0 # Increased for audio
+    STABILITY_API_TIMEOUT = 180.0 
     ELEVENLABS_API_TIMEOUT = 60.0
     ASSEMBLYAI_POLL_INTERVAL = 5
     ASSEMBLYAI_API_TIMEOUT = 300.0
@@ -97,18 +99,16 @@ class VideoGenerationRequest(BaseModel):
     duration: Optional[int] = Field(10, ge=1, le=600, description="Target total duration of the video in seconds. Claude will try to match this.")
     resolution: str = Field("1024x576", description="Resolution, e.g. '512x512', '1920x1080'. Will be adapted for specific APIs.")
     scene_prompts: Optional[List[str]] = Field(None, description="Optional list of detailed prompts for each scene.")
+    
     narration_enabled: bool = Field(True, description="Enable or disable narration generation.")
     narration_script_prompt: Optional[str] = Field(None, description="Prompt for Claude to generate narration script.")
     narration_lang: str = Field("en", description="Language for narration (e.g., JA, EN).")
     narration_voice_id: Optional[str] = Field(None, description="Specific ElevenLabs voice ID. If None, a default for the language is used.")
+    
     subtitles_enabled: bool = Field(True, description="Enable or disable subtitle generation.")
     subtitle_script_prompt: Optional[str] = Field(None, description="Prompt for Claude to generate subtitle texts.")
     subtitle_source_lang: Optional[str] = Field(None, description="Source language of subtitles if translation is needed, defaults to narration_lang.")
     subtitle_target_lang: Optional[str] = Field(None, description="Target language for subtitle translation (e.g., EN, ES).")
-    bgm_enabled: bool = Field(True, description="Enable or disable background music.")
-    bgm_prompt: Optional[str] = Field(None, description="Prompt describing the desired BGM.")
-    output_format: str = Field("mp4", description="Output video format (e.g., mp4, mov, webm).")
-    video_quality: str = Field("1080p", description="Desired video quality (e.g., 720p, 1080p, 4k).")
     subtitle_font_name: Optional[str] = Field(None, description="Subtitle font name (e.g., 'Arial', 'Meiryo')")
     subtitle_font_size: Optional[str] = Field(None, description="Subtitle font size (e.g., '24', FFmpeg compatible string)")
     subtitle_primary_color: Optional[str] = Field(None, description="Subtitle primary color (e.g., '&H00FFFFFF' for white, '&H000000FF' for red in ASS/SSA hex format)")
@@ -116,6 +116,19 @@ class VideoGenerationRequest(BaseModel):
     subtitle_background_color: Optional[str] = Field(None, description="Subtitle background/box color (e.g., '&H80000000' for semi-transparent black)")
     subtitle_alignment: Optional[int] = Field(None, description="Subtitle alignment (Numpad notation: 1-bottom-left, 2-bottom-center, ..., 9-top-right)")
     subtitle_margin_v: Optional[int] = Field(None, description="Subtitle vertical margin from edge of video (pixels)")
+    
+    bgm_enabled: bool = Field(True, description="Enable or disable background music.")
+    bgm_prompt: Optional[str] = Field(None, description="Prompt describing the desired BGM.")
+    
+    output_format: str = Field("mp4", description="Output video format (e.g., mp4, mov, webm).")
+    video_quality: str = Field("medium", description="Desired video quality (e.g., low, medium, high). This can influence parameters like num_inference_steps.")
+
+    replicate_prompt_prefix: Optional[str] = Field(None, description="Prefix added to the main scene prompt for Replicate generation. e.g., 'cinematic, detailed, ...'")
+    replicate_negative_prompt: Optional[str] = Field("blurry, low quality, worst quality, low resolution, text, watermark, bad anatomy, artifacts", description="Negative prompt for Replicate generation.")
+    replicate_guidance_scale: Optional[float] = Field(7.5, ge=1.0, le=20.0, description="Guidance scale for Replicate (e.g., 7.5). Higher values mean stricter prompt adherence.")
+    replicate_num_inference_steps: Optional[int] = Field(25, ge=10, le=100, description="Number of inference steps for Replicate (e.g., 25). Higher values can improve quality but increase time.")
+    replicate_seed: Optional[int] = Field(None, description="Seed for Replicate generation for reproducibility. If None or -1, random.")
+    replicate_model_version: Optional[str] = Field(None, description=f"Specify Replicate model version. Default: Zeroscope v2 XL ('{REPLICATE_ZEROSCOPE_MODEL_XL}'). Alternative: Zeroscope v2 576w ('{REPLICATE_ZEROSCOPE_MODEL_576W}')")
 
 
 class VideoGenerationResponse(BaseModel):
@@ -384,9 +397,7 @@ async def _translate_srt_content(srt_content: str, target_lang: str, source_lang
         api_target_lang = DEEPL_LANG_MAP.get(target_lang.lower())
         api_source_lang = DEEPL_LANG_MAP.get(source_lang.lower()) if source_lang else None
         if not api_target_lang:
-            logger.error(f"[{request_id}] DeepL target language code for '{target_lang}' not found.")
-            generated_files_summary_ref["errors"].append({"step": "subtitle_translation", "error": f"DeepL unsupported target language: {target_lang}"})
-            return srt_content
+            logger.error(f"[{request_id}] DeepL target language code for '{target_lang}' not found."); generated_files_summary_ref["errors"].append({"step": "subtitle_translation", "error": f"DeepL unsupported target language: {target_lang}"}); return srt_content
         
         translated_results = await asyncio.to_thread(
             deepl_translator.translate_text,
@@ -527,6 +538,10 @@ Ensure total scene duration roughly matches target video duration. Output valid 
         default_scene_duration = (req.duration / num_scenes) if num_scenes > 0 and req.duration else 5.0
         default_scene_duration = max(1.0, default_scene_duration)
 
+        # Determine Replicate model version
+        replicate_model_to_use = req.replicate_model_version or REPLICATE_ZEROSCOPE_MODEL_XL
+        logger.info(f"[{request_id}] Using Replicate model version: {replicate_model_to_use}")
+
         async with httpx.AsyncClient() as client:
             for i, scene_info_claude in enumerate(scenes_plan):
                 scene_summary_entry = {
@@ -539,7 +554,8 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                     "material_type": None,
                     "final_duration": None 
                 }
-                scene_desc = scene_info_claude.get("scene_description", f"Default scene prompt for scene {i+1}")
+                base_prompt_scene = scene_info_claude.get("scene_description", req.prompt)
+                final_replicate_prompt = f"{req.replicate_prompt_prefix}, {base_prompt_scene}" if req.replicate_prompt_prefix else base_prompt_scene
                 
                 try:
                     scene_duration_seconds = float(scene_info_claude.get("duration_seconds", default_scene_duration))
@@ -551,11 +567,31 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                 scene_summary_entry["final_duration"] = scene_duration_seconds
 
                 if REPLICATE_API_TOKEN:
-                    logger.info(f"[{request_id}] Scene {i+1}: Attempting Replicate Zeroscope for '{scene_desc[:30]}...'")
-                    try:
-                        num_frames = max(16, min(int(scene_duration_seconds * DEFAULT_FPS), 60)) 
-                        rep_payload = {"version": REPLICATE_ZEROSCOPE_MODEL, "input": {"prompt": f"{scene_desc}, cinematic, high quality, {req.video_quality}", "num_frames": num_frames, "width": 1024, "height": 576, "fps": DEFAULT_FPS}}
+                    logger.info(f"[{request_id}] Scene {i+1}: Attempting Replicate for '{final_replicate_prompt[:50]}...'")
+                    
+                    # Determine resolution for Replicate based on model
+                    replicate_width, replicate_height = 1024, 576 # Default for XL
+                    if replicate_model_to_use == REPLICATE_ZEROSCOPE_MODEL_576W:
+                        replicate_width, replicate_height = 576, 320
+
+                    replicate_payload_input = {
+                        "prompt": final_replicate_prompt,
+                        "negative_prompt": req.replicate_negative_prompt or "blurry, low quality, worst quality, low resolution, text, watermark, bad anatomy, artifacts, deformed, ugly, noise, grain",
+                        "width": replicate_width,
+                        "height": replicate_height,
+                        "num_frames": max(16, min(int(scene_duration_seconds * (req.fps or DEFAULT_FPS)), 60)), # Adjust num_frames based on duration and FPS
+                        "fps": req.fps or DEFAULT_FPS,
+                        "guidance_scale": req.replicate_guidance_scale if req.replicate_guidance_scale is not None else 7.5,
+                        "num_inference_steps": req.replicate_num_inference_steps if req.replicate_num_inference_steps is not None else 25,
+                    }
+                    if req.replicate_seed is not None and req.replicate_seed != -1:
+                        replicate_payload_input["seed"] = req.replicate_seed
+                    
+                    logger.info(f"[{request_id}] Replicate API Input: {replicate_payload_input}")
+
+                    rep_payload = {"version": replicate_model_to_use, "input": replicate_payload_input}
                         
+                    try:
                         prediction_response = await client.post(REPLICATE_API_URL, headers={"Authorization": f"Token {REPLICATE_API_TOKEN}"}, json=rep_payload, timeout=REPLICATE_API_TIMEOUT)
                         prediction_response.raise_for_status(); pred_data = prediction_response.json()
                         prediction_id = pred_data.get("id"); get_url = pred_data.get("urls", {}).get("get")
@@ -570,7 +606,7 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                                     if output_url:
                                         video_file_response = await client.get(output_url, timeout=REPLICATE_API_TIMEOUT); video_file_response.raise_for_status()
                                         scene_file_path = temp_dir / f"scene_{i}_replicate.mp4"; scene_file_path.write_bytes(video_file_response.content)
-                                        scene_summary_entry["path"] = str(scene_file_path.resolve()); scene_summary_entry["source_api"] = "replicate_zeroscope_v2_xl"
+                                        scene_summary_entry["path"] = str(scene_file_path.resolve()); scene_summary_entry["source_api"] = "replicate"
                                         scene_summary_entry["material_type"] = "video"
                                         logger.info(f"[{request_id}] Scene {i+1} Replicate success: {scene_file_path.name}")
                                     else: scene_summary_entry["error"] = "Replicate succeeded but no output URL."
@@ -589,7 +625,7 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                 if not scene_summary_entry["path"] and STABILITY_API_KEY:
                     logger.info(f"[{request_id}] Scene {i+1}: Fallback to Stability Text-to-Image for '{scene_desc[:30]}...'")
                     try:
-                        img_width, img_height = target_w_req, target_h_req
+                        img_width, img_height = target_w_req, target_h_req # Use overall target resolution for images
                         max_dim = 1024 
                         if img_width > max_dim or img_height > max_dim:
                             if img_width > img_height: img_height = int(max_dim * img_height / img_width); img_width = max_dim
@@ -597,6 +633,7 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                         img_width = (img_width // 64) * 64; img_height = (img_height // 64) * 64
                         if img_width == 0: img_width = 512
                         if img_height == 0: img_height = 512
+                        
                         stability_api_url_txt2img = STABILITY_TEXT_TO_IMAGE_API_URL_BASE.format(engine_id=STABILITY_DEFAULT_ENGINE)
                         stab_payload = {"text_prompts": [{"text": f"{scene_desc}, cinematic, {req.video_quality}"}], "height": img_height, "width": img_width, "samples": 1, "steps": 30 }
                         stability_response = await client.post(stability_api_url_txt2img, headers={"Authorization": f"Bearer {STABILITY_API_KEY}", "Accept": "application/json"}, json=stab_payload, timeout=STABILITY_API_TIMEOUT)
@@ -622,15 +659,14 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                 if material_path_str and Path(material_path_str).is_file():
                     material_path_obj = Path(material_path_str)
                     
-                    current_input_index = len(video_input_options) // 2 if "-loop" in video_input_options else len(video_input_options)
-                    
+                    current_input_idx_for_filter = len(video_filter_inputs) # This will be the index for the *next* input
+
                     if scene_summary_entry["material_type"] == "image":
                         video_input_options.extend(["-loop", "1", "-r", str(DEFAULT_FPS), "-t", str(scene_duration_seconds), "-i", str(material_path_obj.resolve())])
-                        video_filter_inputs.append(f"[{current_input_index}:v]")
                     else: # video file
                         video_input_options.extend(["-i", str(material_path_obj.resolve())])
-                        video_filter_inputs.append(f"[{current_input_index}:v]")
                     
+                    video_filter_inputs.append(f"[{current_ffmpeg_input_index + len(video_filter_inputs)}:v]")
                     actual_total_processed_video_duration += scene_duration_seconds
                 elif not scene_summary_entry["error"]:
                      scene_summary_entry["error"] = "All material generation attempts failed or were skipped for this scene."
@@ -700,7 +736,7 @@ Ensure total scene duration roughly matches target video duration. Output valid 
             if ASSEMBLYAI_API_KEY and valid_narration_paths:
                 logger.info(f"[{request_id}] Attempting subtitle generation via AssemblyAI from narration.")
                 audio_for_transcription_path_str = None
-                concatenated_narration_path_for_srt = None # Define to avoid UnboundLocalError in finally
+                concatenated_narration_path_for_srt = None 
                 if len(valid_narration_paths) > 1:
                     narration_concat_list_file = temp_dir / f"narrations_for_srt_concat_{request_id}.txt"
                     with open(narration_concat_list_file, "w") as f_concat:
@@ -750,7 +786,7 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                                 logger.info(f"[{request_id}] AssemblyAI poll status: {status}")
                                 if status == "completed":
                                     generated_files_summary["assembly_ai_raw_transcript"] = transcript_result
-                                    srt_content_str = _format_assemblyai_transcript_to_srt(transcript_result)
+                                    srt_content_str = _format_assemblyai_transcript_to_srt(transcript_result) 
                                     logger.info(f"[{request_id}] AssemblyAI transcription completed and SRT formatted.")
                                     break
                                 elif status == "error":
@@ -832,8 +868,8 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                 
                 data = {
                     "text_prompt": bgm_prompt_text,
-                    "duration": str(bgm_duration_seconds), # API expects string for duration
-                    "model": "stable-audio-2.0", # Or the latest recommended model
+                    "duration": str(bgm_duration_seconds),
+                    "model": "stable-audio-2.0", 
                     "output_format": "mp3", 
                     "seed": random.randint(0, 4294967295)
                 }
@@ -844,14 +880,12 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                             STABILITY_AUDIO_API_URL,
                             headers={
                                 "Authorization": f"Bearer {STABILITY_API_KEY}",
-                                # "Accept": "audio/mpeg" # Let Stability AI determine best, or specify if needed
                             },
-                            data=data # Send as form data for Stability AI audio
+                            data=data 
                         )
                         response.raise_for_status() 
                         
-                        # Determine file extension from Content-Type if possible, default to mp3
-                        content_type = response.headers.get("Content-Type", "audio/mpeg")
+                        content_type = response.headers.get("content-type", "audio/mpeg")
                         bgm_file_extension = "mp3"
                         if "wav" in content_type:
                             bgm_file_extension = "wav"
@@ -889,17 +923,16 @@ Ensure total scene duration roughly matches target video duration. Output valid 
         final_video_filename = f"{request_id}_final.{req.output_format}"
         final_output_dir = STATIC_VIDEO_DIR / request_id
         final_output_dir.mkdir(parents=True, exist_ok=True)
-        final_video_output_path_temp = temp_dir / final_video_filename # Output to temp first
+        final_video_output_path_temp = temp_dir / final_video_filename 
 
         ffmpeg_cmd = [FFMPEG_COMMAND, "-y"]
-        ffmpeg_cmd.extend(video_input_options) # Add video inputs collected earlier
+        ffmpeg_cmd.extend(video_input_options) 
 
         audio_input_options_ffmpeg: List[str] = []
         audio_filter_inputs_ffmpeg: Dict[str, str] = {} 
-        current_ffmpeg_input_index = len(video_filter_inputs) # Number of video inputs
+        current_ffmpeg_input_idx = len(video_filter_inputs) 
 
-        # Narration processing for FFmpeg
-        valid_narration_paths = [
+        valid_narration_paths_for_ffmpeg = [
             nar_info["path"] 
             for nar_info in generated_files_summary.get("narration_audios", []) 
             if nar_info.get("path") and Path(nar_info["path"]).exists()
@@ -907,41 +940,39 @@ Ensure total scene duration roughly matches target video duration. Output valid 
 
         narration_concat_file_path_str = None
         narration_stream_ffmpeg_id = None
-        if req.narration_enabled and valid_narration_paths:
-            if len(valid_narration_paths) > 1:
-                narration_concat_file_path = temp_dir / f"narrations_concat_{request_id}.txt"
+        if req.narration_enabled and valid_narration_paths_for_ffmpeg:
+            if len(valid_narration_paths_for_ffmpeg) > 1:
+                narration_concat_file_path = temp_dir / f"narrations_ffmpeg_concat_{request_id}.txt"
                 narration_concat_file_path_str = str(narration_concat_file_path.resolve())
                 with open(narration_concat_file_path, "w") as f:
-                    for path_str in valid_narration_paths:
+                    for path_str in valid_narration_paths_for_ffmpeg:
                         f.write(f"file '{Path(path_str).resolve().as_posix()}'\n")
                 audio_input_options_ffmpeg.extend(["-f", "concat", "-safe", "0", "-i", narration_concat_file_path_str])
-                narration_stream_ffmpeg_id = f"[{current_ffmpeg_input_index}:a]"
-                current_ffmpeg_input_index += 1
-            elif len(valid_narration_paths) == 1:
-                audio_input_options_ffmpeg.extend(["-i", str(Path(valid_narration_paths[0]).resolve())])
-                narration_stream_ffmpeg_id = f"[{current_ffmpeg_input_index}:a]"
-                current_ffmpeg_input_index += 1
+                narration_stream_ffmpeg_id = f"[{current_ffmpeg_input_idx}:a]"
+                current_ffmpeg_input_idx += 1
+            elif len(valid_narration_paths_for_ffmpeg) == 1:
+                audio_input_options_ffmpeg.extend(["-i", str(Path(valid_narration_paths_for_ffmpeg[0]).resolve())])
+                narration_stream_ffmpeg_id = f"[{current_ffmpeg_input_idx}:a]"
+                current_ffmpeg_input_idx += 1
             logger.info(f"[{request_id}] Narration inputs for FFmpeg: {audio_input_options_ffmpeg}")
-            logger.info(f"[{request_id}] Narration filter input: {narration_stream_ffmpeg_id}")
+            if narration_stream_ffmpeg_id:
+                logger.info(f"[{request_id}] Narration stream for FFmpeg: {narration_stream_ffmpeg_id}")
 
-
-        # BGM processing for FFmpeg
         bgm_file_path_str = generated_files_summary.get("bgm_audio_file")
         bgm_stream_ffmpeg_id = None
         if req.bgm_enabled and bgm_file_path_str and Path(bgm_file_path_str).is_file():
             audio_input_options_ffmpeg.extend(["-i", str(Path(bgm_file_path_str).resolve())])
-            bgm_stream_ffmpeg_id = f"[{current_ffmpeg_input_index}:a]"
-            current_ffmpeg_input_index += 1
+            bgm_stream_ffmpeg_id = f"[{current_ffmpeg_input_idx}:a]"
+            current_ffmpeg_input_idx += 1
             logger.info(f"[{request_id}] BGM input added for FFmpeg: {bgm_file_path_str}")
-            logger.info(f"[{request_id}] BGM filter input: {bgm_stream_ffmpeg_id}")
+            logger.info(f"[{request_id}] BGM stream for FFmpeg: {bgm_stream_ffmpeg_id}")
 
         ffmpeg_cmd.extend(audio_input_options_ffmpeg)
 
         filter_complex_parts = []
         
-        # Video chain
         if not video_filter_inputs:
-            error_message = "No video inputs available for FFmpeg processing."
+            error_message = "No valid video inputs for FFmpeg processing."
             logger.error(f"[{request_id}] {error_message}")
             generated_files_summary["errors"].append({"step": current_step, "error": error_message})
             raise ValueError(error_message)
@@ -965,25 +996,24 @@ Ensure total scene duration roughly matches target video duration. Output valid 
         
         final_video_stream_for_map = "[vscaled_out]"
 
-        # Subtitle filter
         subtitle_file_path = generated_files_summary.get("subtitle_file")
         if req.subtitles_enabled and subtitle_file_path and Path(subtitle_file_path).exists():
             logger.info(f"[{request_id}] Adding subtitles from: {subtitle_file_path} to FFmpeg command.")
-            escaped_subtitle_path = str(Path(subtitle_file_path).resolve()).replace('\\', '/').replace(':', '\\\\:')
+            escaped_subtitle_path = str(Path(subtitle_file_path).resolve()).replace('\\', '/').replace(':', r'\\:') # More robust escaping for Windows
             
             force_style_parts = []
             if req.subtitle_font_name:
                 force_style_parts.append(f"FontName='{req.subtitle_font_name}'")
             if req.subtitle_font_size:
                 force_style_parts.append(f"FontSize={req.subtitle_font_size}")
-            if req.subtitle_primary_color: # ASS format: &HBBGGRR (alpha is often &H00 for opaque)
+            if req.subtitle_primary_color:
                 force_style_parts.append(f"PrimaryColour={req.subtitle_primary_color}")
             if req.subtitle_outline_color:
                 force_style_parts.append(f"OutlineColour={req.subtitle_outline_color}")
             if req.subtitle_background_color:
                 force_style_parts.append(f"BackColour={req.subtitle_background_color}")
-                force_style_parts.append("BorderStyle=3") # Enable background box for BackColour
-            if req.subtitle_alignment is not None: # Numpad to ASS alignment (1-3 bottom, 4-6 middle, 7-9 top)
+                force_style_parts.append("BorderStyle=3") 
+            if req.subtitle_alignment is not None:
                 force_style_parts.append(f"Alignment={req.subtitle_alignment}")
             if req.subtitle_margin_v is not None:
                 force_style_parts.append(f"MarginV={req.subtitle_margin_v}")
@@ -998,43 +1028,37 @@ Ensure total scene duration roughly matches target video duration. Output valid 
             filter_complex_parts.append(f"{final_video_stream_for_map}{subtitle_filter_string}[vout]")
             final_video_map_label = "[vout]"
         else:
-             # If no subtitles, the output of scaling/padding is the final video stream
             if filter_complex_parts and final_video_stream_for_map == "[vscaled_out]":
-                 # If [vscaled_out] was the last label, rename it to [vout] for mapping
                  filter_complex_parts[-1] = filter_complex_parts[-1].replace("[vscaled_out]", "[vout]")
-            elif not filter_complex_parts and video_filter_inputs: # Single video input, no prior filter
-                 filter_complex_parts.append(f"{video_filter_inputs[0]}null[vout]") # Simple pass-through if no other filters
+            elif not filter_complex_parts and video_filter_inputs:
+                 filter_complex_parts.append(f"{video_filter_inputs[0]}copy[vout]") # Ensure [vout] is defined
             final_video_map_label = "[vout]"
 
 
-        # Audio chain
         final_audio_map_label = None
         audio_processing_filters = []
+        fade_duration = 3.0
+        fade_start_time = max(0, actual_total_processed_video_duration - fade_duration)
 
         if narration_stream_ffmpeg_id and bgm_stream_ffmpeg_id:
-            fade_duration = 3  # seconds
-            fade_start_time = max(0, actual_total_processed_video_duration - fade_duration)
-            logger.info(f"[{request_id}] BGM fade out: start_time={fade_start_time}, duration={fade_duration}")
-            
+            logger.info(f"[{request_id}] Mixing narration and BGM with fade-out.")
             audio_processing_filters.append(f"{bgm_stream_ffmpeg_id}volume=0.3,afade=t=out:st={fade_start_time}:d={fade_duration}[bgm_faded_out]")
             audio_processing_filters.append(f"{narration_stream_ffmpeg_id}afade=t=out:st={fade_start_time}:d={fade_duration}[nar_faded_out]")
             audio_processing_filters.append(f"[nar_faded_out][bgm_faded_out]amix=inputs=2:duration=longest[aout]")
             final_audio_map_label = "[aout]"
         elif narration_stream_ffmpeg_id:
-            fade_duration = 3
-            fade_start_time = max(0, actual_total_processed_video_duration - fade_duration)
-            logger.info(f"[{request_id}] Narration fade out: start_time={fade_start_time}, duration={fade_duration}")
+            logger.info(f"[{request_id}] Adding narration with fade-out.")
             audio_processing_filters.append(f"{narration_stream_ffmpeg_id}afade=t=out:st={fade_start_time}:d={fade_duration}[aout]")
             final_audio_map_label = "[aout]"
         elif bgm_stream_ffmpeg_id:
-            fade_duration = 3
-            fade_start_time = max(0, actual_total_processed_video_duration - fade_duration)
-            logger.info(f"[{request_id}] BGM fade out: start_time={fade_start_time}, duration={fade_duration}")
-            audio_processing_filters.append(f"{bgm_stream_ffmpeg_id}volume=0.3,afade=t=out:st={fade_start_time}:d={fade_duration}[aout]") # Apply volume before fade
+            logger.info(f"[{request_id}] Adding BGM with fade-out.")
+            audio_processing_filters.append(f"{bgm_stream_ffmpeg_id}volume=0.3,afade=t=out:st={fade_start_time}:d={fade_duration}[aout]")
             final_audio_map_label = "[aout]"
 
         if audio_processing_filters:
             filter_complex_parts.extend(audio_processing_filters)
+            logger.info(f"[{request_id}] Audio filter parts: {audio_processing_filters}")
+
 
         if filter_complex_parts:
             ffmpeg_cmd.extend(["-filter_complex", ";".join(filter_complex_parts)])
@@ -1043,9 +1067,8 @@ Ensure total scene duration roughly matches target video duration. Output valid 
         if final_audio_map_label:
             ffmpeg_cmd.extend(["-map", final_audio_map_label])
         else:
-            ffmpeg_cmd.append("-an") # No audio
+            ffmpeg_cmd.append("-an")
 
-        # Output options
         ffmpeg_cmd.extend([
             "-c:v", "libx264", 
             "-preset", "medium", 
@@ -1053,12 +1076,10 @@ Ensure total scene duration roughly matches target video duration. Output valid 
             "-c:a", "aac", 
             "-b:a", "192k",
             "-movflags", "+faststart",
-            # "-shortest", # Use -shortest if duration is not explicitly set by -t and inputs might have different lengths
-            str(final_output_path_temp) 
+            str(final_video_output_path_temp) 
         ])
-        # If actual_total_processed_video_duration is reliable, use it with -t
         if actual_total_processed_video_duration > 0:
-            ffmpeg_cmd.extend(["-t", str(actual_total_processed_video_duration)])
+             ffmpeg_cmd.extend(["-t", str(actual_total_processed_video_duration)])
 
 
         logger.info(f"[{request_id}] Executing FFmpeg command: {' '.join(ffmpeg_cmd)}")
@@ -1071,7 +1092,6 @@ Ensure total scene duration roughly matches target video duration. Output valid 
         }
 
         if success:
-            # Move to static serving directory
             permanent_video_path = final_output_dir / final_video_filename
             shutil.move(str(final_output_path_temp), str(permanent_video_path))
             final_video_successfully_moved = True
@@ -1198,17 +1218,18 @@ async def serve_generated_video_debug_file(task_id: str, filename: str):
         raise HTTPException(status_code=404, detail="File not found")
     if filename.endswith(".json"):
         return FileResponse(path=str(file_path), media_type="application/json")
-    elif filename.endswith((".mp4", ".mov", ".webm", ".avi")):
+    elif filename.endswith((".mp4", ".mov", ".webm", ".avi")): 
         return FileResponse(path=str(file_path), media_type=f"video/{Path(filename).suffix[1:]}")
     else:
         return FileResponse(path=str(file_path))
+
 
 # Placeholder for main.py imports if they are not resolved (for standalone testing)
 if __name__ != "__main__": 
     try:
         from main import get_claude_response, IndividualAIResponse, app as main_app
         # from models import User 
-        # from dependencies import get_current_active_user
+        # from dependencies import get_current_active_user 
     except ImportError as e:
         logger.warning(f"Could not import from main/models/dependencies: {e}. Using placeholders.")
         
@@ -1258,16 +1279,8 @@ else:
     STATIC_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
     
     # Mount the static directory for serving generated files
-    # The path "/static/generated_videos" will be served from STATIC_VIDEO_DIR_BASE
-    # This should be done in main.py, but for standalone testing:
-    # app.mount(f"/{STATIC_VIDEO_DIR_BASE.name}", StaticFiles(directory=str(STATIC_VIDEO_DIR_BASE)), name="static_videos_generated_direct")
-    # A more common setup is to serve the entire 'static' directory
-    if not Path("static").exists():
-        Path("static").mkdir(parents=True, exist_ok=True)
-    app.mount("/static", StaticFiles(directory="static"), name="static_files_root")
+    app.mount(f"/{STATIC_VIDEO_DIR_BASE.name}", StaticFiles(directory=str(STATIC_VIDEO_DIR_BASE)), name="static_videos_generated_direct")
 
-
-    # Mock app.state for DeepL if not running within the main app context
     class MockAppState:
         def __init__(self):
             self.deepl_translator = None 
@@ -1277,5 +1290,97 @@ else:
     logger.info(f"Static files URL prefix: /static/{STATIC_VIDEO_DIR_BASE.name}")
     
     uvicorn.run(app, host="0.0.0.0", port=8001)
+```
+```python
+# Configuration settings for the FastAPI application
 
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# API Keys
+REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
+STABILITY_API_KEY = os.getenv("STABILITY_API_KEY")
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
+ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY")
+DEEPL_API_KEY = os.getenv("DEEPL_API_KEY")
+
+# API Endpoints and Model Identifiers
+REPLICATE_API_URL = "https://api.replicate.com/v1/predictions"
+REPLICATE_ZEROSCOPE_MODEL_XL = "anotherjesse/zeroscope-v2-xl:9f7476737190e1a712580adfd5446408f14b2de0e6e8e168d68f2029fc221216"
+REPLICATE_ZEROSCOPE_MODEL_576W = "anotherjesse/zeroscope-v2-576w:1c8f6c34d800a8054187871f754559085323598320e960e699500244a8386153" # Example, confirm if this is the one you want as default or an option
+STABILITY_TEXT_TO_IMAGE_API_URL_BASE = "https://api.stability.ai/v1/generation/{engine_id}/text-to-image"
+STABILITY_DEFAULT_ENGINE = "stable-diffusion-xl-1024-v1-0" # Example, use the latest or preferred engine
+STABILITY_AUDIO_API_URL = "https://api.stability.ai/v1/generation/stable-audio-generate-v1"
+
+# Polling and Timeout settings for API calls
+REPLICATE_POLL_INTERVAL = 10  # seconds
+REPLICATE_API_TIMEOUT = 300.0  # seconds
+STABILITY_API_TIMEOUT = 180.0  # seconds, increased for potentially longer audio generation
+ELEVENLABS_API_TIMEOUT = 60.0  # seconds
+ASSEMBLYAI_POLL_INTERVAL = 5   # seconds
+ASSEMBLYAI_API_TIMEOUT = 300.0 # seconds for transcription
+
+# Video Processing Defaults
+DEFAULT_FPS = 24 # Changed from 25 to align with common video frame rates
+
+# Directory Settings
+TEMP_DIR_BASE = "temp_files"  # Base directory for temporary files during processing
+STATIC_DIR = "static" # General static directory
+STATIC_VIDEO_DIR_NAME = "generated_videos" # Subdirectory for generated videos
+STATIC_VIDEO_DIR = Path(STATIC_DIR) / STATIC_VIDEO_DIR_NAME # Full path to static videos directory
+
+# File Management
+CLEANUP_TEMP_FILES = True  # Set to False for debugging to keep intermediate files
+
+# Voice mapping for ElevenLabs
+ELEVENLABS_LANG_VOICE_MAP = {
+    "en": "21m00Tcm4TlvDq8ikA2E",  # Default English voice (Rachel)
+    "ja": "SOYHLrjzK2X1ezoPC6cr",  # Example Japanese voice
+    "es": "0vrPGvXHhDD3rbGURCk8",  # Example Spanish voice
+    "fr": "iRYhWuT8tKZ81GesmMsh",  # Example French voice
+    "de": "sx7WD8TJIOrk5RQOptDH",  # Example German voice
+    "it": "fzDFBB4mgvMlL36gPXcz",      # Italian
+    "zh": "4VZIsMPtgggwNg7OXbPY",      # Chinese
+    "ko": "WqVy7827vjE2r3jWvbnP",      # Korean
+    # Add other languages and corresponding voice IDs as needed
+}
+
+# DeepL Language Codes (ensure these match DeepL's expected format)
+DEEPL_LANG_MAP = {
+    "en": "EN-US", # DeepL uses EN-US or EN-GB for English
+    "ja": "JA",
+    "es": "ES",
+    "fr": "FR",
+    "de": "DE",
+    "it": "IT",
+    "zh": "ZH",
+    # Add more as needed
+}
+
+# Other constants
+REPLICATE_MAX_POLL_ATTEMPTS = int(REPLICATE_API_TIMEOUT / REPLICATE_POLL_INTERVAL) if REPLICATE_POLL_INTERVAL > 0 else 30
+FFMPEG_COMMAND = "ffmpeg" # Ensure ffmpeg is in PATH or provide full path
+
+# Ensure static directories exist
+Path(TEMP_DIR_BASE).mkdir(parents=True, exist_ok=True)
+STATIC_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
+
+# You can add more configuration variables here as needed
+# For example, default model IDs for text-to-image if not using Stability AI's default
+# Or settings for quality, style, etc.
+
+# Ensure API keys are loaded (basic check)
+if not STABILITY_API_KEY:
+    print("Warning: STABILITY_API_KEY is not set in the environment variables.")
+if not REPLICATE_API_TOKEN:
+    print("Warning: REPLICATE_API_TOKEN is not set in the environment variables.")
+if not ELEVENLABS_API_KEY:
+    print("Warning: ELEVENLABS_API_KEY is not set in the environment variables.")
+if not ASSEMBLYAI_API_KEY:
+    print("Warning: ASSEMBLYAI_API_KEY is not set in the environment variables.")
+if not DEEPL_API_KEY:
+    print("Warning: DEEPL_API_KEY is not set in the environment variables.")
 ```
