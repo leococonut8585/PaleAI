@@ -19,9 +19,9 @@ from moviepy.editor import (
     VideoFileClip, AudioFileClip, CompositeAudioClip, ImageClip, 
     concatenate_videoclips, TextClip, CompositeVideoClip
 )
-from moviepy.video.fx.all import resize as moviepy_resize # Renamed to avoid conflict
+from moviepy.video.fx.all import resize as moviepy_resize 
 from moviepy.config import change_settings
-from PIL import Image # Import Pillow
+from PIL import Image 
 
 # Import config variables from config.py
 try:
@@ -51,7 +51,7 @@ except ImportError:
     STABILITY_AUDIO_API_URL = "https://api.stability.ai/v1/generation/stable-audio-generate-v1" 
     REPLICATE_POLL_INTERVAL = 10
     REPLICATE_API_TIMEOUT = 300.0
-    STABILITY_API_TIMEOUT = 120.0
+    STABILITY_API_TIMEOUT = 180.0 # Increased for audio
     ELEVENLABS_API_TIMEOUT = 60.0
     ASSEMBLYAI_POLL_INTERVAL = 5
     ASSEMBLYAI_API_TIMEOUT = 300.0
@@ -102,13 +102,20 @@ class VideoGenerationRequest(BaseModel):
     narration_lang: str = Field("en", description="Language for narration (e.g., JA, EN).")
     narration_voice_id: Optional[str] = Field(None, description="Specific ElevenLabs voice ID. If None, a default for the language is used.")
     subtitles_enabled: bool = Field(True, description="Enable or disable subtitle generation.")
-    subtitle_script_prompt: Optional[str] = Field(None, description="Prompt for Claude to generate subtitle texts.") # Added for user-provided subtitle script
+    subtitle_script_prompt: Optional[str] = Field(None, description="Prompt for Claude to generate subtitle texts.")
     subtitle_source_lang: Optional[str] = Field(None, description="Source language of subtitles if translation is needed, defaults to narration_lang.")
     subtitle_target_lang: Optional[str] = Field(None, description="Target language for subtitle translation (e.g., EN, ES).")
     bgm_enabled: bool = Field(True, description="Enable or disable background music.")
     bgm_prompt: Optional[str] = Field(None, description="Prompt describing the desired BGM.")
     output_format: str = Field("mp4", description="Output video format (e.g., mp4, mov, webm).")
     video_quality: str = Field("1080p", description="Desired video quality (e.g., 720p, 1080p, 4k).")
+    subtitle_font_name: Optional[str] = Field(None, description="Subtitle font name (e.g., 'Arial', 'Meiryo')")
+    subtitle_font_size: Optional[str] = Field(None, description="Subtitle font size (e.g., '24', FFmpeg compatible string)")
+    subtitle_primary_color: Optional[str] = Field(None, description="Subtitle primary color (e.g., '&H00FFFFFF' for white, '&H000000FF' for red in ASS/SSA hex format)")
+    subtitle_outline_color: Optional[str] = Field(None, description="Subtitle outline color (e.g., '&H00000000' for black)")
+    subtitle_background_color: Optional[str] = Field(None, description="Subtitle background/box color (e.g., '&H80000000' for semi-transparent black)")
+    subtitle_alignment: Optional[int] = Field(None, description="Subtitle alignment (Numpad notation: 1-bottom-left, 2-bottom-center, ..., 9-top-right)")
+    subtitle_margin_v: Optional[int] = Field(None, description="Subtitle vertical margin from edge of video (pixels)")
 
 
 class VideoGenerationResponse(BaseModel):
@@ -132,14 +139,14 @@ class TaskStatus(BaseModel):
 
 def save_status(task_id: str, data: dict):
     status_file = TEMP_DIR / task_id / f"{task_id}_status.json"
-    status_file.parent.mkdir(parents=True, exist_ok=True)
+    status_file.parent.mkdir(parents=True, exist_ok=True) 
     try:
         with open(status_file, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
     except Exception as e:
         logger.error(f"Error saving status for task {task_id} to {status_file}: {e}")
 
-def get_status_from_file(task_id: str) -> Optional[Dict[str, Any]]:
+def get_status_from_file(task_id: str) -> Optional[Dict[str, Any]]: 
     status_file = TEMP_DIR / task_id / f"{task_id}_status.json"
     if status_file.exists():
         try:
@@ -167,6 +174,11 @@ def parse_resolution(resolution_str: str) -> (int, int):
         logger.warning(f"Invalid resolution format: '{resolution_str}'. Falling back to 1024x576.")
         return 1024, 576
 
+# Note for developers: FFmpeg needs access to fonts for subtitle rendering.
+# Ensure that necessary fonts (e.g., Arial, Noto Sans JP for Japanese) are installed on the system
+# where FFmpeg is executed. Alternatively, you can specify a font directory using the
+# `fontsdir` option in the subtitles filter (e.g., `subtitles=filename=/path/to/subs.srt:fontsdir=/path/to/fonts`)
+# or set the `FC_CONFIG_DIR` or `FONTCONFIG_PATH` environment variables if Fontconfig is used by your FFmpeg build.
 async def run_ffmpeg_command_async(command: List[str], request_id: str) -> tuple[bool, str, str]:
     cmd_str = " ".join(command)
     logger.info(f"[{request_id}] FFmpeg: Running command: {cmd_str}")
@@ -208,43 +220,67 @@ def format_time_srt(seconds: float) -> str:
     minutes %= 60
     return f"{hours:02d}:{minutes:02d}:{seconds:02d},{millis:03d}"
 
-async def _format_assemblyai_transcript_to_srt(transcript_data: Dict, max_line_len: int = 38, max_duration_s: float = 5.0) -> str:
-    srt_entries = []
-    if not transcript_data or "words" not in transcript_data:
-        return ""
-
-    words = transcript_data["words"]
+def _format_assemblyai_transcript_to_srt(transcript_data: Dict, max_line_len: int = 40, max_line_duration_s: float = 7.0, min_line_duration_s: float = 1.0) -> str:
+    words = transcript_data.get("words")
     if not words:
         return ""
 
-    entry_counter = 1
-    current_line = ""
-    line_start_time_ms = words[0]["start"]
-
+    srt_entries = []
+    srt_idx = 1
+    current_line_text = ""
+    current_line_start_time_ms = -1
+    
     for i, word_info in enumerate(words):
         word_text = word_info["text"]
-        word_end_time_ms = word_info["end"]
+        word_start_ms = word_info["start"]
+        word_end_ms = word_info["end"]
 
-        if not current_line: # First word of a new line
-            current_line = word_text
-            line_start_time_ms = word_info["start"]
+        if current_line_start_time_ms == -1: # Start of a new subtitle line
+            current_line_text = word_text
+            current_line_start_time_ms = word_start_ms
         else:
-            # Check if adding the current word exceeds max_line_len or max_duration_s
-            if len(current_line + " " + word_text) > max_line_len or \
-               (word_end_time_ms - line_start_time_ms) / 1000.0 > max_duration_s:
-                # Finalize current line
-                srt_entries.append(f"{entry_counter}\n{format_time_srt(line_start_time_ms / 1000.0)} --> {format_time_srt(words[i-1]['end'] / 1000.0)}\n{current_line}")
-                entry_counter += 1
-                # Start a new line with the current word
-                current_line = word_text
-                line_start_time_ms = word_info["start"]
-            else:
-                current_line += " " + word_text
-        
-        # If it's the last word, add the current entry
-        if i == len(words) - 1:
-            srt_entries.append(f"{entry_counter}\n{format_time_srt(line_start_time_ms / 1000.0)} --> {format_time_srt(word_end_time_ms / 1000.0)}\n{current_line}")
+            potential_line = current_line_text + " " + word_text
+            potential_duration_s = (word_end_ms - current_line_start_time_ms) / 1000.0
             
+            break_line = False
+            if len(potential_line) > max_line_len:
+                break_line = True
+            elif potential_duration_s > max_line_duration_s:
+                break_line = True
+            elif word_text.endswith(('.', '?', '!')) : # End of sentence
+                break_line = True
+            elif i + 1 < len(words) and (words[i+1]["start"] - word_end_ms) > 500: # Significant pause
+                break_line = True
+            
+            if break_line:
+                # Finalize current line
+                line_end_time_ms = words[i-1]["end"] # End time of the previous word
+                line_duration_s = (line_end_time_ms - current_line_start_time_ms) / 1000.0
+                if line_duration_s < min_line_duration_s:
+                    line_end_time_ms = current_line_start_time_ms + int(min_line_duration_s * 1000)
+                    if i < len(words) and line_end_time_ms > words[i]["start"]: # Ensure it doesn't overlap next word
+                         line_end_time_ms = words[i]["start"] - 10 # Small buffer
+                
+                srt_entries.append(f"{srt_idx}\n{format_time_srt(current_line_start_time_ms / 1000.0)} --> {format_time_srt(line_end_time_ms / 1000.0)}\n{current_line_text.strip()}")
+                srt_idx += 1
+                
+                # Start new line with current word
+                current_line_text = word_text
+                current_line_start_time_ms = word_start_ms
+            else:
+                current_line_text = potential_line
+
+    # Add the last line if any
+    if current_line_text and current_line_start_time_ms != -1:
+        line_end_time_ms = words[-1]["end"]
+        line_duration_s = (line_end_time_ms - current_line_start_time_ms) / 1000.0
+        if line_duration_s < min_line_duration_s:
+            line_end_time_ms = current_line_start_time_ms + int(min_line_duration_s * 1000)
+        # Ensure the final subtitle doesn't exceed the total audio/video duration if known, though this function doesn't have that context.
+        # The calling function should handle overall video duration constraints.
+        
+        srt_entries.append(f"{srt_idx}\n{format_time_srt(current_line_start_time_ms / 1000.0)} --> {format_time_srt(line_end_time_ms / 1000.0)}\n{current_line_text.strip()}")
+
     return "\n\n".join(srt_entries)
 
 
@@ -256,30 +292,27 @@ async def _format_claude_subtitles_to_srt(claude_subtitles_data: List[Dict], sce
     if not claude_subtitles_data: return ""
 
     scene_start_times = {}
-    processed_scene_durations_for_subtitles = []
     cumulative_time = 0.0
     for i, scene in enumerate(scenes_data):
         scene_start_times[i] = cumulative_time
-        # Use 'final_duration' if available from video processing, otherwise 'duration_seconds' from Claude
-        duration = scene.get('final_duration') 
-        if duration is None: # Fallback if final_duration isn't set yet (should be by this point)
-            duration = scene.get("duration_seconds", 5.0) 
-        try: 
+        duration = scene.get('final_duration') # Use final_duration if available
+        if duration is None:
+            duration = scene.get("duration_seconds", 5.0)
+        try:
             duration = float(duration)
-        except (ValueError, TypeError): 
-            logger.warning(f"[{request_id}] Invalid duration for scene {i} ('{scene.get('duration_seconds')}') for subtitles. Using default 5s.")
+        except (ValueError, TypeError):
+            logger.warning(f"[{request_id}] Invalid duration for scene {i} ('{scene.get('duration_seconds')}') for subtitle timing. Using default 5s.")
             duration = 5.0
-        processed_scene_durations_for_subtitles.append(duration)
         cumulative_time += duration
     
-    effective_total_duration = total_video_duration or cumulative_time or (len(claude_subtitles_data) * 3.0)
+    effective_total_duration = total_video_duration if total_video_duration > 0 else cumulative_time or (len(claude_subtitles_data) * 3.0)
 
     for i, sub_entry in enumerate(claude_subtitles_data):
         text = sub_entry.get("text")
         if not text: continue
 
         start_time_sec = current_timeline_pos 
-        estimated_duration = max(2.0, min(len(text.split()) * 0.4, 7.0)) # Default duration logic
+        estimated_duration = max(2.0, min(len(text.split()) * 0.4, 7.0)) 
 
         timing_instr = sub_entry.get("timing_instructions", "").lower()
         scene_match = re.search(r"scene\s*(\d+)", timing_instr)
@@ -330,40 +363,62 @@ async def _translate_srt_content(srt_content: str, target_lang: str, source_lang
     
     translated_lines = []
     srt_blocks = srt_content.strip().split('\n\n')
+    texts_to_translate = []
+    original_blocks_info = []
+
     for block in srt_blocks:
         lines = block.split('\n')
         if len(lines) >= 3 and "-->" in lines[1]:
-            index = lines[0]
-            timestamp = lines[1]
-            text_to_translate = "\n".join(lines[2:])
-            
-            dl_target_lang = DEEPL_LANG_MAP.get(target_lang.lower())
-            dl_source_lang = DEEPL_LANG_MAP.get(source_lang.lower()) if source_lang else None
-            if not dl_target_lang:
-                logger.error(f"[{request_id}] DeepL target language code for '{target_lang}' not found.")
-                generated_files_summary_ref["errors"].append({"step": "subtitle_translation", "error": f"DeepL unsupported target language: {target_lang}"})
-                translated_lines.append(block) # Append original block if translation fails
-                continue
-
-            try:
-                # DeepL API might have issues with batch translation of SRT lines directly,
-                # so translating line by line within a block if necessary, or as a whole text.
-                # For simplicity, we'll translate the whole text content of the block.
-                translated_text = deepl_translator.translate_text(
-                    text_to_translate, 
-                    target_lang=dl_target_lang,
-                    source_lang=dl_source_lang
-                ).text
-                translated_lines.append(f"{index}\n{timestamp}\n{translated_text}")
-            except Exception as e:
-                logger.error(f"[{request_id}] DeepL translation error for text '{text_to_translate}': {e}")
-                generated_files_summary_ref["errors"].append({"step": "subtitle_translation", "error": f"DeepL translation failed for a segment: {str(e)}"})
-                translated_lines.append(block) # Append original block on error
+            text_content = "\n".join(lines[2:])
+            texts_to_translate.append(text_content)
+            original_blocks_info.append({"header": f"{lines[0]}\n{lines[1]}", "text_line_count": len(lines[2:])}) # Store text_line_count for accurate reconstruction
         else:
-            translated_lines.append(block) # Keep non-subtitle blocks (like empty lines between entries)
-            
-    logger.info(f"[{request_id}] Subtitle translation to {target_lang} processed.")
-    return "\n\n".join(translated_lines)
+            original_blocks_info.append({"header": block, "text_line_count": 0}) # Non-subtitle block
+
+    if not texts_to_translate: 
+        logger.info(f"[{request_id}] No text found in SRT to translate.")
+        return srt_content
+
+    logger.info(f"[{request_id}] Translating {len(texts_to_translate)} subtitle segments to {target_lang} from {source_lang or 'auto'}")
+    
+    try:
+        from config import DEEPL_LANG_MAP
+        api_target_lang = DEEPL_LANG_MAP.get(target_lang.lower())
+        api_source_lang = DEEPL_LANG_MAP.get(source_lang.lower()) if source_lang else None
+        if not api_target_lang:
+            logger.error(f"[{request_id}] DeepL target language code for '{target_lang}' not found.")
+            generated_files_summary_ref["errors"].append({"step": "subtitle_translation", "error": f"DeepL unsupported target language: {target_lang}"})
+            return srt_content
+        
+        translated_results = await asyncio.to_thread(
+            deepl_translator.translate_text,
+            texts_to_translate,
+            target_lang=api_target_lang,
+            source_lang=api_source_lang
+        )
+        
+        translated_texts_iter = iter([res.text for res in translated_results])
+        reconstructed_srt_blocks = []
+        
+        for block_info in original_blocks_info:
+            if block_info["text_line_count"] > 0 : 
+                try:
+                    translated_text = next(translated_texts_iter)
+                    reconstructed_srt_blocks.append(f"{block_info['header']}\n{translated_text}")
+                except StopIteration: 
+                     logger.error(f"[{request_id}] Mismatch between original and translated text lines for SRT reconstruction. Original text lines: {len(texts_to_translate)}, Processed translations: {len(reconstructed_srt_blocks)}") 
+                     reconstructed_srt_blocks.append(block_info['header'] + "\n[Translation Error - Mismatch]") # Fallback
+            else: # Non-subtitle block (e.g., empty line)
+                reconstructed_srt_blocks.append(block_info["header"])
+        
+        logger.info(f"[{request_id}] Subtitle translation successful.")
+        return "\n\n".join(reconstructed_srt_blocks)
+        
+    except Exception as e:
+        logger.error(f"[{request_id}] DeepL translation error: {e}", exc_info=True)
+        generated_files_summary_ref["errors"].append({"step": "subtitle_translation", "error": f"DeepL translation failed: {str(e)}"})
+        return srt_content
+
 
 async def create_video_from_text_pipeline(req: VideoGenerationRequest, fastapi_request: Request, task_id: str):
     request_id = task_id 
@@ -388,7 +443,7 @@ async def create_video_from_text_pipeline(req: VideoGenerationRequest, fastapi_r
     }
     current_step = "initializing"
     parsed_prompt_data = {} 
-    actual_total_scene_duration = 0.0
+    actual_total_processed_video_duration = 0.0
     final_video_successfully_moved = False
 
     try:
@@ -467,9 +522,13 @@ Ensure total scene duration roughly matches target video duration. Output valid 
         target_w_req, target_h_req = parse_resolution(req.resolution)
         
         video_input_options: List[str] = [] 
-        video_filter_inputs: List[str] = []
+        video_filter_inputs: List[str] = [] # Stores the stream labels for ffmpeg concat filter
         actual_total_processed_video_duration = 0.0
         
+        num_scenes = len(scenes_plan)
+        default_scene_duration = (req.duration / num_scenes) if num_scenes > 0 and req.duration else 5.0
+        default_scene_duration = max(1.0, default_scene_duration) # Ensure minimum 1 second
+
         async with httpx.AsyncClient() as client:
             for i, scene_info_claude in enumerate(scenes_plan):
                 scene_summary_entry = {
@@ -479,19 +538,19 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                     "path": None, 
                     "source_api": None, 
                     "error": None,
-                    "final_duration": None # Will store the actual duration used in ffmpeg
+                    "material_type": None,
+                    "final_duration": None 
                 }
                 scene_desc = scene_info_claude.get("scene_description", f"Default scene prompt for scene {i+1}")
                 
                 try:
-                    scene_duration_seconds = float(scene_info_claude.get("duration_seconds", 5.0))
-                    if scene_duration_seconds <= 0: scene_duration_seconds = 1.0 # Minimum duration
+                    scene_duration_seconds = float(scene_info_claude.get("duration_seconds", default_scene_duration))
+                    if scene_duration_seconds <= 0: scene_duration_seconds = 1.0 
                 except (ValueError, TypeError):
-                    scene_duration_seconds = req.duration / len(scenes_plan) if scenes_plan else 5.0
-                    scene_duration_seconds = max(1.0, scene_duration_seconds) # Ensure minimum duration
+                    scene_duration_seconds = default_scene_duration
                     logger.warning(f"[{request_id}] Invalid or missing duration for scene {i}, using calculated/default: {scene_duration_seconds}s.")
+                
                 scene_summary_entry["final_duration"] = scene_duration_seconds
-
 
                 if REPLICATE_API_TOKEN:
                     logger.info(f"[{request_id}] Scene {i+1}: Attempting Replicate Zeroscope for '{scene_desc[:30]}...'")
@@ -514,6 +573,7 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                                         video_file_response = await client.get(output_url, timeout=REPLICATE_API_TIMEOUT); video_file_response.raise_for_status()
                                         scene_file_path = temp_dir / f"scene_{i}_replicate.mp4"; scene_file_path.write_bytes(video_file_response.content)
                                         scene_summary_entry["path"] = str(scene_file_path.resolve()); scene_summary_entry["source_api"] = "replicate_zeroscope_v2_xl"
+                                        scene_summary_entry["material_type"] = "video"
                                         logger.info(f"[{request_id}] Scene {i+1} Replicate success: {scene_file_path.name}")
                                     else: scene_summary_entry["error"] = "Replicate succeeded but no output URL."
                                     break 
@@ -549,6 +609,7 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                                 image_bytes = base64.b64decode(base64_image)
                                 scene_file_path_stab = temp_dir / f"scene_{i}_stability.png"; scene_file_path_stab.write_bytes(image_bytes)
                                 scene_summary_entry["path"] = str(scene_file_path_stab.resolve()); scene_summary_entry["source_api"] = "stability_text_to_image"
+                                scene_summary_entry["material_type"] = "image"
                                 logger.info(f"[{request_id}] Scene {i+1} Stability image success: {scene_file_path_stab.name}")
                             else: scene_summary_entry["error"] = (scene_summary_entry.get("error","") + "; Stability: No image data.").strip("; ")
                         else: scene_summary_entry["error"] = (scene_summary_entry.get("error","") + "; Stability: No artifacts.").strip("; ")
@@ -559,17 +620,17 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                      logger.info(f"[{request_id}] Scene {i+1}: STABILITY_API_KEY not set. Skipping Stability AI.")
                      scene_summary_entry["error"] = (scene_summary_entry.get("error","") + "; Stability API key not configured.").strip("; ") if scene_summary_entry.get("error") else "Stability API key not configured."
 
-                material_path = scene_summary_entry.get("path")
-                if material_path and Path(material_path).is_file():
-                    material_path_obj = Path(material_path)
-                    scene_summary_entry["material_type"] = "video" if material_path_obj.suffix.lower() in ['.mp4', '.webm', '.mov', '.avi'] else "image"
+                material_path_str = scene_summary_entry.get("path")
+                if material_path_str and Path(material_path_str).is_file():
+                    material_path_obj = Path(material_path_str)
                     
                     if scene_summary_entry["material_type"] == "image":
                         video_input_options.extend(["-loop", "1", "-r", str(DEFAULT_FPS), "-t", str(scene_duration_seconds), "-i", str(material_path_obj.resolve())])
                     else: # video file
                         video_input_options.extend(["-i", str(material_path_obj.resolve())])
                     
-                    video_filter_inputs.append(f"[{len(video_input_options) // 2 -1}:v]") # Corrected indexing for inputs
+                    # Correctly assign input stream index for filter_complex
+                    video_filter_inputs.append(f"[{len(video_input_options) - (5 if scene_summary_entry['material_type'] == 'image' else 1)}:v]")
                     actual_total_processed_video_duration += scene_duration_seconds
                 elif not scene_summary_entry["error"]:
                      scene_summary_entry["error"] = "All material generation attempts failed or were skipped for this scene."
@@ -579,11 +640,12 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                     logger.error(f"[{request_id}] Scene {i+1} final error: {scene_summary_entry['error']}")
                     generated_files_summary["errors"].append({"step": current_step, "scene_index": i, "error": scene_summary_entry['error']})
                 save_status(task_id, {"status": "processing", "message": f"Generated material for scene {i+1}/{len(scenes_plan)}", "current_step": current_step, "details": generated_files_summary})
-                await asyncio.sleep(0.1) # Small delay
+                await asyncio.sleep(0.1) 
         logger.info(f"[{request_id}] --- Finished Video Material Generation ---")
         logger.info(f"[{request_id}] Video input options: {video_input_options}")
         logger.info(f"[{request_id}] Video filter inputs: {video_filter_inputs}")
         logger.info(f"[{request_id}] Actual total processed video duration: {actual_total_processed_video_duration} seconds")
+
 
         # 3. Narration Generation
         current_step = "narration_generation"
@@ -597,9 +659,7 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                         nar_summary_entry = {"segment_index": i_nar, "text": seg_info_el.get("text"), "path": None, "error": None, "selected_voice_id": None}
                         segment_text_to_speak = seg_info_el.get("text")
                         if not segment_text_to_speak or not segment_text_to_speak.strip():
-                            nar_summary_entry["error"] = "Empty text."
-                            generated_files_summary["narration_audios"].append(nar_summary_entry)
-                            continue
+                            nar_summary_entry["error"] = "Empty text."; generated_files_summary["narration_audios"].append(nar_summary_entry); continue
                         
                         voice_id_to_use = req.narration_voice_id or get_default_voice_id(req.narration_lang)
                         nar_summary_entry["selected_voice_id"] = voice_id_to_use
@@ -609,8 +669,7 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                         try:
                             response_tts = await client_el.post(el_url, headers={"xi-api-key": ELEVENLABS_API_KEY, "Accept": "audio/mpeg"}, json=payload_el)
                             response_tts.raise_for_status()
-                            narration_file_p = temp_dir / f"narration_segment_{i_nar}.mp3"
-                            narration_file_p.write_bytes(response_tts.content)
+                            narration_file_p = temp_dir / f"narration_segment_{i_nar}.mp3"; narration_file_p.write_bytes(response_tts.content)
                             nar_summary_entry["path"] = str(narration_file_p.resolve())
                             logger.info(f"[{request_id}] Narration segment {i_nar+1} generated: {narration_file_p.name}")
                         except Exception as e_elevenlabs: 
@@ -619,7 +678,7 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                         generated_files_summary["narration_audios"].append(nar_summary_entry)
                         if nar_summary_entry.get("error"): generated_files_summary["errors"].append({"step": current_step, "segment_index": i_nar, "error": nar_summary_entry['error']})
                         save_status(task_id, {"status": "processing", "message": f"Generated narration for segment {i_nar+1}/{len(narration_segments_claude)}", "current_step": current_step, "details": generated_files_summary})
-                        await asyncio.sleep(0.5) # API rate limiting
+                        await asyncio.sleep(0.5) 
             else: logger.info(f"[{request_id}] No narration segments from Claude.")
         elif not req.narration_enabled: logger.info(f"[{request_id}] Narration disabled.")
         else: 
@@ -641,72 +700,89 @@ Ensure total scene duration roughly matches target video duration. Output valid 
             # Option 1: AssemblyAI transcription
             if ASSEMBLYAI_API_KEY and valid_narration_paths:
                 logger.info(f"[{request_id}] Attempting subtitle generation via AssemblyAI from narration.")
-                # For now, use the first valid narration audio for transcription.
-                # A more robust solution might concatenate narrations before transcription or transcribe each.
-                audio_for_transcription_path = valid_narration_paths[0]
-                logger.info(f"[{request_id}] Transcribing audio file: {audio_for_transcription_path}")
-                async with httpx.AsyncClient(timeout=ASSEMBLYAI_API_TIMEOUT) as client_asm:
-                    try:
-                        with open(audio_for_transcription_path, "rb") as f:
-                            files = {'file': (Path(audio_for_transcription_path).name, f, 'audio/mpeg')}
-                            upload_response = await client_asm.post("https://api.assemblyai.com/v2/upload", headers={"authorization": ASSEMBLYAI_API_KEY}, files=files)
-                        upload_response.raise_for_status()
-                        upload_url_assembly = upload_response.json().get("upload_url")
+                # Concatenate narration audios for a single transcription job if multiple exist
+                audio_for_transcription_path_str = None
+                if len(valid_narration_paths) > 1:
+                    narration_concat_list_file = temp_dir / f"narrations_for_srt_concat_{request_id}.txt"
+                    with open(narration_concat_list_file, "w") as f_concat:
+                        for p in valid_narration_paths:
+                            f_concat.write(f"file '{Path(p).resolve().as_posix()}'\n")
+                    
+                    concatenated_narration_path = temp_dir / f"concatenated_narration_for_srt_{request_id}.mp3"
+                    concat_cmd_srt = [FFMPEG_COMMAND, "-y", "-f", "concat", "-safe", "0", "-i", str(narration_concat_list_file), "-c", "copy", str(concatenated_narration_path)]
+                    concat_success_srt, _, concat_stderr_srt = await run_ffmpeg_command_async(concat_cmd_srt, request_id + "_narration_srt_concat")
+                    if concat_success_srt:
+                        audio_for_transcription_path_str = str(concatenated_narration_path.resolve())
+                        logger.info(f"[{request_id}] Successfully concatenated narration files for SRT: {audio_for_transcription_path_str}")
+                    else:
+                        logger.error(f"[{request_id}] Failed to concatenate narration files for SRT: {concat_stderr_srt}")
+                        generated_files_summary["errors"].append({"step": current_step, "error": f"Failed to concatenate narration files for SRT: {concat_stderr_srt}"})
+                elif len(valid_narration_paths) == 1:
+                    audio_for_transcription_path_str = valid_narration_paths[0]
+                
+                if audio_for_transcription_path_str:
+                    logger.info(f"[{request_id}] Transcribing audio file for subtitles: {audio_for_transcription_path_str}")
+                    async with httpx.AsyncClient(timeout=ASSEMBLYAI_API_TIMEOUT) as client_asm:
+                        try:
+                            with open(audio_for_transcription_path_str, "rb") as f:
+                                files = {'file': (Path(audio_for_transcription_path_str).name, f, 'audio/mpeg')}
+                                upload_response = await client_asm.post("https://api.assemblyai.com/v2/upload", headers={"authorization": ASSEMBLYAI_API_KEY}, files=files)
+                            upload_response.raise_for_status()
+                            upload_url_assembly = upload_response.json().get("upload_url")
 
-                        if not upload_url_assembly: raise Exception("AssemblyAI upload failed to return URL.")
-                        
-                        transcript_payload = {"audio_url": upload_url_assembly, "word_timestamps": True} # Request word timestamps
-                        transcript_post_response = await client_asm.post("https://api.assemblyai.com/v2/transcript", headers={"authorization": ASSEMBLYAI_API_KEY, "content-type": "application/json"}, json=transcript_payload)
-                        transcript_post_response.raise_for_status()
-                        transcript_id_assembly = transcript_post_response.json().get("id")
+                            if not upload_url_assembly: raise Exception("AssemblyAI upload failed to return URL.")
+                            
+                            transcript_payload = {"audio_url": upload_url_assembly, "word_details": True} 
+                            transcript_post_response = await client_asm.post("https://api.assemblyai.com/v2/transcript", headers={"authorization": ASSEMBLYAI_API_KEY, "content-type": "application/json"}, json=transcript_payload)
+                            transcript_post_response.raise_for_status()
+                            transcript_id_assembly = transcript_post_response.json().get("id")
 
-                        if not transcript_id_assembly: raise Exception("AssemblyAI failed to return transcript ID.")
+                            if not transcript_id_assembly: raise Exception("AssemblyAI failed to return transcript ID.")
 
-                        logger.info(f"[{request_id}] AssemblyAI transcription started (ID: {transcript_id_assembly}). Polling...")
-                        transcript_get_url = f"https://api.assemblyai.com/v2/transcript/{transcript_id_assembly}"
-                        
-                        for _ in range(int(ASSEMBLYAI_API_TIMEOUT / ASSEMBLYAI_POLL_INTERVAL)):
-                            await asyncio.sleep(ASSEMBLYAI_POLL_INTERVAL)
-                            poll_response = await client_asm.get(transcript_get_url, headers=headers_assembly)
-                            poll_response.raise_for_status()
-                            transcript_result = poll_response.json()
-                            status = transcript_result.get("status")
-                            logger.info(f"[{request_id}] AssemblyAI poll status: {status}")
-                            if status == "completed":
-                                generated_files_summary["assembly_ai_raw_transcript"] = transcript_result
-                                srt_content_str = await _format_assemblyai_transcript_to_srt(transcript_result)
-                                logger.info(f"[{request_id}] AssemblyAI transcription completed and SRT formatted.")
-                                break
-                            elif status == "error":
-                                raise Exception(f"AssemblyAI transcription failed: {transcript_result.get('error')}")
-                        else:
-                            raise Exception(f"AssemblyAI transcription timed out for ID: {transcript_id_assembly}")
-                    except Exception as e_assembly:
-                        logger.error(f"[{request_id}] AssemblyAI error: {e_assembly}", exc_info=True)
-                        generated_files_summary["errors"].append({"step": current_step, "error": f"AssemblyAI error: {e_assembly}"})
-                        srt_content_str = None # Ensure it's None if AssemblyAI fails
+                            logger.info(f"[{request_id}] AssemblyAI transcription started (ID: {transcript_id_assembly}). Polling...")
+                            transcript_get_url = f"https://api.assemblyai.com/v2/transcript/{transcript_id_assembly}"
+                            
+                            for _ in range(int(ASSEMBLYAI_API_TIMEOUT / ASSEMBLYAI_POLL_INTERVAL)):
+                                await asyncio.sleep(ASSEMBLYAI_POLL_INTERVAL)
+                                poll_response = await client_asm.get(transcript_get_url, headers=headers_assembly)
+                                poll_response.raise_for_status()
+                                transcript_result = poll_response.json()
+                                status = transcript_result.get("status")
+                                logger.info(f"[{request_id}] AssemblyAI poll status: {status}")
+                                if status == "completed":
+                                    generated_files_summary["assembly_ai_raw_transcript"] = transcript_result
+                                    srt_content_str = _format_assemblyai_transcript_to_srt(transcript_result, max_line_len=40, max_line_duration_s=7.0, min_line_duration_s=1.0) # Using new params
+                                    logger.info(f"[{request_id}] AssemblyAI transcription completed and SRT formatted.")
+                                    break
+                                elif status == "error":
+                                    raise Exception(f"AssemblyAI transcription failed: {transcript_result.get('error')}")
+                            else:
+                                raise Exception(f"AssemblyAI transcription timed out for ID: {transcript_id_assembly}")
+                        except Exception as e_assembly:
+                            logger.error(f"[{request_id}] AssemblyAI error: {e_assembly}", exc_info=True)
+                            generated_files_summary["errors"].append({"step": current_step, "error": f"AssemblyAI error: {e_assembly}"})
+                            srt_content_str = None 
+                else:
+                    logger.warning(f"[{request_id}] No valid narration audio found for AssemblyAI transcription.")
 
-            # Option 2: Claude-generated subtitles (if AssemblyAI failed or wasn't used)
             if not srt_content_str and parsed_prompt_data.get("subtitles"):
                 logger.info(f"[{request_id}] Using Claude-generated subtitles.")
                 srt_content_str = await _format_claude_subtitles_to_srt(
                     parsed_prompt_data["subtitles"],
                     generated_files_summary["scenes"], 
-                    actual_total_scene_duration,
+                    actual_total_processed_video_duration,
                     request_id
                 )
                 if not srt_content_str:
                     logger.warning(f"[{request_id}] Claude subtitle generation resulted in empty SRT.")
                     generated_files_summary["errors"].append({"step": current_step, "error": "Claude subtitle generation resulted in empty SRT."})
 
-            # Option 3: User-provided script (if other methods failed or weren't used)
             if not srt_content_str and req.subtitle_script_prompt:
                 logger.info(f"[{request_id}] Using user-provided subtitle script.")
-                duration_for_srt = actual_total_scene_duration if actual_total_scene_duration > 0 else (req.duration or 10.0)
+                duration_for_srt = actual_total_processed_video_duration if actual_total_processed_video_duration > 0 else (req.duration or 10.0)
                 srt_content_str = f"1\n00:00:00,000 --> {format_time_srt(duration_for_srt)}\n{req.subtitle_script_prompt}\n"
                 logger.info(f"[{request_id}] Created basic SRT from user script.")
 
-            # Translate subtitles if needed
             if srt_content_str and req.subtitle_target_lang and req.subtitle_target_lang.lower() != (req.subtitle_source_lang or req.narration_lang).lower():
                 if DEEPL_API_KEY and hasattr(fastapi_request.app.state, 'deepl_translator') and fastapi_request.app.state.deepl_translator:
                     logger.info(f"[{request_id}] Translating subtitles to {req.subtitle_target_lang}...")
@@ -738,7 +814,7 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                     logger.error(f"[{request_id}] Error saving SRT file: {e_save_srt}", exc_info=True)
                     generated_files_summary["errors"].append({"step": current_step, "error": f"Failed to save SRT file: {e_save_srt}"})
             else:
-                logger.info(f"[{request_id}] No subtitle content generated or enabled.")
+                logger.info(f"[{request_id}] No subtitle content generated.")
         else:
             logger.info(f"[{request_id}] Subtitle generation is disabled by user request.")
         save_status(task_id, {"status": "processing", "message": "Subtitle generation step finished.", "current_step": current_step, "details": generated_files_summary})
@@ -750,7 +826,7 @@ Ensure total scene duration roughly matches target video duration. Output valid 
             if STABILITY_API_KEY:
                 bgm_prompt_text = parsed_prompt_data.get("bgm", {}).get("description") or req.bgm_prompt or "calm instrumental background music"
                 
-                bgm_duration_seconds = int(actual_total_scene_duration) if actual_total_scene_duration > 0 else (req.duration or 10)
+                bgm_duration_seconds = int(actual_total_processed_video_duration) if actual_total_processed_video_duration > 0 else (req.duration or 10)
                 if bgm_duration_seconds <=0: bgm_duration_seconds = 10 
 
                 logger.info(f"[{request_id}] BGM: Using Stability AI. Prompt: '{bgm_prompt_text}', Duration: {bgm_duration_seconds}s")
@@ -773,7 +849,7 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                             },
                             data=data 
                         )
-                        response.raise_for_status()
+                        response.raise_for_status() 
                         
                         bgm_file_path = temp_dir / f"bgm_audio_{request_id}.mp3"
                         with open(bgm_file_path, "wb") as f:
@@ -785,7 +861,7 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                         error_detail = f"Stability AI BGM generation API error: {e_stab_audio.response.status_code} - {e_stab_audio.response.text}"
                         logger.error(f"[{request_id}] {error_detail}", exc_info=True)
                         generated_files_summary["errors"].append({"step": current_step, "error": error_detail})
-                        generated_files_summary["bgm_audio_file"] = None
+                        generated_files_summary["bgm_audio_file"] = None 
                     except Exception as e_stab_audio_generic:
                         error_detail = f"Generic error during Stability AI BGM generation: {e_stab_audio_generic}"
                         logger.error(f"[{request_id}] {error_detail}", exc_info=True)
@@ -800,7 +876,6 @@ Ensure total scene duration roughly matches target video duration. Output valid 
             generated_files_summary["bgm_audio_file"] = None
         save_status(task_id, {"status": "processing", "message": "BGM generation step finished.", "current_step": current_step, "details": generated_files_summary})
 
-
         # 6. Video Integration (FFmpeg)
         current_step = "video_integration"
         logger.info(f"[{request_id}] Step 6: Integrating materials with FFmpeg...")
@@ -809,14 +884,14 @@ Ensure total scene duration roughly matches target video duration. Output valid 
         final_video_filename = f"{request_id}_final.{req.output_format}"
         final_output_dir = STATIC_VIDEO_DIR / request_id
         final_output_dir.mkdir(parents=True, exist_ok=True)
-        final_video_output_path = final_output_dir / final_video_filename
+        final_video_output_path_temp = temp_dir / final_video_filename # Output to temp first for MoviePy, then move
 
         ffmpeg_cmd = [FFMPEG_COMMAND, "-y"]
-        ffmpeg_cmd.extend(video_input_options) # Video inputs are already prepared
+        ffmpeg_cmd.extend(video_input_options) # Add video inputs collected earlier
 
-        audio_input_options: List[str] = []
-        audio_filter_inputs: Dict[str, str] = {} 
-        current_ffmpeg_input_index = len(video_filter_inputs) # Start counting from after video inputs
+        audio_input_options_ffmpeg: List[str] = []
+        audio_filter_inputs_ffmpeg: Dict[str, str] = {} 
+        current_ffmpeg_input_index = len(video_filter_inputs) # Start counting from after video inputs (video_filter_inputs contains [0:v], [1:v] etc)
 
         # Narration processing for FFmpeg
         valid_narration_paths = [
@@ -832,28 +907,28 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                 narration_concat_file_path_str = str(narration_concat_file_path.resolve())
                 with open(narration_concat_file_path, "w") as f:
                     for path_str in valid_narration_paths:
-                        # Ensure paths are correctly formatted for FFmpeg concat demuxer
-                        f.write(f"file '{Path(path_str).as_posix()}'\n")
-                audio_input_options.extend(["-f", "concat", "-safe", "0", "-i", narration_concat_file_path_str])
-                audio_filter_inputs["narration"] = f"[{current_ffmpeg_input_index}:a]"
+                        f.write(f"file '{Path(path_str).resolve().as_posix()}'\n")
+                audio_input_options_ffmpeg.extend(["-f", "concat", "-safe", "0", "-i", narration_concat_file_path_str])
+                audio_filter_inputs_ffmpeg["narration"] = f"[{current_ffmpeg_input_index}:a]"
                 current_ffmpeg_input_index += 1
             elif len(valid_narration_paths) == 1:
-                audio_input_options.extend(["-i", str(Path(valid_narration_paths[0]).resolve())])
-                audio_filter_inputs["narration"] = f"[{current_ffmpeg_input_index}:a]"
+                audio_input_options_ffmpeg.extend(["-i", str(Path(valid_narration_paths[0]).resolve())])
+                audio_filter_inputs_ffmpeg["narration"] = f"[{current_ffmpeg_input_index}:a]"
                 current_ffmpeg_input_index += 1
-            logger.info(f"[{request_id}] Narration inputs for FFmpeg: {audio_input_options}")
-            logger.info(f"[{request_id}] Narration filter inputs for FFmpeg: {audio_filter_inputs}")
+            logger.info(f"[{request_id}] Narration inputs for FFmpeg: {audio_input_options_ffmpeg}")
+            logger.info(f"[{request_id}] Narration filter inputs for FFmpeg: {audio_filter_inputs_ffmpeg}")
+
 
         # BGM processing for FFmpeg
         bgm_file_path_str = generated_files_summary.get("bgm_audio_file")
         if req.bgm_enabled and bgm_file_path_str and Path(bgm_file_path_str).is_file():
-            audio_input_options.extend(["-i", str(Path(bgm_file_path_str).resolve())])
-            audio_filter_inputs["bgm"] = f"[{current_ffmpeg_input_index}:a]"
+            audio_input_options_ffmpeg.extend(["-i", str(Path(bgm_file_path_str).resolve())])
+            audio_filter_inputs_ffmpeg["bgm"] = f"[{current_ffmpeg_input_index}:a]"
             current_ffmpeg_input_index += 1
             logger.info(f"[{request_id}] BGM input added for FFmpeg: {bgm_file_path_str}")
-            logger.info(f"[{request_id}] BGM filter input for FFmpeg: {audio_filter_inputs['bgm']}")
+            logger.info(f"[{request_id}] BGM filter input for FFmpeg: {audio_filter_inputs_ffmpeg['bgm']}")
 
-        ffmpeg_cmd.extend(audio_input_options)
+        ffmpeg_cmd.extend(audio_input_options_ffmpeg)
 
         filter_complex_parts = []
         
@@ -866,41 +941,76 @@ Ensure total scene duration roughly matches target video duration. Output valid 
 
         video_processing_chain = ""
         if len(video_filter_inputs) > 1:
-            concat_inputs = "".join(video_filter_inputs)
-            video_processing_chain = f"{concat_inputs}concat=n={len(video_filter_inputs)}:v=1:a=0[vconcat_out];"
+            concat_inputs_str = "".join(video_filter_inputs)
+            video_processing_chain = f"{concat_inputs_str}concat=n={len(video_filter_inputs)}:v=1:a=0[vconcat_out];"
             video_stream_for_scaling = "[vconcat_out]"
-        else:
-            video_stream_for_scaling = video_filter_inputs[0] # e.g., "[0:v]"
+        else: 
+            video_stream_for_scaling = video_filter_inputs[0]
+            video_processing_chain = "" 
 
         target_w, target_h = parse_resolution(req.resolution)
-        video_processing_chain += f"{video_stream_for_scaling}fps={DEFAULT_FPS},format=yuv420p,scale={target_w}:{target_h}:force_original_aspect_ratio=decrease,pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=black[vscaled_out]"
-        filter_complex_parts.append(video_processing_chain)
+        scale_pad_filter = f"{video_stream_for_scaling}fps={DEFAULT_FPS},format=yuv420p,scale={target_w}:{target_h}:force_original_aspect_ratio=decrease:eval=frame,pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=black[vscaled_out]"
         
-        final_video_stream_label = "[vscaled_out]"
+        if video_processing_chain: # if concat was used
+            filter_complex_parts.append(video_processing_chain + scale_pad_filter)
+        else: # if only one video input, scale_pad_filter starts with the input stream
+            filter_complex_parts.append(scale_pad_filter)
+
+        final_video_stream_for_map = "[vscaled_out]"
 
         # Subtitle filter
         subtitle_file_path = generated_files_summary.get("subtitle_file")
         if req.subtitles_enabled and subtitle_file_path and Path(subtitle_file_path).exists():
             logger.info(f"[{request_id}] Adding subtitles from: {subtitle_file_path} to FFmpeg command.")
-            escaped_subtitle_path = str(Path(subtitle_file_path).resolve()).replace('\\', '/').replace(':', '\\\\:') # FFmpeg path escaping
-            filter_complex_parts.append(f"{final_video_stream_label}subtitles='{escaped_subtitle_path}'[vout]")
+            escaped_subtitle_path = str(Path(subtitle_file_path).resolve()).replace('\\', '/').replace(':', '\\\\:')
+            
+            force_style_parts = []
+            if req.subtitle_font_name:
+                force_style_parts.append(f"FontName='{req.subtitle_font_name}'")
+            if req.subtitle_font_size:
+                force_style_parts.append(f"FontSize={req.subtitle_font_size}")
+            if req.subtitle_primary_color:
+                force_style_parts.append(f"PrimaryColour={req.subtitle_primary_color}")
+            if req.subtitle_outline_color:
+                force_style_parts.append(f"OutlineColour={req.subtitle_outline_color}")
+            if req.subtitle_background_color: # ASS/SSA uses BackColour for box, BorderStyle=3 for opaque box
+                force_style_parts.append(f"BackColour={req.subtitle_background_color}")
+                force_style_parts.append("BorderStyle=3") # To enable background box
+            if req.subtitle_alignment is not None: # Numpad to ASS alignment
+                force_style_parts.append(f"Alignment={req.subtitle_alignment}")
+            if req.subtitle_margin_v is not None:
+                force_style_parts.append(f"MarginV={req.subtitle_margin_v}")
+
+            style_string = ",".join(force_style_parts)
+            logger.info(f"[{request_id}] Subtitle force_style string: '{style_string}'")
+
+            subtitle_filter_string = f"subtitles='{escaped_subtitle_path}'"
+            if style_string:
+                subtitle_filter_string += f":force_style='{style_string}'"
+            
+            filter_complex_parts.append(f"{final_video_stream_for_map}{subtitle_filter_string}[vout]")
             final_video_map_label = "[vout]"
         else:
-            final_video_map_label = final_video_stream_label # No subtitles, use the scaled output directly
+            # If no subtitles, the output of scaling/padding is the final video stream
+            # We need to explicitly label it as [vout] if it was [vscaled_out]
+            if final_video_stream_for_map == "[vscaled_out]":
+                 filter_complex_parts[-1] = filter_complex_parts[-1].replace("[vscaled_out]", "[vout]") 
+            final_video_map_label = "[vout]"
+
 
         # Audio chain
-        narration_stream_ffmpeg = audio_filter_inputs.get("narration")
-        bgm_stream_ffmpeg = audio_filter_inputs.get("bgm")
+        narration_stream_ffmpeg_id = audio_filter_inputs_ffmpeg.get("narration")
+        bgm_stream_ffmpeg_id = audio_filter_inputs_ffmpeg.get("bgm")
         final_audio_map_label = None
 
-        if narration_stream_ffmpeg and bgm_stream_ffmpeg:
-            filter_complex_parts.append(f"{bgm_stream_ffmpeg}volume=0.3[bgm_adjusted]; {narration_stream_ffmpeg}[bgm_adjusted]amix=inputs=2:duration=longest[aout]")
+        if narration_stream_ffmpeg_id and bgm_stream_ffmpeg_id:
+            filter_complex_parts.append(f"{bgm_stream_ffmpeg_id}volume=0.3[bgm_adjusted];{narration_stream_ffmpeg_id}[bgm_adjusted]amix=inputs=2:duration=longest[aout]")
             final_audio_map_label = "[aout]"
-        elif narration_stream_ffmpeg:
-            filter_complex_parts.append(f"{narration_stream_ffmpeg}acopy[aout]")
+        elif narration_stream_ffmpeg_id:
+            filter_complex_parts.append(f"{narration_stream_ffmpeg_id}acopy[aout]")
             final_audio_map_label = "[aout]"
-        elif bgm_stream_ffmpeg:
-            filter_complex_parts.append(f"{bgm_stream_ffmpeg}acopy[aout]")
+        elif bgm_stream_ffmpeg_id:
+            filter_complex_parts.append(f"{bgm_stream_ffmpeg_id}acopy[aout]")
             final_audio_map_label = "[aout]"
 
         if filter_complex_parts:
@@ -920,10 +1030,11 @@ Ensure total scene duration roughly matches target video duration. Output valid 
             "-c:a", "aac", 
             "-b:a", "192k",
             "-movflags", "+faststart",
-            str(final_output_path_temp)
+            # "-t", str(actual_total_processed_video_duration), # Control output duration if necessary
+            str(final_video_output_path_temp) 
         ])
 
-        logger.info(f"[{request_id}] Final FFmpeg command: {' '.join(ffmpeg_cmd)}")
+        logger.info(f"[{request_id}] Executing FFmpeg command: {' '.join(ffmpeg_cmd)}")
         
         success, ffmpeg_stdout, ffmpeg_stderr = await run_ffmpeg_command_async(ffmpeg_cmd, request_id)
         generated_files_summary["ffmpeg_final_video_log"] = {
@@ -933,13 +1044,12 @@ Ensure total scene duration roughly matches target video duration. Output valid 
         }
 
         if success:
-            generated_files_summary["final_video_path"] = str(final_output_path_temp.resolve())
-            
-            permanent_video_path = final_output_dir / final_video_filename
+            # Move to static serving directory
+            permanent_video_path = final_output_dir / final_video_filename # final_output_dir is already STATIC_VIDEO_DIR / request_id
             shutil.move(str(final_output_path_temp), str(permanent_video_path))
             final_video_successfully_moved = True
             
-            generated_files_summary["final_video_path"] = str(permanent_video_path.resolve())
+            generated_files_summary["final_video_path"] = str(permanent_video_path.resolve()) 
             generated_files_summary["final_video_url"] = f"/static/generated_videos/{request_id}/{final_video_filename}"
             logger.info(f"[{request_id}] Final video moved to {permanent_video_path} and URL {generated_files_summary['final_video_url']} prepared.")
             save_status(task_id, {"status": "completed", "message": "Video generation complete.", "result_url": generated_files_summary["final_video_url"], "current_step": current_step, "details": generated_files_summary})
@@ -978,11 +1088,14 @@ Ensure total scene duration roughly matches target video duration. Output valid 
         save_status(task_id, final_status_data)
         
         if CLEANUP_TEMP_FILES:
-            if final_video_successfully_moved or (generated_files_summary["errors"] and not generated_files_summary.get("final_video_path")):
+            # Only delete temp_dir if the final video was successfully moved or if there were errors preventing its creation/move
+            # and the final video is not expected to be in temp_dir
+            final_video_path_obj = Path(generated_files_summary.get("final_video_path", ""))
+            if final_video_successfully_moved or (generated_files_summary["errors"] and not (final_video_path_obj.exists() and temp_dir in final_video_path_obj.parents)):
                  logger.info(f"[{request_id}] Cleaning up temporary directory: {temp_dir.resolve()}")
                  shutil.rmtree(temp_dir, ignore_errors=True)
             else:
-                 logger.info(f"[{request_id}] Temporary files for video generation kept at {temp_dir.resolve()} as final video might be there or CLEANUP_TEMP_FILES is False.")
+                 logger.info(f"[{request_id}] Temporary files for video generation kept at {temp_dir.resolve()}")
             
     return generated_files_summary
 
@@ -1055,16 +1168,23 @@ async def get_task_status_endpoint(task_id: str, request: Request):  # Added Req
 
     return TaskStatus(**data_to_return)
 
-# This endpoint will be mounted in main.py
-# from fastapi.staticfiles import StaticFiles
-# app.mount("/static", StaticFiles(directory="static"), name="static")
-# This specific one is for the generated videos, assuming they are in a subfolder of static
-# It's better to handle this in main.py where the app instance is defined.
-# For now, let's assume STATIC_VIDEO_DIR is correctly configured to be served by StaticFiles in main.py
 
-# This is a placeholder for the actual `get_claude_response` and `IndividualAIResponse`
-# which should be imported from `main.py` or their respective modules.
-# For testing this file standalone, these mocks are useful.
+@router.get(f"/{STATIC_VIDEO_DIR_BASE.name}/{{task_id}}/{{filename:path}}")
+async def serve_generated_video_debug_file(task_id: str, filename: str):
+    file_path = STATIC_VIDEO_DIR / task_id / filename
+    if not file_path.is_file():
+        logger.error(f"File not found: {file_path}")
+        raise HTTPException(status_code=404, detail="File not found")
+    if filename.endswith(".json"):
+        return FileResponse(path=str(file_path), media_type="application/json")
+    elif filename.endswith((".mp4", ".mov", ".webm", ".avi")): # Add other video types if needed
+        return FileResponse(path=str(file_path), media_type=f"video/{Path(filename).suffix[1:]}")
+    else:
+        return FileResponse(path=str(file_path))
+
+
+# Placeholder for main.py imports if they are not resolved (for standalone testing)
+# This is important for local testing if you run this file directly.
 if __name__ != "__main__": # Only define these if not running as main script (i.e., when imported by uvicorn)
     try:
         from main import get_claude_response, IndividualAIResponse, app as main_app
@@ -1072,138 +1192,68 @@ if __name__ != "__main__": # Only define these if not running as main script (i.
         # from dependencies import get_current_active_user # Assuming get_current_active_user is in dependencies.py
     except ImportError as e:
         logger.warning(f"Could not import from main/models/dependencies: {e}. Using placeholders.")
-        # Fallback definitions already provided above will be used.
-        pass
-else:
-    # If running this file directly, ensure these are defined for local testing if needed.
-    REPLICATE_MAX_POLL_ATTEMPTS = 30 
-    FFMPEG_COMMAND = "ffmpeg"
-    from fastapi.middleware.cors import CORSMiddleware
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-    # This is needed for request.url_for to work when running this file directly
-    # In a real app, this would be handled by the main FastAPI app instance
-    # For testing, we can mount it here.
-    # Note: The path "/static/generated_videos" should match STATIC_VIDEO_DIR_BASE
-    # and how it's served by the main application.
-    if not STATIC_VIDEO_DIR.exists(): # Use STATIC_VIDEO_DIR which is already a Path object
-        STATIC_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
+        
+        class IndividualAIResponse:
+            def __init__(self, response: Optional[str], error: Optional[str] = None):
+                self.response = response
+                self.error = error
+
+        async def get_claude_response(request: Request, prompt_text: str, system_instruction: str, model: str) -> IndividualAIResponse:
+            logger.error("Mocked get_claude_response called.")
+            mock_claude_output = {
+                "scenes": [{"scene_description": "A mock beautiful sunset.", "duration_seconds": 5, "narration_segment_indices": [0], "subtitle_indices": [0]},
+                           {"scene_description": "Mock city traffic.", "duration_seconds": 5, "narration_segment_indices": [1], "subtitle_indices": [1]}],
+                "narration": {"full_script": "Mock narration.", "segments": [{"text": "Mock segment 1."}, {"text": "Mock segment 2."}]},
+                "subtitles": [{"text": "Mock sub 1.", "timing_instructions": "scene 1"}, {"text": "Mock sub 2.", "timing_instructions": "scene 2"}],
+                "bgm": {"description": "Mock upbeat electronic music."}
+            }
+            return IndividualAIResponse(response=json.dumps(mock_claude_output))
+
+        class User: # Dummy User class
+            id: int
+            email: str
+        
+        async def get_current_active_user(): # Dummy dependency
+            user = User()
+            user.id = 1
+            user.email = "test@example.com"
+            return user
+
+        class MockAppState:
+            def __init__(self):
+                self.deepl_translator = None # Mock deepl_translator
+        
+        class MockApp:
+            def __init__(self):
+                self.state = MockAppState()
+
+        main_app = MockApp() # Define a mock main_app for standalone runs
+
+    # Replicate API polling constant - ensure it's defined if not imported
+    REPLICATE_MAX_POLL_ATTEMPTS = REPLICATE_MAX_POLL_ATTEMPTS if 'REPLICATE_MAX_POLL_ATTEMPTS' in globals() else 30
+    FFMPEG_COMMAND = FFMPEG_COMMAND if 'FFMPEG_COMMAND' in globals() else "ffmpeg"
+
+else: # Running as main script
+    import uvicorn
+    from fastapi.staticfiles import StaticFiles
     
-    # Mount the directory where generated videos are stored
-    # The path "/static/generated_videos" in url_for will be resolved by this.
-    app.mount("/static/generated_videos", StaticFiles(directory=str(STATIC_VIDEO_DIR_BASE)), name="static_videos_generated_direct")
+    # Ensure STATIC_VIDEO_DIR exists
+    STATIC_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
+    
+    # Mount the static directory for serving generated files
+    # The path "/static/generated_videos" will be served from STATIC_VIDEO_DIR_BASE
+    app.mount(f"/{STATIC_VIDEO_DIR_BASE.name}", StaticFiles(directory=STATIC_VIDEO_DIR_BASE), name="static_videos_generated_direct")
+    
+    # Mock app.state for DeepL if not running within the main app context
+    if not hasattr(app, 'state') or not hasattr(app.state, 'deepl_translator'):
+        class MockAppState:
+            def __init__(self):
+                self.deepl_translator = None # No DeepL for standalone test
+        app.state = MockAppState()
 
-
-# Separate endpoint for serving debug JSON files
-@router.get(f"/static/generated_videos/{{task_id}}/{{filename:path}}")
-async def serve_generated_video_debug_file(task_id: str, filename: str):
-    file_path = STATIC_VIDEO_DIR / task_id / filename
-    if not file_path.is_file():
-        raise HTTPException(status_code=404, detail="File not found")
-    if filename.endswith(".json"):
-        return FileResponse(path=str(file_path), media_type="application/json")
-    return FileResponse(path=str(file_path))
-
-# The upload_video endpoint and its process_uploaded_video function 
-# are temporarily removed to focus on text-to-video generation.
-# If needed, they can be restored from previous versions.
-
-```
-```python
-# Configuration settings for the FastAPI application
-
-import os
-from pathlib import Path
-from dotenv import load_dotenv
-
-# Load environment variables from a .env file if it exists
-load_dotenv()
-
-# API Keys
-REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
-STABILITY_API_KEY = os.getenv("STABILITY_API_KEY") # Corrected variable name
-ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
-ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY")
-DEEPL_API_KEY = os.getenv("DEEPL_API_KEY")
-
-# API Endpoints and Model Identifiers
-REPLICATE_API_URL = "https://api.replicate.com/v1/predictions"
-REPLICATE_ZEROSCOPE_MODEL = "anotherjesse/zeroscope-v2-xl:9f7476737190e1a712580adfd5446408f14b2de0e6e8e168d68f2029fc221216"
-STABILITY_TEXT_TO_IMAGE_API_URL_BASE = "https://api.stability.ai/v1/generation/{engine_id}/text-to-image"
-STABILITY_DEFAULT_ENGINE = "stable-diffusion-xl-1024-v1-0" # Example, use the latest or preferred engine
-STABILITY_AUDIO_API_URL = "https://api.stability.ai/v1/generation/stable-audio-generate-v1" # Corrected endpoint
-
-# Polling and Timeout settings for API calls
-REPLICATE_POLL_INTERVAL = 10  # seconds
-REPLICATE_API_TIMEOUT = 300.0  # seconds
-STABILITY_API_TIMEOUT = 180.0  # seconds, increased for potentially longer audio generation
-ELEVENLABS_API_TIMEOUT = 60.0  # seconds
-ASSEMBLYAI_POLL_INTERVAL = 5   # seconds
-ASSEMBLYAI_API_TIMEOUT = 300.0 # seconds
-
-# Video Processing Defaults
-DEFAULT_FPS = 25
-
-# Directory Settings
-TEMP_DIR_BASE = "temp_files"  # Base directory for temporary files during processing
-STATIC_DIR = "static" # General static directory
-STATIC_VIDEO_DIR_NAME = "generated_videos" # Subdirectory for generated videos
-STATIC_VIDEO_DIR = Path(STATIC_DIR) / STATIC_VIDEO_DIR_NAME # Full path to static videos directory
-
-# File Management
-CLEANUP_TEMP_FILES = True  # Set to False for debugging to keep intermediate files
-
-# Language and Voice Mappings
-ELEVENLABS_LANG_VOICE_MAP = {
-    "en": "21m00Tcm4TlvDq8ikA2E",  # Default English voice (Rachel)
-    "ja": "SOYHLrjzK2X1ezoPC6cr",  # Example Japanese voice
-    "es": "0vrPGvXHhDD3rbGURCk8",  # Example Spanish voice
-    "fr": "iRYhWuT8tKZ81GesmMsh",  # Example French voice
-    "de": "sx7WD8TJIOrk5RQOptDH",  # Example German voice
-    "it": "fzDFBB4mgvMlL36gPXcz",      # Italian
-    "zh": "4VZIsMPtgggwNg7OXbPY",      # Chinese
-    "ko": "WqVy7827vjE2r3jWvbnP",      # Korean
-    # Add other languages and corresponding voice IDs as needed
-}
-
-DEEPL_LANG_MAP = {
-    "en": "EN-US", # DeepL uses EN-US or EN-GB for English
-    "ja": "JA",
-    "es": "ES",
-    "fr": "FR",
-    "de": "DE",
-    "it": "IT",
-    "zh": "ZH",
-    # Add more as needed
-}
-
-# Other constants
-REPLICATE_MAX_POLL_ATTEMPTS = int(REPLICATE_API_TIMEOUT / REPLICATE_POLL_INTERVAL) if REPLICATE_POLL_INTERVAL > 0 else 30
-FFMPEG_COMMAND = "ffmpeg" # Ensure ffmpeg is in PATH or provide full path
-
-# Ensure static directories exist
-Path(TEMP_DIR_BASE).mkdir(parents=True, exist_ok=True)
-STATIC_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
-
-# You can add more configuration variables here as needed
-# For example, default model IDs for text-to-image if not using Stability AI's default
-# Or settings for quality, style, etc.
-
-# Ensure API keys are loaded (basic check)
-if not STABILITY_API_KEY:
-    print("Warning: STABILITY_API_KEY is not set in the environment variables.")
-if not REPLICATE_API_TOKEN:
-    print("Warning: REPLICATE_API_TOKEN is not set in the environment variables.")
-if not ELEVENLABS_API_KEY:
-    print("Warning: ELEVENLABS_API_KEY is not set in the environment variables.")
-if not ASSEMBLYAI_API_KEY:
-    print("Warning: ASSEMBLYAI_API_KEY is not set in the environment variables.")
-if not DEEPL_API_KEY:
-    print("Warning: DEEPL_API_KEY is not set in the environment variables.")
+    logger.info(f"Serving static files from: {STATIC_VIDEO_DIR_BASE}")
+    logger.info(f"Static files URL prefix: /static/{STATIC_VIDEO_DIR_BASE.name}")
+    
+    uvicorn.run(app, host="0.0.0.0", port=8001)
 
 ```
