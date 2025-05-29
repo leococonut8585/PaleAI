@@ -1,5 +1,5 @@
 # routers/images.py
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from fastapi.concurrency import run_in_threadpool
@@ -11,6 +11,7 @@ import logging
 
 import models
 from dependencies import get_current_active_user
+from utils.openai_client import openai_client # Added for DALL-E 3
 
 router = APIRouter(prefix="/images", tags=["Images"])
 
@@ -30,6 +31,21 @@ class ImageGenerationRequest(BaseModel):
 class ImageGenerationResponse(BaseModel):
     urls: List[str]
     error: Optional[str] = None
+
+# New Pydantic Models
+class ImageSettings(BaseModel):
+    quality: Optional[str] = "standard"
+    size: Optional[str] = "1024x1024"
+    format: Optional[str] = "png"
+    style: Optional[str] = None
+    # Add other common settings if obvious, or leave for later refinement
+
+class ImageGenerationRequestPayload(BaseModel):
+    generation_mode: str = Field(..., examples=["high_quality", "speedy", "arrange_image", "generate_from_image"])
+    prompt: str
+    negative_prompt: Optional[str] = None
+    image_settings: ImageSettings = Field(default_factory=ImageSettings) # Use default_factory for nested models
+    batch_count: int = 1 # Default to 1, will be used in Phase 2
 
 async def translate_prompt(text: str) -> str:
     from main import deepl_translator
@@ -276,3 +292,106 @@ async def generate_images(req: ImageGenerationRequest, current_user: models.User
 
     return response_payload
 
+
+@router.post("/generate_new", summary="Generate image with new multi-modal generation pipeline")
+async def generate_new_image(
+    payload: ImageGenerationRequestPayload = Form(...),
+    image_file: Optional[UploadFile] = File(None)
+    # current_user: models.User = Depends(get_current_active_user) # Placeholder for auth
+):
+    # Placeholder for user authentication/authorization if needed
+    # For example: if not current_user: raise HTTPException(status_code=401, detail="Not authenticated")
+
+    # Log received data for debugging (optional, can be removed later)
+    # logger.debug(f"Received payload: {payload.model_dump()}")
+    # if image_file:
+    #     logger.debug(f"Received image_file: {image_file.filename}")
+
+    if payload.generation_mode == "high_quality":
+        logger.info("Processing 'high_quality' image generation request.")
+        
+        # Parameter Validation and Preparation
+        valid_sizes_dalle3 = ["1024x1024", "1024x1792", "1792x1024"]
+        size = payload.image_settings.size if payload.image_settings.size in valid_sizes_dalle3 else "1024x1024"
+        
+        valid_qualities = ["standard", "hd"]
+        quality = payload.image_settings.quality if payload.image_settings.quality in valid_qualities else "standard"
+        
+        valid_styles = ["vivid", "natural"]
+        style = payload.image_settings.style if payload.image_settings.style in valid_styles else "vivid"
+
+        api_params = {
+            "model": "dall-e-3",
+            "prompt": payload.prompt,
+            "n": 1, # For Phase 1, batch_count is not yet used for multiple 'n' values
+            "size": size,
+            "quality": quality,
+            "style": style,
+            "response_format": "url",
+        }
+        logger.debug(f"DALL·E 3 API parameters: {api_params}")
+
+        try:
+            response = await openai_client.images.generate(**api_params)
+            
+            if not response.data or not response.data[0].url:
+                logger.error("DALL·E 3 response did not contain expected data.")
+                raise HTTPException(
+                    status_code=500,
+                    detail={"type": "api_error", "message": "DALL·E 3 response missing data."}
+                )
+            
+            image_url = response.data[0].url
+            logger.info(f"DALL·E 3 image generated successfully: {image_url}")
+            
+            return {
+                "success": True,
+                "images": [{"url": image_url, "prompt_used": payload.prompt}],
+                "metadata": {
+                    "mode_used": "high_quality",
+                    "settings_applied": api_params 
+                }
+            }
+
+        except HTTPException as http_exc: # Re-raise HTTPExceptions directly
+            raise http_exc
+        except Exception as e:
+            logger.error(f"DALL·E 3 API call failed: {e}", exc_info=True)
+            error_details = {"error_type": type(e).__name__, "message": str(e)}
+            if hasattr(e, 'body'): # For OpenAI specific errors
+                error_details['body'] = e.body
+            
+            raise HTTPException(
+                status_code=500,
+                detail={"type": "api_error", "message": "Failed to generate image with DALL·E 3.", "details": error_details}
+            )
+
+    elif payload.generation_mode == "speedy":
+        # Logic for Stable Diffusion will go here
+        # Requires: payload.prompt, payload.negative_prompt, payload.image_settings
+        pass
+    elif payload.generation_mode == "arrange_image":
+        if not image_file:
+            raise HTTPException(status_code=400, detail="Image file is required for 'arrange_image' mode.")
+        # Logic for DALL·E 2 (image editing/arrangement) will go here
+        # Requires: payload.prompt, image_file, payload.image_settings
+        pass
+    elif payload.generation_mode == "generate_from_image":
+        if not image_file:
+            raise HTTPException(status_code=400, detail="Image file is required for 'generate_from_image' mode.")
+        # Logic for GPT-4V + DALL·E 3 will go here
+        # Requires: payload.prompt, image_file, payload.image_settings
+        pass
+    else:
+        raise HTTPException(status_code=400, detail=f"Invalid generation_mode: {payload.generation_mode}")
+
+    # Dummy response for now
+    return {
+        "success": True,
+        "message": f"Request received for mode: {payload.generation_mode}",
+        "images": [{"url": "placeholder_image.png", "prompt_used": payload.prompt}],
+        "metadata": {
+            "mode_used": payload.generation_mode,
+            "settings_applied": payload.image_settings.model_dump()
+        }
+    }
