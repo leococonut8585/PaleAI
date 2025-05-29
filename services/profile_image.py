@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 async def _gen_with_dalle(prompt: str) -> bytes:
     # Log the actual prompt used for this API call
-    logger.debug("実際に使ったプロンプト: %s", prompt)
+    logger.info("実際に使ったプロンプト: %s", prompt)
     params = {
         "model": "dall-e-3",
         "prompt": prompt,
@@ -44,6 +44,7 @@ async def _gen_with_dalle(prompt: str) -> bytes:
     }
     logger.debug("DALL·E request params: %s", params)
     try:
+        logger.info("Sending the following prompt to DALL·E 3: %s", prompt)
         resp = await openai_client.images.generate(**params)
         logger.debug("DALL·E raw response: %s", resp)
         url = resp.data[0].url
@@ -53,17 +54,33 @@ async def _gen_with_dalle(prompt: str) -> bytes:
         return content
     except Exception as e:
         logger.error("DALL·E API呼び出しでエラー発生: %s", e)
+        logger.error("Full exception object: %s", e) # Log the full exception object
+
+        if hasattr(e, 'response') and e.response is not None:
+            try:
+                # Attempt to parse response as JSON
+                response_data = e.response.json() 
+                if 'error' in response_data:
+                    logger.error("DALL·E API error details from response.data.error: %s", response_data['error'])
+                # Log the whole JSON response if the structure is unknown or varies
+                logger.error("DALL·E API full JSON error response: %s", response_data)
+            except ValueError: # Handles cases where response is not JSON
+                logger.error("DALL·E API error response (non-JSON): %s", e.response.text)
+        
+        # Existing logging for specific attributes, kept for robustness
         if hasattr(e, "response") and hasattr(e.response, "text"):
             logger.error("DALL·E APIエラーレスポンス (Text): %s", e.response.text)
+            # The try-except for error_detail_json is now partly covered above, 
+            # but kept in case of different structures or direct e.response.json() failure
             try:
                 error_detail_json = e.response.json()
                 logger.error(
-                    "DALL·E APIエラー詳細 (JSON from response): %s",
+                    "DALL·E APIエラー詳細 (JSON from response - original): %s", # Renamed slightly for clarity
                     error_detail_json,
                 )
             except Exception:
                 logger.error(
-                    "DALL·E APIエラーレスポンスのJSONデコードに失敗 (from response.text)"
+                    "DALL·E APIエラーレスポンスのJSONデコードに失敗 (from response.text - original)" # Renamed slightly
                 )
         if hasattr(e, "body") and e.body:
             logger.error("DALL·E APIエラー詳細 (e.body): %s", e.body)
