@@ -427,33 +427,73 @@
                     <video id="thinkingVideo" class="hidden mt-2 mx-auto" style="max-width:180px;" autoplay loop muted playsinline></video>
                 </div>
 
-                <div id="videoModeContainer" class="hidden flex flex-col p-3 border rounded bg-gray-100 mb-2 space-y-2">
-                    <textarea id="videoDescription" rows="3" class="w-full p-1 border rounded text-sm" placeholder="動画にしたい内容/ストーリー/シーン分割"></textarea>
-                    <div class="flex flex-wrap items-center gap-2 text-xs">
-                        <label>長さ <input id="videoDuration" type="number" value="10" min="1" max="300" class="p-1 border rounded w-20"></label>
-                        <label>解像度 <select id="videoResolution" class="p-1 border rounded">
-                            <option value="512x512">512p</option>
-                            <option value="1280x720">720p</option>
-                            <option value="1920x1080">1080p</option>
-                            <option value="3840x2160">4K</option>
-                        </select></label>
-                        <label class="flex items-center"><input type="checkbox" id="videoBgm" class="mr-1" checked> BGM</label>
-                        <input id="videoBgmMood" type="text" placeholder="BGMムード" class="p-1 border rounded w-24">
-                        <label class="flex items-center"><input type="checkbox" id="videoNarration" class="mr-1" checked> ナレーション</label>
-                        <select id="videoNarrationLang" class="p-1 border rounded">
-                            <option value="JA" selected>日本語</option>
-                            <option value="EN">English</option>
-                        </select>
-                        <label class="flex items-center"><input type="checkbox" id="videoSubtitles" class="mr-1" checked> 字幕</label>
-                    </div>
+                <div id="videoModeContainer" class="hidden flex flex-col p-4 border border-gray-200 rounded-lg bg-gray-50 mb-3 space-y-4 shadow">
+                    <!-- Overall Video Description -->
                     <div>
-                        <button id="videoGenerateBtn" class="bg-teal-500 hover:bg-teal-600 text-white px-4 py-2 rounded text-sm">ペイルの像(動画生成モード)</button>
+                        <label for="videoDescription" class="block text-sm font-medium text-gray-700 mb-1">動画の全体的な説明 / ストーリー:</label>
+                        <textarea id="videoDescription" rows="2" class="w-full p-2 border border-gray-300 rounded-md shadow-sm text-sm focus:ring-teal-500 focus:border-teal-500" placeholder="例: 静かな森の中を歩く冒険者の短い物語..."></textarea>
                     </div>
-                    <div id="videoProgress" class="w-full bg-gray-200 rounded h-2 hidden">
-                        <div id="videoProgressBar" class="bg-teal-500 h-2 rounded" style="width:0%"></div>
+
+                    <!-- Video Settings Grid -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-3 border-t border-gray-200 pt-3">
+                        <div>
+                            <label for="videoDuration" class="block text-xs font-medium text-gray-700">動画の長さ:</label>
+                            <div class="flex items-center mt-1">
+                                <input id="videoDuration" type="number" value="10" min="1" max="300" class="p-2 border border-gray-300 rounded-md shadow-sm w-full text-sm focus:ring-teal-500 focus:border-teal-500">
+                                <span class="ml-2 text-xs text-gray-500">秒</span>
+                            </div>
+                        </div>
+                        <div>
+                            <label for="videoResolution" class="block text-xs font-medium text-gray-700">画質 (解像度):</label>
+                            <select id="videoResolution" class="mt-1 p-2 border border-gray-300 rounded-md shadow-sm w-full text-sm focus:ring-teal-500 focus:border-teal-500">
+                                <option value="512p">512p (低)</option>
+                                <option value="720p">720p (中)</option>
+                                <option value="1080p" selected>1080p (高)</option>
+                                <option value="4k">4K (最高)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="videoOutputFormat" class="block text-xs font-medium text-gray-700">出力フォーマット:</label>
+                            <select id="videoOutputFormat" class="mt-1 p-2 border border-gray-300 rounded-md shadow-sm w-full text-sm focus:ring-teal-500 focus:border-teal-500">
+                                <option value="mp4" selected>MP4</option>
+                                <option value="mov">MOV</option>
+                                <option value="webm">WebM</option>
+                            </select>
+                        </div>
                     </div>
-                    <video id="videoPreview" class="hidden mt-2 max-w-full" controls></video>
-                    <a id="videoDownloadLink" class="hidden text-teal-600 underline text-xs mt-1" download>ダウンロード</a>
+
+                    <!-- Narration Options -->
+                    <div id="videoNarrationOptionsContainer" class="space-y-2 border-t border-gray-200 pt-3 mt-3">
+                        <label class="flex items-center text-sm font-medium text-gray-700">
+                            <input type="checkbox" id="videoNarration" class="mr-2 h-4 w-4 text-teal-600 border-gray-300 rounded focus:ring-teal-500" checked> ナレーションを追加する
+                        </label>
+                        <div id="videoNarrationSettings" class="ml-6 mt-2 space-y-3">
+                            <div>
+                                <label for="videoNarrationLang" class="block text-xs font-medium text-gray-600">ナレーション言語/ボイス:</label>
+                                <select id="videoNarrationLang" class="mt-1 p-2 border border-gray-300 rounded-md shadow-sm w-full text-sm focus:ring-teal-500 focus:border-teal-500">
+                                    <option value="JA" selected>日本語 (デフォルトボイス)</option>
+                                    <option value="EN">英語 (デフォルトボイス)</option>
+                                    <option value="ES">Español (デフォルトボイス)</option>
+                                    <option value="FR">Français (デフォルトボイス)</option>
+                                    <option value="DE">Deutsch (デフォルトボイス)</option>
+                                    <option value="ZH">中文 (デフォルトボイス)</option>
+                                    <option value="KO">한국어 (デフォルトボイス)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label for="videoNarrationScript" class="block text-xs font-medium text-gray-600">ナレーション内容・タイミング指示:</label>
+                                <textarea id="videoNarrationScript" rows="2" class="mt-1 w-full p-2 border border-gray-300 rounded-md shadow-sm text-sm focus:ring-teal-500 focus:border-teal-500" placeholder="ナレーションのセリフや、各セリフをどのタイミングで再生するかの指示を入力..."></textarea>
+                            </div>
+                            <div>
+                                <label for="videoNarrationVoiceId" class="block text-xs font-medium text-gray-600">ElevenLabs ボイスID (任意):</label>
+                                <input type="text" id="videoNarrationVoiceId" class="mt-1 w-full p-2 border border-gray-300 rounded-md shadow-sm text-sm focus:ring-teal-500 focus:border-teal-500" placeholder="カスタムボイスIDを入力...">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <button id="videoGenerateBtn" class="bg-teal-500 hover:bg-teal-600 text-white px-4 py-2 rounded-md text-sm font-semibold shadow-sm focus:ring-2 focus:ring-offset-2 focus:ring-teal-500">動画を生成</button>
+                    <video id="videoPreview" class="mt-2 max-w-full border border-gray-300 rounded-md shadow hidden" controls></video>
+                    <a id="videoDownloadLink" class="hidden text-teal-600 hover:text-teal-700 underline mt-1 text-sm" download>ダウンロード</a>
                 </div>
 
                 <div id="talkModeContainer" class="hidden flex flex-col p-3 border rounded bg-gray-100 mb-2 space-y-2">
@@ -763,14 +803,33 @@
     const videoDuration = document.getElementById('videoDuration');
     const videoResolution = document.getElementById('videoResolution');
     const videoBgm = document.getElementById('videoBgm');
-    const videoBgmMood = document.getElementById('videoBgmMood');
-    const videoNarration = document.getElementById('videoNarration');
-    const videoNarrationLang = document.getElementById('videoNarrationLang');
-    const videoSubtitles = document.getElementById('videoSubtitles');
+    // const videoBgmMood = document.getElementById('videoBgmMood'); // This ID is no longer used
+    const videoBgm = document.getElementById('videoBgm'); // This is the checkbox
+    const videoBgmPrompt = document.getElementById('videoBgmPrompt');
+    const videoNarration = document.getElementById('videoNarration'); // Checkbox
+    const videoNarrationOptionsContainer = document.getElementById('videoNarrationOptionsContainer'); // Overall container for narration
+    const videoNarrationSettings = document.getElementById('videoNarrationSettings'); // Specific settings div
+    const videoNarrationLang = document.getElementById('videoNarrationLang'); // Select
+    const videoNarrationScript = document.getElementById('videoNarrationScript'); // Textarea
+    const videoNarrationVoiceId = document.getElementById('videoNarrationVoiceId'); // Input
+    const videoSubtitles = document.getElementById('videoSubtitles'); // Checkbox
     const videoProgress = document.getElementById('videoProgress');
     const videoProgressBar = document.getElementById('videoProgressBar');
     const videoPreview = document.getElementById('videoPreview');
     const videoDownloadLink = document.getElementById('videoDownloadLink');
+    // New video elements for Step 1B
+    const videoOutputFormat = document.getElementById('videoOutputFormat');
+    // const videoBgm = document.getElementById('videoBgm'); // Checkbox for BGM (already exists but will be used with new options)
+
+    // New video elements from previous attempt (ensure they are obtained if they exist in the final HTML)
+    // const videoBgmPrompt = document.getElementById('videoBgmPrompt'); // Already declared
+    const videoSubtitleOptions = document.getElementById('videoSubtitleOptions');
+    const videoSubtitleScript = document.getElementById('videoSubtitleScript');
+    const videoSubtitleTargetLang = document.getElementById('videoSubtitleTargetLang');
+    const videoBgmOptions = document.getElementById('videoBgmOptions');
+    const videoScenePromptsContainer = document.getElementById('videoScenePromptsContainer');
+    const addScenePromptBtn = document.getElementById('addScenePromptBtn');
+    const videoResultArea = document.getElementById('videoResultArea');
     const talkModeContainer = document.getElementById('talkModeContainer');
     const talkInputLang = document.getElementById('talkInputLang');
     const talkOutputLang = document.getElementById('talkOutputLang');
@@ -2692,37 +2751,64 @@ function highlightMessage(messageId) {
             loadingIndicator.classList.remove('hidden');
             showThinkingVideo();
             try {
-                videoProgressBar.style.width = '30%';
-                const body = {
-                    prompt: desc,
-                    duration: parseInt(videoDuration.value || '10'),
-                    resolution: videoResolution.value,
-                    bgm: videoBgm.checked,
-                    narration_lang: videoNarration.checked ? videoNarrationLang.value : '',
-                    subtitles: videoSubtitles.checked
-                };
-                const res = await makeAuthenticatedRequest(API_ENDPOINT_VIDEO_GEN, {
-                    method: 'POST',
-                    body: JSON.stringify(body)
-                });
-                if (!res.ok) throw new Error('生成に失敗しました');
-                videoProgressBar.style.width = '70%';
-                const data = await res.json();
-                if (data.video_url) {
-                    videoPreview.src = data.video_url;
-                    videoPreview.classList.remove('hidden');
-                    videoDownloadLink.href = data.video_url;
-                    videoDownloadLink.classList.remove('hidden');
+                if (!getToken()) { alert('この機能を利用するにはログインが必要です。'); return; }
+                const description = videoDescription.value.trim();
+                const duration = videoDuration.value;
+                const resolution = videoResolution.value;
+                const outputFormat = videoOutputFormat.value;
+                
+                let narrationDetails = null;
+                if (videoNarration.checked) {
+                    narrationDetails = {
+                        lang: videoNarrationLang.value,
+                        script: videoNarrationScript.value.trim(),
+                        voiceId: videoNarrationVoiceId.value.trim()
+                    };
                 }
-                videoProgressBar.style.width = '100%';
-            } catch (e) {
-                console.error('video generation error', e);
-                videoProgressBar.style.width = '100%';
-            } finally {
-                hideThinkingVideo();
-                loadingIndicator.classList.add('hidden');
+
+                console.log('Video description:', description);
+                console.log('Duration:', duration, 'Resolution:', resolution, 'Output Format:', outputFormat);
+                if (narrationDetails) {
+                    console.log('Narration Details:', narrationDetails);
+                } else {
+                    console.log('Narration: Disabled');
+                }
+                
+                if(description){
+                    let alertMessage = `動画説明: ${description}\n長さ: ${duration}秒\n解像度: ${resolution}\nフォーマット: ${outputFormat}`;
+                    if (narrationDetails) {
+                        alertMessage += `\nナレーション言語: ${narrationDetails.lang}\nナレーション原稿: ${narrationDetails.script || '(自動生成)'}\nボイスID: ${narrationDetails.voiceId || '(デフォルト)'}`;
+                    }
+                    alertMessage += '\n（実際の生成はまだ実装されていません）';
+                    alert(alertMessage);
+                    // ダミーの動画URLでプレビューとダウンロードリンクを表示する例
+                    if (videoPreview) {
+                        videoPreview.src = "/static/movie/ThinkMovie1.mp4"; // ダミーの動画パス
+                        videoPreview.classList.remove('hidden');
+                    }
+                    if (videoDownloadLink) {
+                        videoDownloadLink.href = "/static/movie/ThinkMovie1.mp4";
+                        videoDownloadLink.classList.remove('hidden');
+                    }
+                    if (videoResultArea) videoResultArea.classList.remove('hidden'); // Show the area
+                } else {
+                    alert("動画の説明を入力してください。");
+                }
+            });
+        }
+
+    }
+
+    if (videoNarration) {
+        videoNarration.addEventListener('change', () => {
+            if (videoNarrationSettings) {
+                videoNarrationSettings.classList.toggle('hidden', !videoNarration.checked);
             }
         });
+        // Initial state
+        if (videoNarrationSettings) {
+            videoNarrationSettings.style.display = videoNarration.checked ? 'block' : 'none';
+        }
     }
 
     if (talkSendBtn) {
