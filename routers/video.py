@@ -3,7 +3,7 @@ from fastapi import FastAPI, Request, File, UploadFile, BackgroundTasks, HTTPExc
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Callable
 import json
 import logging
 import os
@@ -61,7 +61,7 @@ except ImportError:
     ASSEMBLYAI_API_TIMEOUT = 300.0
     DEFAULT_FPS = 24 # Changed
     TEMP_DIR_BASE = "temp_files"
-    STATIC_VIDEO_DIR_BASE = Path("./static/generated_videos")
+    STATIC_VIDEO_DIR_BASE = Path("./static/generated_videos") # This will be used as the base for static files
     CLEANUP_TEMP_FILES = True
     ELEVENLABS_LANG_VOICE_MAP = {"en": "21m00Tcm4TlvDq8ikA2E", "ja": "SOYHLrjzK2X1ezoPC6cr"}
     DEEPL_LANG_MAP = {"en": "EN-US", "ja": "JA"}
@@ -91,9 +91,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-TEMP_DIR = Path(TEMP_DIR_BASE)
-STATIC_VIDEO_DIR = Path(STATIC_VIDEO_DIR_BASE)
-STATIC_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
+TEMP_DIR_ROOT = Path(TEMP_DIR_BASE) # Root for all temporary task directories
+STATIC_VIDEO_DIR_ROOT = Path(STATIC_VIDEO_DIR_BASE) # Root for all static video directories
+STATIC_VIDEO_DIR_ROOT.mkdir(parents=True, exist_ok=True)
 
 # --- Pydantic Models ---
 class EditTargetEnum(str, Enum):
@@ -123,7 +123,7 @@ class VideoGenerationRequest(BaseModel):
     subtitle_source_lang: Optional[str] = Field(None, description="Source language of subtitles if translation is needed, defaults to narration_lang.")
     subtitle_target_lang: Optional[str] = Field(None, description="Target language for subtitle translation (e.g., EN, ES).")
     subtitle_font_name: Optional[str] = Field(None, description="Subtitle font name (e.g., 'Arial', 'Meiryo')")
-    subtitle_font_size: Optional[str] = Field(None, description="Subtitle font size (e.g., '24')")
+    subtitle_font_size: Optional[str] = Field(None, description="Subtitle font size (e.g., '24')") # FFmpeg expects string for font size
     subtitle_primary_color: Optional[str] = Field(None, description="Subtitle primary color (e.g., '&H00FFFFFF' for white, '&H000000FF' for red in ASS/SSA hex format)")
     subtitle_outline_color: Optional[str] = Field(None, description="Subtitle outline color (e.g., '&H00000000' for black)")
     subtitle_background_color: Optional[str] = Field(None, description="Subtitle background/box color (e.g., '&H80000000' for semi-transparent black)")
@@ -154,8 +154,10 @@ class VideoGenerationResponse(BaseModel):
 
 class VideoEditRequest(BaseModel):
     edit_target: EditTargetEnum = Field(..., description="The type of element to be edited.")
+    
     target_indices: Optional[List[int]] = Field(None, 
         description="List of 0-based indices for the target element (e.g., scene number(s), narration segment number(s)). Interpretation depends on edit_target.")
+    
     new_prompt: Optional[str] = Field(None, 
         description="New textual prompt (e.g., for scene description, narration segment, BGM description).")
     new_value_numeric: Optional[float] = Field(None, 
@@ -185,7 +187,7 @@ class VideoEditRequest(BaseModel):
     subtitle_alignment: Optional[int] = None
     subtitle_margin_v: Optional[int] = None
     bgm_enabled: Optional[bool] = None
-    bgm_prompt: Optional[str] = None
+    bgm_prompt: Optional[str] = None 
     output_format: Optional[str] = None
     video_quality: Optional[str] = None
     replicate_prompt_prefix: Optional[str] = None
@@ -207,7 +209,7 @@ class TaskStatus(BaseModel):
 
 
 def save_status(task_id: str, data: dict):
-    status_file = TEMP_DIR / task_id / f"{task_id}_status.json"
+    status_file = TEMP_DIR_ROOT / task_id / f"{task_id}_status.json"
     status_file.parent.mkdir(parents=True, exist_ok=True) 
     try:
         with open(status_file, "w", encoding="utf-8") as f:
@@ -216,7 +218,7 @@ def save_status(task_id: str, data: dict):
         logger.error(f"Error saving status for task {task_id} to {status_file}: {e}")
 
 def get_status_from_file(task_id: str) -> Optional[Dict[str, Any]]: 
-    status_file = TEMP_DIR / task_id / f"{task_id}_status.json"
+    status_file = TEMP_DIR_ROOT / task_id / f"{task_id}_status.json"
     if status_file.exists():
         try:
             with open(status_file, "r", encoding="utf-8") as f:
@@ -264,7 +266,7 @@ async def run_ffmpeg_command_async(command: List[str], request_id: str) -> tuple
 
         if process.returncode == 0:
             logger.info(f"[{request_id}] FFmpeg command executed successfully.")
-            if stderr_str: # FFmpeg often outputs info to stderr
+            if stderr_str: 
                 logger.info(f"[{request_id}] FFmpeg STDERR (Info):\n{stderr_str}")
             return True, stdout_str, stderr_str
         else:
@@ -273,15 +275,14 @@ async def run_ffmpeg_command_async(command: List[str], request_id: str) -> tuple
             logger.error(f"[{request_id}] FFmpeg STDERR:\n{stderr_str}")
             return False, stdout_str, stderr_str
     except FileNotFoundError:
-        logger.error(f"[{request_id}] FFmpeg command 'ffmpeg' not found. Please ensure FFmpeg is installed and in PATH.")
+        logger.error(f"[{request_id}] FFmpeg command '{FFMPEG_COMMAND}' not found. Please ensure FFmpeg is installed and in PATH.")
         return False, "", "FFmpeg command not found."
     except Exception as e:
         logger.error(f"[{request_id}] An exception occurred while running FFmpeg command: {e}", exc_info=True)
         return False, "", str(e)
 
 def format_time_srt(seconds: float) -> str:
-    """Helper function to format time in SRT format (HH:MM:SS,mmm)"""
-    millis = int((seconds - int(seconds)) * 1000)
+    millis = int(round((seconds - int(seconds)) * 1000))
     seconds = int(seconds)
     minutes = seconds // 60
     seconds %= 60
@@ -419,8 +420,12 @@ async def _format_claude_subtitles_to_srt(claude_subtitles_data: List[Dict], sce
     return "\n\n".join(srt_entries)
 
 async def _translate_srt_content(srt_content: str, target_lang: str, source_lang: Optional[str], request: Request, request_id: str, generated_files_summary_ref: dict) -> str:
-    if not hasattr(request.app.state, 'deepl_translator') or request.app.state.deepl_translator is None:
-        logger.warning(f"[{request_id}] DeepL translator not available in app.state, skipping translation.")
+    if not DEEPL_API_KEY or not hasattr(request.app.state, 'deepl_translator') or request.app.state.deepl_translator is None:
+        logger.warning(f"[{request_id}] DeepL translator not available or API key missing, skipping translation.")
+        if not DEEPL_API_KEY:
+            generated_files_summary_ref["errors"].append({"step": "subtitle_translation", "error": "DeepL API key not configured."})
+        else:
+            generated_files_summary_ref["errors"].append({"step": "subtitle_translation", "error": "DeepL translator not initialized."})
         return srt_content
 
     deepl_translator = request.app.state.deepl_translator
@@ -482,9 +487,50 @@ async def _translate_srt_content(srt_content: str, target_lang: str, source_lang
         return srt_content
 
 
-async def create_video_from_text_pipeline(req: VideoGenerationRequest, fastapi_request: Request, task_id: str, original_task_details: Optional[Dict] = None, edit_request_params: Optional[VideoEditRequest] = None):
+async def request_with_retry(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    request_id: str, # Added for logging context
+    max_retries: int = 3,
+    backoff_factor: float = 1.0,
+    **kwargs
+) -> httpx.Response:
+    """Helper function to make HTTP requests with exponential backoff."""
+    for attempt in range(max_retries + 1):
+        try:
+            logger.debug(f"[{request_id}] Attempt {attempt + 1}/{max_retries + 1} for {method} {url}")
+            response = await client.request(method, url, **kwargs)
+            response.raise_for_status()
+            logger.info(f"[{request_id}] Request to {url} successful on attempt {attempt + 1}")
+            return response
+        except (httpx.HTTPStatusError, httpx.TimeoutException, httpx.NetworkError) as e:
+            status_code = e.response.status_code if isinstance(e, httpx.HTTPStatusError) else None
+            
+            # Retry only on 5xx errors, 429 (Too Many Requests), or network/timeout errors
+            if not (status_code and 500 <= status_code <= 599) and status_code != 429 and not isinstance(e, (httpx.TimeoutException, httpx.NetworkError)):
+                logger.error(f"[{request_id}] Client error for {method} {url} (not retrying): {e}")
+                raise
+
+            if attempt == max_retries:
+                logger.error(f"[{request_id}] Max retries reached for {method} {url}. Last error: {e}")
+                raise
+            
+            delay = backoff_factor * (2 ** attempt) + random.uniform(0, 0.1 * (2**attempt)) # Added jitter
+            logger.warning(f"[{request_id}] Request to {url} failed (attempt {attempt + 1}/{max_retries + 1}): {e}. Retrying in {delay:.2f} seconds...")
+            await asyncio.sleep(delay)
+    raise Exception(f"[{request_id}] Max retries exceeded for {method} {url}. This line should not be reached.")
+
+
+async def create_video_from_text_pipeline(
+    req: VideoGenerationRequest, 
+    fastapi_request: Request, 
+    task_id: str, 
+    original_task_details: Optional[Dict] = None, 
+    edit_request_params: Optional[VideoEditRequest] = None
+):
     request_id = task_id 
-    temp_dir = TEMP_DIR / request_id 
+    temp_dir = TEMP_DIR_ROOT / request_id 
     temp_dir.mkdir(parents=True, exist_ok=True)
     
     generated_files_summary = {
@@ -501,7 +547,8 @@ async def create_video_from_text_pipeline(req: VideoGenerationRequest, fastapi_r
         "ffmpeg_video_concat_log": None,
         "temp_concat_video_path": None,
         "ffmpeg_final_video_log": None,
-        "summary_file_path": str(temp_dir / f"generation_summary_{request_id}.json")
+        "summary_file_path": str(temp_dir / f"generation_summary_{request_id}.json"),
+        "_temp_dir": str(temp_dir.resolve()) 
     }
 
     is_editing = original_task_details is not None and edit_request_params is not None
@@ -510,29 +557,45 @@ async def create_video_from_text_pipeline(req: VideoGenerationRequest, fastapi_r
     parsed_prompt_data = {}
     
     if is_editing and original_task_details.get("claude_analysis"):
-        # Start with a copy of the original Claude analysis
-        parsed_prompt_data = json.loads(json.dumps(original_task_details["claude_analysis"])) # Deep copy
+        parsed_prompt_data = json.loads(json.dumps(original_task_details["claude_analysis"])) 
         generated_files_summary["claude_analysis"] = parsed_prompt_data
-        logger.info(f"[{request_id}] Loaded Claude analysis from original task.")
+        logger.info(f"[{request_id}] Loaded Claude analysis from original task {original_task_details.get('request_id')}.")
 
     actual_total_processed_video_duration = 0.0
-    final_video_successfully_moved = False
+    # final_video_successfully_moved = False # Not needed as we write directly to static folder
 
     try:
         save_status(task_id, {"status": "processing", "message": "Video generation process initiated.", "current_step": current_step, "details": generated_files_summary})
 
-        # 1. Claude Prompt Analysis (or modification if editing)
+        # 1. Claude Prompt Analysis
         current_step = "claude_analysis"
-        needs_claude_reanalysis = not parsed_prompt_data
+        needs_claude_reanalysis = not parsed_prompt_data 
         
-        if is_editing:
-            # If overall prompt or scene prompts change, or full narration script changes, then re-analyze.
-            if req.prompt != original_task_details["params"]["prompt"] or \
-               req.scene_prompts != original_task_details["params"].get("scene_prompts") or \
-               (edit_request_params.edit_target == EditTargetEnum.NARRATION_FULL_SCRIPT and edit_request_params.new_prompt):
+        if is_editing and edit_request_params:
+            original_req_params = original_task_details.get("params", {})
+            if req.prompt != original_req_params.get("prompt") or \
+               req.scene_prompts != original_req_params.get("scene_prompts") or \
+               (edit_request_params.edit_target == EditTargetEnum.NARRATION_FULL_SCRIPT and edit_request_params.new_prompt and req.narration_script_prompt != original_req_params.get("narration_script_prompt")):
                 needs_claude_reanalysis = True
                 logger.info(f"[{request_id}] Claude re-analysis triggered by edit of main prompt, scene prompts, or full narration script.")
-        
+            else:
+                needs_claude_reanalysis = False
+                if edit_request_params.edit_target == EditTargetEnum.SCENE_DURATION and edit_request_params.target_indices and edit_request_params.new_value_numeric is not None:
+                    for idx in edit_request_params.target_indices:
+                        if 0 <= idx < len(parsed_prompt_data.get("scenes", [])):
+                            parsed_prompt_data["scenes"][idx]["duration_seconds"] = edit_request_params.new_value_numeric
+                            logger.info(f"[{request_id}] Updated duration for scene {idx} to {edit_request_params.new_value_numeric}s in existing plan.")
+                elif edit_request_params.edit_target == EditTargetEnum.NARRATION_SEGMENT_TEXT and edit_request_params.target_indices and edit_request_params.new_prompt:
+                    for idx in edit_request_params.target_indices:
+                        if 0 <= idx < len(parsed_prompt_data.get("narration", {}).get("segments", [])):
+                            parsed_prompt_data["narration"]["segments"][idx]["text"] = edit_request_params.new_prompt
+                            logger.info(f"[{request_id}] Updated text for narration segment {idx} in existing plan.")
+                elif edit_request_params.edit_target == EditTargetEnum.BGM and edit_request_params.new_prompt:
+                    if "bgm" not in parsed_prompt_data: parsed_prompt_data["bgm"] = {}
+                    parsed_prompt_data["bgm"]["description"] = edit_request_params.new_prompt
+                    logger.info(f"[{request_id}] Updated BGM prompt in existing plan.")
+                generated_files_summary["claude_analysis"] = parsed_prompt_data
+
         if needs_claude_reanalysis:
             logger.info(f"[{request_id}] Step 1: Running Claude analysis...")
             claude_system_prompt = f"""
@@ -566,10 +629,15 @@ Ensure total scene duration roughly matches target video duration. Output valid 
             claude_user_prompt_parts = [f"Overall video theme: {req.prompt}"]
             if req.scene_prompts: claude_user_prompt_parts.append(f"Scene-specific prompts: {'; '.join(req.scene_prompts)}")
             if req.narration_script_prompt: claude_user_prompt_parts.append(f"Narration instructions: {req.narration_script_prompt}")
-            if req.subtitle_script_prompt and not (is_editing and edit_request_params and edit_request_params.edit_target == EditTargetEnum.SUBTITLE_FULL_SCRIPT):
-                # Only include subtitle_script_prompt if not directly providing an SRT
+            
+            # Pass subtitle_script_prompt to Claude only if not editing with new_script_srt
+            if req.subtitle_script_prompt and not (is_editing and edit_request_params and edit_request_params.edit_target == EditTargetEnum.SUBTITLE_FULL_SCRIPT and edit_request_params.new_script_srt):
                 claude_user_prompt_parts.append(f"Subtitle instructions: {req.subtitle_script_prompt}")
-            if req.bgm_prompt: claude_user_prompt_parts.append(f"BGM instructions: {req.bgm_prompt}")
+            
+            # Pass bgm_prompt to Claude only if not editing BGM with new_prompt
+            if req.bgm_prompt and not (is_editing and edit_request_params and edit_request_params.edit_target == EditTargetEnum.BGM and edit_request_params.new_prompt):
+                 claude_user_prompt_parts.append(f"BGM instructions: {req.bgm_prompt}")
+            
             claude_user_prompt = "\n".join(claude_user_prompt_parts) + "\n\nPlease generate a video plan based on these inputs."
             
             save_status(task_id, {"status": "processing", "message": "Analyzing prompt with Claude...", "current_step": current_step, "details": generated_files_summary})
@@ -591,35 +659,21 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                 err_msg = f"Failed to parse JSON from Claude: {e}. Response: {claude_response_obj.response[:500]}"
                 generated_files_summary["errors"].append({"step": current_step, "error": err_msg})
                 raise ValueError(err_msg)
-        else: # is_editing and no full re-analysis needed
-            logger.info(f"[{request_id}] Using existing Claude data, potentially modified by edit request.")
-            # Apply specific edits to the existing parsed_prompt_data
-            if edit_request_params.edit_target == EditTargetEnum.SCENE_DURATION and edit_request_params.target_indices and edit_request_params.new_value_numeric is not None:
-                for idx in edit_request_params.target_indices:
-                    if 0 <= idx < len(parsed_prompt_data.get("scenes", [])):
-                        parsed_prompt_data["scenes"][idx]["duration_seconds"] = edit_request_params.new_value_numeric
-                        logger.info(f"[{request_id}] Updated duration for scene {idx} to {edit_request_params.new_value_numeric}s in existing plan.")
-            elif edit_request_params.edit_target == EditTargetEnum.NARRATION_SEGMENT_TEXT and edit_request_params.target_indices and edit_request_params.new_prompt:
-                for idx in edit_request_params.target_indices:
-                    if 0 <= idx < len(parsed_prompt_data.get("narration", {}).get("segments", [])):
-                        parsed_prompt_data["narration"]["segments"][idx]["text"] = edit_request_params.new_prompt
-                        logger.info(f"[{request_id}] Updated text for narration segment {idx} in existing plan.")
-            elif edit_request_params.edit_target == EditTargetEnum.BGM and edit_request_params.new_prompt:
-                if "bgm" not in parsed_prompt_data: parsed_prompt_data["bgm"] = {}
-                parsed_prompt_data["bgm"]["description"] = edit_request_params.new_prompt
-                logger.info(f"[{request_id}] Updated BGM prompt in existing plan.")
-            generated_files_summary["claude_analysis"] = parsed_prompt_data # Save potentially modified plan
-
+        else:
+            logger.info(f"[{request_id}] Skipping Claude re-analysis, using existing or modified plan.")
+            
         save_status(task_id, {"status": "processing", "message": "Claude analysis/update complete.", "current_step": current_step, "details": generated_files_summary})
 
         # 2. Video Material Generation
         current_step = "video_material_generation"
+        save_status(task_id, {"status": "processing", "message": "Generating video materials...", "current_step": current_step, "details": generated_files_summary})
         logger.info(f"[{request_id}] Step 2: Generating/Reusing video/image materials...")
+        
         scenes_plan = parsed_prompt_data.get("scenes", [])
-        if not scenes_plan:
+        if not scenes_plan: 
             scenes_plan = [{"scene_description": req.prompt, "duration_seconds": req.duration or 10}]
             logger.warning(f"[{request_id}] No scenes in plan. Using main prompt for one scene.")
-            if "scenes" not in parsed_prompt_data: parsed_prompt_data["scenes"] = [] # Initialize if not present
+            if "scenes" not in parsed_prompt_data: parsed_prompt_data["scenes"] = []
             parsed_prompt_data["scenes"] = scenes_plan
             generated_files_summary["claude_analysis"]["scenes"] = scenes_plan
 
@@ -630,22 +684,22 @@ Ensure total scene duration roughly matches target video duration. Output valid 
         actual_total_processed_video_duration = 0.0
         
         num_scenes = len(scenes_plan)
-        default_scene_duration = (req.duration / num_scenes) if num_scenes > 0 and req.duration else 5.0
+        default_scene_duration = (float(req.duration) / num_scenes) if num_scenes > 0 and req.duration else 5.0
         default_scene_duration = max(1.0, default_scene_duration)
 
         replicate_model_to_use = req.replicate_model_version or REPLICATE_ZEROSCOPE_MODEL_XL
         logger.info(f"[{request_id}] Using Replicate model version: {replicate_model_to_use}")
 
-        new_scenes_data = [] 
+        new_scenes_data_for_summary = [] 
 
         async with httpx.AsyncClient() as client:
             for i, scene_info_claude in enumerate(scenes_plan):
                 scene_summary_entry = {
                     "scene_index": i,
                     "description_from_claude": scene_info_claude.get("scene_description"),
-                    "duration_seconds_claude": scene_info_claude.get("duration_seconds"), # Original duration from Claude
+                    "duration_seconds_claude": scene_info_claude.get("duration_seconds"),
                     "path": None, "source_api": None, "error": None, "material_type": None,
-                    "final_duration": None # Actual duration used for this scene
+                    "final_duration": None 
                 }
 
                 scene_desc = scene_info_claude.get("scene_description", req.prompt)
@@ -654,54 +708,53 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                     if scene_duration_seconds <= 0: scene_duration_seconds = 1.0
                 except (ValueError, TypeError):
                     scene_duration_seconds = default_scene_duration
-                scene_summary_entry["final_duration"] = scene_duration_seconds # This might be overridden by edit_request
+                scene_summary_entry["final_duration"] = scene_duration_seconds
 
-                should_regenerate_scene = not is_editing # Default to true for new generations
-
+                should_regenerate_this_scene = not is_editing
                 if is_editing and edit_request_params:
-                    if edit_request_params.edit_target == EditTargetEnum.SCENE_VIDEO and req.target_indices and i in edit_request_params.target_indices:
+                    original_scene_data = None
+                    if original_task_details and original_task_details.get("scenes") and i < len(original_task_details["scenes"]):
+                        original_scene_data = original_task_details["scenes"][i]
+
+                    if edit_request_params.edit_target == EditTargetEnum.SCENE_VIDEO and edit_request_params.target_indices and i in edit_request_params.target_indices:
                         scene_desc = edit_request_params.new_prompt or scene_desc
-                        scene_summary_entry["description_from_claude"] = scene_desc # Update description for regeneration
+                        scene_summary_entry["description_from_claude"] = scene_desc 
                         logger.info(f"[{request_id}] Scene {i} will be regenerated with new prompt: {scene_desc[:50]}...")
-                        should_regenerate_scene = True
-                    elif edit_request_params.edit_target == EditTargetEnum.SCENE_DURATION and req.target_indices and i in edit_request_params.target_indices and edit_request_params.new_value_numeric is not None:
+                        should_regenerate_this_scene = True
+                    elif edit_request_params.edit_target == EditTargetEnum.SCENE_DURATION and edit_request_params.target_indices and i in edit_request_params.target_indices and edit_request_params.new_value_numeric is not None:
                         scene_duration_seconds = float(edit_request_params.new_value_numeric)
                         scene_summary_entry["final_duration"] = scene_duration_seconds
-                        logger.info(f"[{request_id}] Scene {i} duration updated to {scene_duration_seconds}s. Will regenerate if needed.")
-                        should_regenerate_scene = True # Assume regeneration for simplicity, especially if it's a video
-                    elif original_task_details and original_task_details.get("scenes") and i < len(original_task_details["scenes"]):
-                        original_scene_data = original_task_details["scenes"][i]
-                        original_file_path_str = original_task_details.get("final_video_path") # Base path for original assets
-                        if original_file_path_str and original_scene_data.get("path"):
-                            # Construct the full path to the original asset
-                            original_asset_path = Path(original_scene_data["path"]) # This should be the path within the original task's temp or static dir
-                            
-                            # If the original path is relative to its temp dir, we need to adjust it
-                            if not original_asset_path.is_absolute():
-                                original_asset_path = Path(original_task_details.get("summary_file_path", "")).parent / original_asset_path.name
-
-                            if original_asset_path.exists():
-                                new_asset_path = temp_dir / original_asset_path.name
-                                try:
-                                    shutil.copy(original_asset_path, new_asset_path)
-                                    scene_summary_entry.update(original_scene_data) # Copy all info
-                                    scene_summary_entry["path"] = str(new_asset_path.resolve()) # Update path
-                                    scene_summary_entry["final_duration"] = scene_duration_seconds # Update duration if changed
-                                    should_regenerate_scene = False
-                                    logger.info(f"[{request_id}] Reusing material for scene {i}: {new_asset_path}")
-                                except Exception as e_copy:
-                                    logger.warning(f"[{request_id}] Could not copy original asset for scene {i} from {original_asset_path}: {e_copy}. Will regenerate.")
-                                    should_regenerate_scene = True
-                            else:
-                                logger.warning(f"[{request_id}] Original asset for scene {i} not found at {original_asset_path}, will regenerate.")
-                                should_regenerate_scene = True
+                        logger.info(f"[{request_id}] Scene {i} duration updated to {scene_duration_seconds}s. Will regenerate.")
+                        should_regenerate_this_scene = True
+                    elif original_scene_data and original_scene_data.get("path"):
+                        original_asset_filename = Path(original_scene_data["path"]).name 
+                        original_task_id_for_path = original_task_details.get("request_id")
+                        original_asset_src_path = STATIC_VIDEO_DIR_ROOT / original_task_id_for_path / original_asset_filename
+                        
+                        if original_asset_src_path.is_file():
+                            new_asset_path = temp_dir / original_asset_filename
+                            try:
+                                if not new_asset_path.exists() or original_asset_src_path.stat().st_mtime > new_asset_path.stat().st_mtime:
+                                    shutil.copy2(original_asset_src_path, new_asset_path)
+                                scene_summary_entry.update(original_scene_data) # Copy all info from original
+                                scene_summary_entry["path"] = original_asset_filename # Store relative path
+                                scene_summary_entry["final_duration"] = scene_duration_seconds # Update duration if it changed
+                                should_regenerate_this_scene = False
+                                logger.info(f"[{request_id}] Reusing material for scene {i}: {new_asset_path}")
+                            except FileNotFoundError:
+                                logger.warning(f"[{request_id}] Original asset for scene {i} NOT FOUND at {original_asset_src_path} during copy. Will regenerate.")
+                                should_regenerate_this_scene = True
+                            except Exception as e_copy:
+                                logger.warning(f"[{request_id}] Could not copy original asset for scene {i} from {original_asset_src_path}: {e_copy}. Will regenerate.")
+                                should_regenerate_this_scene = True
                         else:
-                            should_regenerate_scene = True 
+                            logger.warning(f"[{request_id}] Original asset for scene {i} not found at {original_asset_src_path}, will regenerate.")
+                            should_regenerate_this_scene = True
                     else:
-                        should_regenerate_scene = True # Fallback to regenerate
-
-                if should_regenerate_scene:
-                    scene_summary_entry["path"] = None # Clear any old path if regenerating
+                        should_regenerate_this_scene = True 
+                
+                if should_regenerate_this_scene:
+                    scene_summary_entry["path"] = None 
                     final_replicate_prompt_for_api = f"{req.replicate_prompt_prefix}, {scene_desc}" if req.replicate_prompt_prefix else scene_desc
                     
                     if REPLICATE_API_TOKEN:
@@ -725,23 +778,26 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                         rep_payload = {"version": replicate_model_to_use, "input": replicate_payload_input}
                             
                         try:
-                            prediction_response = await client.post(REPLICATE_API_URL, headers={"Authorization": f"Token {REPLICATE_API_TOKEN}"}, json=rep_payload, timeout=REPLICATE_API_TIMEOUT)
-                            prediction_response.raise_for_status(); pred_data = prediction_response.json()
+                            prediction_response = await request_with_retry(client, "POST", REPLICATE_API_URL, request_id, headers={"Authorization": f"Token {REPLICATE_API_TOKEN}"}, json=rep_payload, timeout=REPLICATE_API_TIMEOUT)
+                            pred_data = prediction_response.json()
                             prediction_id = pred_data.get("id"); get_url = pred_data.get("urls", {}).get("get")
 
                             if prediction_id and get_url:
                                 for _ in range(REPLICATE_MAX_POLL_ATTEMPTS):
                                     await asyncio.sleep(REPLICATE_POLL_INTERVAL)
-                                    poll_response = await client.get(get_url, headers={"Authorization": f"Token {REPLICATE_API_TOKEN}"})
-                                    poll_response.raise_for_status(); result_data = poll_response.json()
+                                    poll_response = await request_with_retry(client, "GET", get_url, request_id, headers={"Authorization": f"Token {REPLICATE_API_TOKEN}"})
+                                    result_data = poll_response.json()
                                     if result_data.get("status") == "succeeded":
                                         output_url = result_data.get("output"); output_url = output_url[0] if isinstance(output_url, list) and output_url else None
                                         if output_url:
-                                            video_file_response = await client.get(output_url, timeout=REPLICATE_API_TIMEOUT); video_file_response.raise_for_status()
-                                            scene_file_path = temp_dir / f"scene_{i}_replicate.mp4"; scene_file_path.write_bytes(video_file_response.content)
-                                            scene_summary_entry["path"] = str(scene_file_path.resolve()); scene_summary_entry["source_api"] = "replicate"
+                                            video_file_response = await request_with_retry(client, "GET", output_url, request_id, timeout=REPLICATE_API_TIMEOUT)
+                                            scene_filename = f"scene_{i}_replicate.mp4"
+                                            scene_file_path = temp_dir / scene_filename
+                                            scene_file_path.write_bytes(video_file_response.content)
+                                            scene_summary_entry["path"] = scene_filename # Store relative path
+                                            scene_summary_entry["source_api"] = "replicate"
                                             scene_summary_entry["material_type"] = "video"
-                                            logger.info(f"[{request_id}] Scene {i+1} Replicate success: {scene_file_path.name}")
+                                            logger.info(f"[{request_id}] Scene {i+1} Replicate success: {scene_filename}")
                                         else: scene_summary_entry["error"] = "Replicate succeeded but no output URL."
                                         break 
                                     elif result_data.get("status") == "failed": scene_summary_entry["error"] = f"Replicate prediction failed: {result_data.get('error', 'Unknown error')}"; break
@@ -765,47 +821,53 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                             
                             stability_api_url_txt2img = STABILITY_TEXT_TO_IMAGE_API_URL_BASE.format(engine_id=STABILITY_DEFAULT_ENGINE)
                             stab_payload = {"text_prompts": [{"text": f"{scene_desc}, cinematic, {req.video_quality}"}], "height": img_height, "width": img_width, "samples": 1, "steps": 30 }
-                            stability_response = await client.post(stability_api_url_txt2img, headers={"Authorization": f"Bearer {STABILITY_API_KEY}", "Accept": "application/json"}, json=stab_payload, timeout=STABILITY_API_TIMEOUT)
-                            stability_response.raise_for_status(); image_data_json = stability_response.json()
+                            stability_response = await request_with_retry(client, "POST", stability_api_url_txt2img, request_id, headers={"Authorization": f"Bearer {STABILITY_API_KEY}", "Accept": "application/json"}, json=stab_payload, timeout=STABILITY_API_TIMEOUT)
+                            image_data_json = stability_response.json()
                             if image_data_json.get("artifacts"):
                                 base64_image = image_data_json["artifacts"][0].get("base64")
                                 if base64_image:
                                     image_bytes = base64.b64decode(base64_image)
-                                    scene_file_path_stab = temp_dir / f"scene_{i}_stability.png"; scene_file_path_stab.write_bytes(image_bytes)
-                                    scene_summary_entry["path"] = str(scene_file_path_stab.resolve()); scene_summary_entry["source_api"] = "stability_text_to_image"
+                                    scene_filename = f"scene_{i}_stability.png"
+                                    scene_file_path_stab = temp_dir / scene_filename
+                                    scene_file_path_stab.write_bytes(image_bytes)
+                                    scene_summary_entry["path"] = scene_filename # Store relative path
+                                    scene_summary_entry["source_api"] = "stability_text_to_image"
                                     scene_summary_entry["material_type"] = "image"
-                                    logger.info(f"[{request_id}] Scene {i+1} Stability image success: {scene_file_path_stab.name}")
+                                    logger.info(f"[{request_id}] Scene {i+1} Stability image success: {scene_filename}")
                                 else: scene_summary_entry["error"] = (scene_summary_entry.get("error","") + "; Stability: No image data.").strip("; ")
                             else: scene_summary_entry["error"] = (scene_summary_entry.get("error","") + "; Stability: No artifacts.").strip("; ")
                         except Exception as e_stability:
                             logger.warning(f"[{request_id}] Scene {i+1} Stability API error: {e_stability}", exc_info=True)
                             scene_summary_entry["error"] = (scene_summary_entry.get("error","") + f"; Stability API error: {str(e_stability)[:100]}").strip("; ")
-                    elif not STABILITY_API_KEY and not scene_summary_entry["path"]:
-                         logger.info(f"[{request_id}] Scene {i+1}: STABILITY_API_KEY not set. Skipping Stability AI.")
-                         scene_summary_entry["error"] = (scene_summary_entry.get("error","") + "; Stability API key not configured.").strip("; ") if scene_summary_entry.get("error") else "Stability API key not configured."
+                    elif not STABILITY_API_KEY and not scene_summary_entry["path"] and not REPLICATE_API_TOKEN : 
+                         logger.info(f"[{request_id}] Scene {i+1}: No API keys for Replicate or Stability. Skipping generation.")
+                         scene_summary_entry["error"] = (scene_summary_entry.get("error","") + "; API keys missing for material generation.").strip("; ")
 
-                material_path_str = scene_summary_entry.get("path")
-                if material_path_str and Path(material_path_str).is_file():
-                    material_path_obj = Path(material_path_str)
+
+                material_filename = scene_summary_entry.get("path") # Should be relative filename now
+                if material_filename and (temp_dir / material_filename).is_file():
+                    material_path_obj = temp_dir / material_filename
+                    
+                    current_input_idx_for_filter = len(new_scenes_data_for_summary)
                     
                     if scene_summary_entry["material_type"] == "image":
                         video_input_options.extend(["-loop", "1", "-r", str(DEFAULT_FPS), "-t", str(scene_summary_entry["final_duration"]), "-i", str(material_path_obj.resolve())])
-                    else: # video file
+                    else: 
                         video_input_options.extend(["-i", str(material_path_obj.resolve())])
                     
-                    video_filter_inputs.append(f"[{len(new_scenes_data)}:v]") # Index based on current position in new_scenes_data
+                    video_filter_inputs.append(f"[{current_input_idx_for_filter}:v]")
                     actual_total_processed_video_duration += float(scene_summary_entry["final_duration"])
                 elif not scene_summary_entry["error"]:
                      scene_summary_entry["error"] = "All material generation attempts failed or were skipped for this scene."
                 
-                new_scenes_data.append(scene_summary_entry)
+                new_scenes_data_for_summary.append(scene_summary_entry)
                 if scene_summary_entry.get("error"): 
                     logger.error(f"[{request_id}] Scene {i+1} final error: {scene_summary_entry['error']}")
                     generated_files_summary["errors"].append({"step": current_step, "scene_index": i, "error": scene_summary_entry['error']})
                 save_status(task_id, {"status": "processing", "message": f"Processed material for scene {i+1}/{len(scenes_plan)}", "current_step": current_step, "details": generated_files_summary})
                 await asyncio.sleep(0.1) 
         
-        generated_files_summary["scenes"] = new_scenes_data
+        generated_files_summary["scenes"] = new_scenes_data_for_summary
         logger.info(f"[{request_id}] --- Finished Video Material Generation ---")
         logger.info(f"[{request_id}] Video input options: {video_input_options}")
         logger.info(f"[{request_id}] Video filter inputs: {video_filter_inputs}")
@@ -816,62 +878,77 @@ Ensure total scene duration roughly matches target video duration. Output valid 
         logger.info(f"[{request_id}] Step 3: Generating/Reusing narration...")
         if req.narration_enabled and ELEVENLABS_API_KEY:
             narration_plan = parsed_prompt_data.get("narration", {})
-            narration_segments_claude = narration_plan.get("segments", []) # These might have been updated by edit logic
+            narration_segments_claude = narration_plan.get("segments", [])
             
             if narration_segments_claude:
                 regenerated_narration_audios = []
                 async with httpx.AsyncClient(timeout=ELEVENLABS_API_TIMEOUT) as client_el:
                     for i_nar, seg_info_el in enumerate(narration_segments_claude):
-                        nar_summary_entry = {"segment_index": i_nar, "text": seg_info_el.get("text"), "path": None, "error": None, "selected_voice_id": None}
                         segment_text_to_speak = seg_info_el.get("text")
                         voice_id_to_use = req.narration_voice_id or get_default_voice_id(req.narration_lang)
+                        nar_summary_entry = {
+                            "segment_index": i_nar, 
+                            "text": segment_text_to_speak, 
+                            "path": None, "error": None, 
+                            "selected_voice_id": voice_id_to_use
+                        }
 
-                        should_regenerate_narration = not is_editing # Always generate for new tasks
+                        should_regenerate_narration = not is_editing
                         if is_editing and edit_request_params:
-                            if edit_request_params.edit_target == EditTargetEnum.NARRATION_SEGMENT_TEXT and edit_request_params.target_indices and i_nar in edit_request_params.target_indices:
-                                # Text already updated in parsed_prompt_data if applicable
-                                logger.info(f"[{request_id}] Regenerating narration segment {i_nar} due to text change.")
+                            original_narration_audios = original_task_details.get("narration_audios", [])
+                            original_nar_audio = next((item for item in original_narration_audios if item.get("segment_index") == i_nar), None)
+
+                            if edit_request_params.edit_target == EditTargetEnum.NARRATION_FULL_SCRIPT:
                                 should_regenerate_narration = True
+                            elif edit_request_params.edit_target == EditTargetEnum.NARRATION_SEGMENT_TEXT and edit_request_params.target_indices and i_nar in edit_request_params.target_indices:
+                                # Text was already updated in parsed_prompt_data and req.narration_script_prompt
+                                segment_text_to_speak = parsed_prompt_data["narration"]["segments"][i_nar]["text"]
+                                nar_summary_entry["text"] = segment_text_to_speak
+                                should_regenerate_narration = True
+                                logger.info(f"[{request_id}] Narration segment {i_nar} text updated, will regenerate audio.")
                             elif edit_request_params.edit_target == EditTargetEnum.NARRATION_SEGMENT_VOICE and edit_request_params.target_indices and i_nar in edit_request_params.target_indices and edit_request_params.new_value_string:
                                 voice_id_to_use = edit_request_params.new_value_string
-                                logger.info(f"[{request_id}] Regenerating narration segment {i_nar} with new voice: {voice_id_to_use}.")
+                                nar_summary_entry["selected_voice_id"] = voice_id_to_use
                                 should_regenerate_narration = True
-                            elif edit_request_params.edit_target == EditTargetEnum.NARRATION_FULL_SCRIPT:
-                                should_regenerate_narration = True
-                            elif original_task_details and original_task_details.get("narration_audios") and i_nar < len(original_task_details["narration_audios"]):
-                                original_nar_audio = original_task_details["narration_audios"][i_nar]
-                                if original_nar_audio.get("path") and Path(original_nar_audio["path"]).exists() and \
+                                logger.info(f"[{request_id}] Narration segment {i_nar} voice updated to {voice_id_to_use}, will regenerate audio.")
+                            elif original_nar_audio and original_nar_audio.get("path"):
+                                original_audio_filename = Path(original_nar_audio["path"]).name
+                                original_audio_src_path = STATIC_VIDEO_DIR_ROOT / original_task_details["request_id"] / original_audio_filename
+                                if original_audio_src_path.is_file() and \
                                    original_nar_audio.get("text") == segment_text_to_speak and \
-                                   original_nar_audio.get("selected_voice_id") == (req.narration_voice_id or get_default_voice_id(req.narration_lang)): # Compare with current global or default voice
-                                    original_audio_path = Path(original_nar_audio["path"])
-                                    new_audio_path = temp_dir / original_audio_path.name
-                                    if original_audio_path != new_audio_path:
-                                        shutil.copy(original_audio_path, new_audio_path)
-                                    nar_summary_entry.update(original_nar_audio)
-                                    nar_summary_entry["path"] = str(new_audio_path.resolve())
-                                    should_regenerate_narration = False
-                                    logger.info(f"[{request_id}] Reusing narration segment {i_nar}: {new_audio_path}")
+                                   original_nar_audio.get("selected_voice_id") == voice_id_to_use:
+                                    new_audio_path = temp_dir / original_audio_filename
+                                    try:
+                                        if not new_audio_path.exists(): shutil.copy2(original_audio_src_path, new_audio_path)
+                                        nar_summary_entry.update(original_nar_audio)
+                                        nar_summary_entry["path"] = original_audio_filename # Store relative path
+                                        should_regenerate_narration = False
+                                        logger.info(f"[{request_id}] Reusing narration segment {i_nar}: {new_audio_path}")
+                                    except FileNotFoundError:
+                                        logger.warning(f"[{request_id}] Original narration asset {original_audio_src_path} not found for copy. Will regenerate.")
+                                        should_regenerate_narration = True
+                                    except Exception as e_copy:
+                                        logger.warning(f"[{request_id}] Could not copy original narration asset {original_audio_src_path}: {e_copy}. Will regenerate.")
+                                        should_regenerate_narration = True
                                 else:
-                                    should_regenerate_narration = True # Text or voice changed, or file missing
+                                    should_regenerate_narration = True # Text, voice changed, or file missing
                             else:
                                 should_regenerate_narration = True
                         
                         if not segment_text_to_speak or not segment_text_to_speak.strip():
-                            nar_summary_entry["error"] = "Empty text."
-                            regenerated_narration_audios.append(nar_summary_entry)
-                            continue
+                            nar_summary_entry["error"] = "Empty text."; regenerated_narration_audios.append(nar_summary_entry); continue
                         
-                        nar_summary_entry["selected_voice_id"] = voice_id_to_use
-
                         if should_regenerate_narration:
+                            logger.info(f"[{request_id}] Generating narration segment {i_nar+1} with voice {voice_id_to_use}.")
                             el_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id_to_use}"
                             payload_el = {"text": segment_text_to_speak, "model_id": "eleven_multilingual_v2", "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}}
                             try:
-                                response_tts = await client_el.post(el_url, headers={"xi-api-key": ELEVENLABS_API_KEY, "Accept": "audio/mpeg"}, json=payload_el)
-                                response_tts.raise_for_status()
-                                narration_file_p = temp_dir / f"narration_segment_{i_nar}.mp3"; narration_file_p.write_bytes(response_tts.content)
-                                nar_summary_entry["path"] = str(narration_file_p.resolve())
-                                logger.info(f"[{request_id}] Narration segment {i_nar+1} generated: {narration_file_p.name}")
+                                response_tts = await request_with_retry(client_el, "POST", el_url, request_id, headers={"xi-api-key": ELEVENLABS_API_KEY, "Accept": "audio/mpeg"}, json=payload_el)
+                                narration_file_name = f"narration_segment_{i_nar}.mp3"
+                                narration_file_p = temp_dir / narration_file_name
+                                narration_file_p.write_bytes(response_tts.content)
+                                nar_summary_entry["path"] = narration_file_name # Store relative path
+                                logger.info(f"[{request_id}] Narration segment {i_nar+1} generated: {narration_file_name}")
                             except Exception as e_elevenlabs: 
                                 logger.error(f"[{request_id}] ElevenLabs API error for segment {i_nar+1}: {e_elevenlabs}", exc_info=True)
                                 nar_summary_entry["error"] = f"ElevenLabs API error: {str(e_elevenlabs)[:100]}"
@@ -892,66 +969,79 @@ Ensure total scene duration roughly matches target video duration. Output valid 
         current_step = "subtitle_generation"
         logger.info(f"[{request_id}] Step 4: Generating/Reusing subtitles...")
         srt_content_str: Optional[str] = None
-        subtitle_file_path_str = None # Will hold the path to the final SRT file for this task
+        subtitle_file_name = f"subtitles_{request_id}.srt"
 
         if req.subtitles_enabled:
-            should_regenerate_srt = True # Default to regeneration
+            should_generate_new_srt_content = True 
 
             if is_editing and edit_request_params:
                 if edit_request_params.edit_target == EditTargetEnum.SUBTITLE_FULL_SCRIPT and edit_request_params.new_script_srt is not None:
                     srt_content_str = edit_request_params.new_script_srt
                     logger.info(f"[{request_id}] Using new user-provided SRT script from edit_request.")
-                    should_regenerate_srt = False # Content is directly provided
+                    should_generate_new_srt_content = False
                 elif edit_request_params.edit_target == EditTargetEnum.SUBTITLE_STYLE:
-                    # If only style changes, we need the content. Try to reuse.
-                    if original_task_details and original_task_details.get("subtitle_file"):
-                        original_srt_path = Path(original_task_details["subtitle_file"])
-                        if original_srt_path.exists():
-                            new_srt_path = temp_dir / original_srt_path.name
-                            shutil.copy(original_srt_path, new_srt_path)
-                            generated_files_summary["subtitle_file"] = str(new_srt_path.resolve())
-                            with open(new_srt_path, "r", encoding="utf-8") as f:
-                                srt_content_str = f.read()
-                            logger.info(f"[{request_id}] Reusing SRT content from {new_srt_path} for style change.")
-                            should_regenerate_srt = False # Content reused, only styling will be applied by ffmpeg
+                    # If only style changes, we need the content. Try to reuse from original task's static dir.
+                    original_srt_filename = original_task_details.get("subtitle_file") # This should be a filename
+                    if original_srt_filename:
+                        original_srt_src_path = STATIC_VIDEO_DIR_ROOT / original_task_details["request_id"] / original_srt_filename
+                        if original_srt_src_path.is_file():
+                            new_srt_path_in_temp = temp_dir / original_srt_filename
+                            try:
+                                shutil.copy2(original_srt_src_path, new_srt_path_in_temp)
+                                with open(new_srt_path_in_temp, "r", encoding="utf-8") as f_srt:
+                                    srt_content_str = f_srt.read()
+                                subtitle_file_name = original_srt_filename # Keep the original name if reused
+                                generated_files_summary["subtitle_file"] = subtitle_file_name # Store relative path
+                                logger.info(f"[{request_id}] Reusing SRT content from {new_srt_path_in_temp} for style change.")
+                                should_generate_new_srt_content = False
+                            except FileNotFoundError:
+                                logger.warning(f"[{request_id}] Original SRT file {original_srt_src_path} not found for copy during style edit. Will attempt to regenerate.")
+                            except Exception as e_copy_srt:
+                                logger.warning(f"[{request_id}] Could not copy original SRT {original_srt_src_path}: {e_copy_srt}. Will regenerate.")
                         else:
-                             logger.warning(f"[{request_id}] Original subtitle file {original_srt_path} not found for style edit. Will attempt to regenerate.")
-                             should_regenerate_srt = True
+                            logger.warning(f"[{request_id}] Original SRT file {original_srt_src_path} not found for style edit. Will attempt to regenerate.")
                     else:
                         logger.warning(f"[{request_id}] Subtitle style edit requested, but no original subtitle file info. Will attempt to regenerate.")
-                        should_regenerate_srt = True
-                elif edit_request_params.edit_target in [EditTargetEnum.SCENE_VIDEO, EditTargetEnum.SCENE_DURATION, EditTargetEnum.NARRATION_SEGMENT_TEXT, EditTargetEnum.NARRATION_FULL_SCRIPT, EditTargetEnum.NARRATION_SEGMENT_VOICE]:
-                    # If video or narration changes, subtitles likely need regeneration
-                    logger.info(f"[{request_id}] Video or narration changed, subtitles will be regenerated.")
-                    should_regenerate_srt = True
-                elif original_task_details and original_task_details.get("subtitle_file") and Path(original_task_details["subtitle_file"]).exists():
-                    # Default for other edits: try to reuse if no specific subtitle edit
-                    original_srt_path = Path(original_task_details["subtitle_file"])
-                    new_srt_path = temp_dir / original_srt_path.name
-                    shutil.copy(original_srt_path, new_srt_path)
-                    generated_files_summary["subtitle_file"] = str(new_srt_path.resolve())
-                    with open(new_srt_path, "r", encoding="utf-8") as f:
-                        srt_content_str = f.read()
-                    logger.info(f"[{request_id}] Reusing existing SRT file: {new_srt_path}")
-                    should_regenerate_srt = False
+                elif edit_request_params.edit_target in [EditTargetEnum.NARRATION_SEGMENT_TEXT, EditTargetEnum.NARRATION_FULL_SCRIPT, EditTargetEnum.NARRATION_SEGMENT_VOICE, EditTargetEnum.SCENE_DURATION]:
+                    logger.info(f"[{request_id}] Video, narration, or duration changed, subtitles will be regenerated.")
+                    should_generate_new_srt_content = True
+                # If no specific subtitle edit and not a style-only edit, and an old SRT exists, try to reuse.
+                elif original_task_details and original_task_details.get("subtitle_file"):
+                    original_srt_filename = Path(original_task_details["subtitle_file"]).name
+                    original_srt_src_path = STATIC_VIDEO_DIR_ROOT / original_task_details["request_id"] / original_srt_filename
+                    if original_srt_src_path.is_file():
+                        new_srt_path_in_temp = temp_dir / original_srt_filename
+                        try:
+                            shutil.copy2(original_srt_src_path, new_srt_path_in_temp)
+                            with open(new_srt_path_in_temp, "r", encoding="utf-8") as f:
+                                srt_content_str = f.read()
+                            subtitle_file_name = original_srt_filename
+                            generated_files_summary["subtitle_file"] = subtitle_file_name
+                            logger.info(f"[{request_id}] Reusing existing SRT file: {new_srt_path_in_temp}")
+                            should_generate_new_srt_content = False
+                        except FileNotFoundError:
+                            logger.warning(f"[{request_id}] Original SRT file {original_srt_src_path} not found for copy. Will regenerate.")
+                        except Exception as e_copy_srt:
+                            logger.warning(f"[{request_id}] Could not copy original SRT {original_srt_src_path}: {e_copy_srt}. Will regenerate.")
 
 
-            if should_regenerate_srt:
-                valid_narration_paths_for_srt = [
-                    nar_info["path"] 
+            if should_generate_new_srt_content:
+                generated_files_summary["subtitle_file"] = None # Clear any potentially copied old path
+                valid_narration_audio_for_srt_gen = [
+                    temp_dir / Path(nar_info["path"]).name # Use paths in current temp_dir
                     for nar_info in generated_files_summary.get("narration_audios", []) 
-                    if nar_info.get("path") and Path(nar_info["path"]).exists()
+                    if nar_info.get("path") and (temp_dir / Path(nar_info["path"]).name).exists()
                 ]
                 
-                if ASSEMBLYAI_API_KEY and valid_narration_paths_for_srt:
+                if ASSEMBLYAI_API_KEY and valid_narration_audio_for_srt_gen:
                     logger.info(f"[{request_id}] Attempting subtitle generation via AssemblyAI from narration.")
                     audio_for_transcription_path_str = None
                     concatenated_narration_path_for_srt = None 
-                    if len(valid_narration_paths_for_srt) > 1:
+                    if len(valid_narration_audio_for_srt_gen) > 1:
                         narration_concat_list_file = temp_dir / f"narrations_for_srt_concat_{request_id}.txt"
                         with open(narration_concat_list_file, "w") as f_concat:
-                            for p in valid_narration_paths_for_srt:
-                                f_concat.write(f"file '{Path(p).resolve().as_posix()}'\n")
+                            for p in valid_narration_audio_for_srt_gen:
+                                f_concat.write(f"file '{p.resolve().as_posix()}'\n")
                         
                         concatenated_narration_path_for_srt = temp_dir / f"concatenated_narration_for_srt_{request_id}.mp3"
                         concat_cmd_srt = [FFMPEG_COMMAND, "-y", "-f", "concat", "-safe", "0", "-i", str(narration_concat_list_file), "-c", "copy", str(concatenated_narration_path_for_srt)]
@@ -961,24 +1051,22 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                         else:
                             logger.error(f"[{request_id}] Failed to concatenate narration files for SRT: {concat_stderr_srt}")
                             generated_files_summary["errors"].append({"step": current_step, "error": f"Failed to concatenate narration files for SRT: {concat_stderr_srt}"})
-                    elif len(valid_narration_paths_for_srt) == 1:
-                        audio_for_transcription_path_str = valid_narration_paths_for_srt[0]
+                    elif len(valid_narration_audio_for_srt_gen) == 1:
+                        audio_for_transcription_path_str = str(valid_narration_audio_for_srt_gen[0].resolve())
                     
                     if audio_for_transcription_path_str:
                         logger.info(f"[{request_id}] Transcribing audio file for subtitles: {audio_for_transcription_path_str}")
-                        async with httpx.AsyncClient(timeout=ASSEMBLYAI_API_TIMEOUT) as client_asm:
+                        async with httpx.AsyncClient(timeout=ASSEMBLYAI_API_TIMEOUT) as client_asm: 
                             try:
                                 with open(audio_for_transcription_path_str, "rb") as f_audio:
                                     files = {'file': (Path(audio_for_transcription_path_str).name, f_audio, 'audio/mpeg')}
-                                    upload_response = await client_asm.post("https://api.assemblyai.com/v2/upload", headers={"authorization": ASSEMBLYAI_API_KEY}, files=files)
-                                upload_response.raise_for_status()
+                                    upload_response = await request_with_retry(client_asm, "POST", "https://api.assemblyai.com/v2/upload", request_id, headers={"authorization": ASSEMBLYAI_API_KEY}, files=files)
                                 upload_url_assembly = upload_response.json().get("upload_url")
 
                                 if not upload_url_assembly: raise Exception("AssemblyAI upload failed to return URL.")
                                 
                                 transcript_payload = {"audio_url": upload_url_assembly, "word_details": True} 
-                                transcript_post_response = await client_asm.post("https://api.assemblyai.com/v2/transcript", headers={"authorization": ASSEMBLYAI_API_KEY, "content-type": "application/json"}, json=transcript_payload)
-                                transcript_post_response.raise_for_status()
+                                transcript_post_response = await request_with_retry(client_asm, "POST", "https://api.assemblyai.com/v2/transcript", request_id, headers={"authorization": ASSEMBLYAI_API_KEY, "content-type": "application/json"}, json=transcript_payload)
                                 transcript_id_assembly = transcript_post_response.json().get("id")
 
                                 if not transcript_id_assembly: raise Exception("AssemblyAI failed to return transcript ID.")
@@ -987,9 +1075,8 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                                 transcript_get_url = f"https://api.assemblyai.com/v2/transcript/{transcript_id_assembly}"
                                 
                                 for _ in range(int(ASSEMBLYAI_API_TIMEOUT / ASSEMBLYAI_POLL_INTERVAL)):
-                                    await asyncio.sleep(REPLICATE_POLL_INTERVAL) # Corrected variable
-                                    poll_response = await client_asm.get(transcript_get_url, headers={"authorization": ASSEMBLYAI_API_KEY})
-                                    poll_response.raise_for_status()
+                                    await asyncio.sleep(ASSEMBLYAI_POLL_INTERVAL)
+                                    poll_response = await request_with_retry(client_asm, "GET", transcript_get_url, request_id, headers={"authorization": ASSEMBLYAI_API_KEY})
                                     transcript_result = poll_response.json()
                                     status = transcript_result.get("status")
                                     logger.info(f"[{request_id}] AssemblyAI poll status: {status}")
@@ -1014,15 +1101,15 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                     srt_content_str = await _format_claude_subtitles_to_srt(
                         parsed_prompt_data["subtitles"],
                         generated_files_summary["scenes"], 
-                        actual_total_processed_video_duration,
+                        actual_total_processed_video_duration, 
                         request_id
                     )
                     if not srt_content_str:
                         logger.warning(f"[{request_id}] Claude subtitle generation resulted in empty SRT.")
                         generated_files_summary["errors"].append({"step": current_step, "error": "Claude subtitle generation resulted in empty SRT."})
 
-                if not srt_content_str and req.subtitle_script_prompt: # This is from VideoGenerationRequest, not VideoEditRequest's new_script_srt
-                    logger.info(f"[{request_id}] Using subtitle script from request parameters.")
+                if not srt_content_str and req.subtitle_script_prompt: 
+                    logger.info(f"[{request_id}] Using user-provided subtitle script (from VideoGenerationRequest).")
                     duration_for_srt = actual_total_processed_video_duration if actual_total_processed_video_duration > 0 else (req.duration or 10.0)
                     srt_content_str = f"1\n00:00:00,000 --> {format_time_srt(duration_for_srt)}\n{req.subtitle_script_prompt}\n"
                     logger.info(f"[{request_id}] Created basic SRT from user script.")
@@ -1049,15 +1136,16 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                     generated_files_summary["errors"].append({"step": current_step, "error": "DeepL translation skipped due to missing key or client."})
             
             if srt_content_str:
-                subtitle_file_path = temp_dir / f"subtitles_{request_id}.srt"
+                subtitle_file_path_obj = temp_dir / subtitle_file_name
                 try:
-                    with open(subtitle_file_path, "w", encoding="utf-8") as f:
+                    with open(subtitle_file_path_obj, "w", encoding="utf-8") as f:
                         f.write(srt_content_str)
-                    generated_files_summary["subtitle_file"] = str(subtitle_file_path.resolve())
-                    logger.info(f"[{request_id}] Subtitle file saved: {subtitle_file_path.resolve()}")
+                    generated_files_summary["subtitle_file"] = subtitle_file_name # Store relative path
+                    logger.info(f"[{request_id}] Subtitle file saved: {subtitle_file_path_obj.resolve()}")
                 except Exception as e_save_srt:
                     logger.error(f"[{request_id}] Error saving SRT file: {e_save_srt}", exc_info=True)
                     generated_files_summary["errors"].append({"step": current_step, "error": f"Failed to save SRT file: {e_save_srt}"})
+                    generated_files_summary["subtitle_file"] = None
             else:
                 logger.info(f"[{request_id}] No subtitle content generated or available to process.")
                 generated_files_summary["subtitle_file"] = None
@@ -1069,20 +1157,35 @@ Ensure total scene duration roughly matches target video duration. Output valid 
         # 5. BGM Generation
         current_step = "bgm_generation"
         logger.info(f"[{request_id}] Step 5: Generating/Reusing BGM...")
-        
+        bgm_filename_final = f"bgm_audio_{request_id}.mp3" # Default BGM filename
+
         should_regenerate_bgm = not is_editing or \
                                 (is_editing and edit_request_params and edit_request_params.edit_target == EditTargetEnum.BGM) or \
-                                (req.bgm_enabled and (not generated_files_summary.get("bgm_audio_file") or not Path(generated_files_summary["bgm_audio_file"]).exists()))
+                                (req.bgm_enabled and (not generated_files_summary.get("bgm_audio_file") or not (temp_dir / generated_files_summary.get("bgm_audio_file", "")).exists()))
+
 
         if is_editing and edit_request_params and edit_request_params.edit_target != EditTargetEnum.BGM and \
-           original_task_details and original_task_details.get("bgm_audio_file") and Path(original_task_details["bgm_audio_file"]).exists():
-            original_bgm_path = Path(original_task_details["bgm_audio_file"])
-            new_bgm_path = temp_dir / original_bgm_path.name
-            if original_bgm_path != new_bgm_path:
-                shutil.copy(original_bgm_path, new_bgm_path)
-            generated_files_summary["bgm_audio_file"] = str(new_bgm_path.resolve())
-            logger.info(f"[{request_id}] Reusing existing BGM file: {new_bgm_path}")
-            should_regenerate_bgm = False
+           original_task_details and original_task_details.get("bgm_audio_file"):
+            original_bgm_filename = Path(original_task_details["bgm_audio_file"]).name
+            original_bgm_src_path = STATIC_VIDEO_DIR_ROOT / original_task_details["request_id"] / original_bgm_filename
+            
+            if original_bgm_src_path.is_file():
+                new_bgm_path = temp_dir / original_bgm_filename
+                try:
+                    if not new_bgm_path.exists(): shutil.copy2(original_bgm_src_path, new_bgm_path)
+                    generated_files_summary["bgm_audio_file"] = original_bgm_filename # Store relative path
+                    bgm_filename_final = original_bgm_filename
+                    logger.info(f"[{request_id}] Reusing existing BGM file: {new_bgm_path}")
+                    should_regenerate_bgm = False
+                except FileNotFoundError:
+                    logger.warning(f"[{request_id}] Original BGM file {original_bgm_src_path} not found for copy. Will regenerate if enabled.")
+                    should_regenerate_bgm = True
+                except Exception as e_copy_bgm:
+                    logger.warning(f"[{request_id}] Could not copy original BGM file {original_bgm_src_path}: {e_copy_bgm}. Will regenerate if enabled.")
+                    should_regenerate_bgm = True
+            else:
+                logger.warning(f"[{request_id}] Original BGM file {original_bgm_src_path} not found. Will regenerate if enabled.")
+                should_regenerate_bgm = True
         elif is_editing and edit_request_params and edit_request_params.edit_target == EditTargetEnum.BGM and not req.bgm_enabled:
             logger.info(f"[{request_id}] BGM explicitly disabled by edit request.")
             generated_files_summary["bgm_audio_file"] = None
@@ -1090,14 +1193,14 @@ Ensure total scene duration roughly matches target video duration. Output valid 
 
         if req.bgm_enabled and should_regenerate_bgm:
             if STABILITY_API_KEY:
-                bgm_prompt_text = req.bgm_prompt # This should be updated by the edit_video endpoint if BGM is the target
-                if not bgm_prompt_text: # Fallback if not set by edit_video
+                bgm_prompt_text = req.bgm_prompt 
+                if not bgm_prompt_text: 
                     bgm_prompt_text = parsed_prompt_data.get("bgm", {}).get("description", "calm instrumental background music")
                 
-                bgm_duration_seconds = int(actual_total_processed_video_duration) if actual_total_processed_video_duration > 0 else (req.duration or 10)
+                bgm_duration_seconds = int(actual_total_ffmpeg_duration) if actual_total_ffmpeg_duration > 0 else (req.duration or 10)
                 if bgm_duration_seconds <=0: bgm_duration_seconds = 10 
 
-                logger.info(f"[{request_id}] BGM: Using Stability AI. Prompt: '{bgm_prompt_text}', Duration: {bgm_duration_seconds}s")
+                logger.info(f"[{request_id}] BGM: Generating with Stability AI. Prompt: '{bgm_prompt_text}', Duration: {bgm_duration_seconds}s")
                 
                 data = {
                     "text_prompt": bgm_prompt_text,
@@ -1107,35 +1210,25 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                     "seed": random.randint(0, 4294967295)
                 }
 
-                async with httpx.AsyncClient(timeout=STABILITY_API_TIMEOUT) as client:
+                async with httpx.AsyncClient(timeout=STABILITY_API_TIMEOUT) as client_stab: 
                     try:
-                        response = await client.post(
-                            STABILITY_AUDIO_API_URL,
-                            headers={
-                                "Authorization": f"Bearer {STABILITY_API_KEY}",
-                            },
-                            data=data 
-                        )
-                        response.raise_for_status() 
+                        response = await request_with_retry(client_stab, "POST", STABILITY_AUDIO_API_URL, request_id, 
+                                                            headers={"Authorization": f"Bearer {STABILITY_API_KEY}"}, data=data)
                         
-                        content_type = response.headers.get("Content-Type", "audio/mpeg")
+                        content_type = response.headers.get("content-type", "audio/mpeg")
                         bgm_file_extension = "mp3"
                         if "wav" in content_type:
                             bgm_file_extension = "wav"
                         
-                        bgm_file_path = temp_dir / f"bgm_audio_{request_id}.{bgm_file_extension}"
+                        bgm_filename_final = f"bgm_audio_{request_id}.{bgm_file_extension}"
+                        bgm_file_path = temp_dir / bgm_filename_final
                         with open(bgm_file_path, "wb") as f:
                             f.write(response.content)
-                        generated_files_summary["bgm_audio_file"] = str(bgm_file_path.resolve())
+                        generated_files_summary["bgm_audio_file"] = bgm_filename_final # Store relative path
                         logger.info(f"[{request_id}] BGM generated successfully and saved to {bgm_file_path.name}")
 
-                    except httpx.HTTPStatusError as e_stab_audio:
-                        error_detail = f"Stability AI BGM generation API error: {e_stab_audio.response.status_code} - {e_stab_audio.response.text}"
-                        logger.error(f"[{request_id}] {error_detail}", exc_info=True)
-                        generated_files_summary["errors"].append({"step": current_step, "error": error_detail})
-                        generated_files_summary["bgm_audio_file"] = None 
-                    except Exception as e_stab_audio_generic:
-                        error_detail = f"Generic error during Stability AI BGM generation: {e_stab_audio_generic}"
+                    except Exception as e_stab_audio: 
+                        error_detail = f"Stability AI BGM generation failed after retries: {e_stab_audio}"
                         logger.error(f"[{request_id}] {error_detail}", exc_info=True)
                         generated_files_summary["errors"].append({"step": current_step, "error": error_detail})
                         generated_files_summary["bgm_audio_file"] = None
@@ -1143,8 +1236,8 @@ Ensure total scene duration roughly matches target video duration. Output valid 
                 logger.warning(f"[{request_id}] BGM enabled but STABILITY_API_KEY is not set. Skipping BGM generation.")
                 generated_files_summary["errors"].append({"step": current_step, "error": "STABILITY_API_KEY missing for BGM."})
                 generated_files_summary["bgm_audio_file"] = None
-        elif not req.bgm_enabled:
-            logger.info(f"[{request_id}] BGM generation is disabled by user request.")
+        elif not req.bgm_enabled: 
+            logger.info(f"[{request_id}] BGM generation is disabled.")
             generated_files_summary["bgm_audio_file"] = None
         
         save_status(task_id, {"status": "processing", "message": "BGM generation step finished.", "current_step": current_step, "details": generated_files_summary})
@@ -1155,107 +1248,125 @@ Ensure total scene duration roughly matches target video duration. Output valid 
         save_status(task_id, {"status": "processing", "message": "Integrating video components...", "current_step": current_step, "details": generated_files_summary})
 
         final_video_filename = f"{request_id}_final.{req.output_format}"
-        final_output_dir = STATIC_VIDEO_DIR / request_id
-        final_output_dir.mkdir(parents=True, exist_ok=True)
-        # final_video_output_path_temp = temp_dir / final_video_filename # This was incorrect, should be in final_output_dir for final output
-        final_video_output_path = final_output_dir / final_video_filename
+        final_output_dir_for_task = STATIC_VIDEO_DIR_ROOT / request_id 
+        final_output_dir_for_task.mkdir(parents=True, exist_ok=True)
+        final_video_output_path = final_output_dir_for_task / final_video_filename
 
 
         ffmpeg_cmd = [FFMPEG_COMMAND, "-y"]
         
-        # Rebuild video_input_options and video_filter_inputs based on generated_files_summary["scenes"]
-        # This ensures that reused scene paths are correctly included for FFmpeg
-        video_input_options = []
-        video_filter_inputs = []
-        actual_total_processed_video_duration = 0.0 # Recalculate based on final scene list
+        ffmpeg_video_input_options = []
+        ffmpeg_video_filter_inputs = []
+        actual_total_ffmpeg_duration = 0.0 
 
         for idx, scene_data in enumerate(generated_files_summary["scenes"]):
-            material_path_str = scene_data.get("path")
-            if material_path_str and Path(material_path_str).is_file():
-                material_path_obj = Path(material_path_str)
+            material_filename = scene_data.get("path") 
+            if not material_filename:
+                # This should ideally be handled by creating a placeholder earlier if generation/copying failed
+                # For safety, create a black screen if path is still None/empty here
+                logger.warning(f"[{request_id}] FFmpeg: Scene {idx} material path is missing in summary. Creating black screen placeholder.")
+                placeholder_filename = f"black_scene_ffmpeg_{idx}.png"
+                placeholder_path = temp_dir / placeholder_filename
+                try:
+                    img = Image.new('RGB', (target_w_req, target_h_req), color = 'black')
+                    img.save(placeholder_path)
+                    material_path_obj = placeholder_path
+                    scene_duration = float(scene_data.get("final_duration", default_scene_duration))
+                    scene_data["material_type"] = "image" # Mark as image for ffmpeg options
+                    scene_data["path"] = placeholder_filename # Update summary
+                except Exception as e_placeholder:
+                    logger.error(f"[{request_id}] FFmpeg: Could not create black screen placeholder for scene {idx}: {e_placeholder}")
+                    generated_files_summary["errors"].append({"step": current_step, "scene_index": idx, "error": f"Failed to create placeholder: {e_placeholder}"})
+                    continue # Skip this scene if placeholder creation fails
+            else:
+                material_path_obj = temp_dir / material_filename # Resolve to full path in temp_dir
                 scene_duration = float(scene_data.get("final_duration", default_scene_duration))
 
+
+            if material_path_obj.is_file():
                 if scene_data.get("material_type") == "image":
-                    video_input_options.extend(["-loop", "1", "-r", str(DEFAULT_FPS), "-t", str(scene_duration), "-i", str(material_path_obj.resolve())])
-                else: # video file
-                    video_input_options.extend(["-i", str(material_path_obj.resolve())])
+                    ffmpeg_video_input_options.extend(["-loop", "1", "-r", str(DEFAULT_FPS), "-t", str(scene_duration), "-i", str(material_path_obj.resolve())])
+                else: 
+                    ffmpeg_video_input_options.extend(["-i", str(material_path_obj.resolve())])
                 
-                video_filter_inputs.append(f"[{idx}:v]") # Index based on the order in generated_files_summary["scenes"]
-                actual_total_processed_video_duration += scene_duration
+                ffmpeg_video_filter_inputs.append(f"[{idx}:v]") 
+                actual_total_ffmpeg_duration += scene_duration
             else:
-                logger.warning(f"[{request_id}] Scene {idx} material path is missing or invalid for FFmpeg: {material_path_str}. This might cause FFmpeg errors.")
-                # Consider adding a black screen placeholder here if a scene is missing
-                # For now, we rely on prior steps to ensure valid paths or handle errors.
+                logger.error(f"[{request_id}] FFmpeg: Material file for scene {idx} not found at {material_path_obj}. Skipping this scene.")
+                generated_files_summary["errors"].append({"step": current_step, "scene_index": idx, "error": f"Material file not found: {material_path_obj}"})
 
-        ffmpeg_cmd.extend(video_input_options)
 
-        audio_input_options_ffmpeg: List[str] = []
-        # audio_filter_inputs_ffmpeg: Dict[str, str] = {} # This was incorrect, ffmpeg input indices are global
-        current_ffmpeg_input_idx = len(video_filter_inputs) # Start counting from after video inputs
-
-        valid_narration_paths_ffmpeg = [
-            nar_info["path"] 
-            for nar_info in generated_files_summary.get("narration_audios", []) 
-            if nar_info.get("path") and Path(nar_info["path"]).exists()
-        ]
-
-        narration_concat_file_path_ffmpeg_str = None
-        narration_stream_ffmpeg_id = None
-        if req.narration_enabled and valid_narration_paths_ffmpeg:
-            if len(valid_narration_paths_ffmpeg) > 1:
-                narration_concat_file_path_ffmpeg = temp_dir / f"narrations_ffmpeg_concat_{request_id}.txt"
-                narration_concat_file_path_ffmpeg_str = str(narration_concat_file_path_ffmpeg.resolve())
-                with open(narration_concat_file_path_ffmpeg, "w") as f:
-                    for path_str in valid_narration_paths_ffmpeg:
-                        f.write(f"file '{Path(path_str).resolve().as_posix()}'\n")
-                audio_input_options_ffmpeg.extend(["-f", "concat", "-safe", "0", "-i", narration_concat_file_path_ffmpeg_str])
-                narration_stream_ffmpeg_id = f"[{current_ffmpeg_input_idx}:a]"
-                current_ffmpeg_input_idx += 1
-            elif len(valid_narration_paths_ffmpeg) == 1:
-                audio_input_options_ffmpeg.extend(["-i", str(Path(valid_narration_paths_ffmpeg[0]).resolve())])
-                narration_stream_ffmpeg_id = f"[{current_ffmpeg_input_idx}:a]"
-                current_ffmpeg_input_idx += 1
+        ffmpeg_cmd.extend(ffmpeg_video_input_options)
         
-        bgm_file_path_str = generated_files_summary.get("bgm_audio_file")
-        bgm_stream_ffmpeg_id = None
-        if req.bgm_enabled and bgm_file_path_str and Path(bgm_file_path_str).is_file():
-            audio_input_options_ffmpeg.extend(["-i", str(Path(bgm_file_path_str).resolve())])
-            bgm_stream_ffmpeg_id = f"[{current_ffmpeg_input_index}:a]"
-            current_ffmpeg_input_index += 1
-
-        ffmpeg_cmd.extend(audio_input_options_ffmpeg)
-
-        filter_complex_parts = []
-        
-        if not video_filter_inputs:
+        if not ffmpeg_video_filter_inputs:
             error_message = "No valid video inputs for FFmpeg processing."
             logger.error(f"[{request_id}] {error_message}")
             generated_files_summary["errors"].append({"step": current_step, "error": error_message})
             raise ValueError(error_message)
 
-        video_processing_chain = ""
-        if len(video_filter_inputs) > 1:
-            concat_inputs_str = "".join(video_filter_inputs)
-            video_processing_chain = f"{concat_inputs_str}concat=n={len(video_filter_inputs)}:v=1:a=0[vconcat_out];"
+        audio_input_options_ffmpeg_final: List[str] = []
+        current_ffmpeg_input_idx_audio = len(ffmpeg_video_filter_inputs) 
+
+        valid_narration_filenames_ffmpeg = [
+            nar_info["path"] # Should be relative filename
+            for nar_info in generated_files_summary.get("narration_audios", []) 
+            if nar_info.get("path") and (temp_dir / nar_info["path"]).exists() 
+        ]
+
+        narration_concat_file_path_ffmpeg_str = None
+        narration_stream_ffmpeg_id = None
+        if req.narration_enabled and valid_narration_filenames_ffmpeg:
+            if len(valid_narration_filenames_ffmpeg) > 1:
+                narration_concat_file_path_ffmpeg = temp_dir / f"narrations_ffmpeg_concat_{request_id}.txt"
+                narration_concat_file_path_ffmpeg_str = str(narration_concat_file_path_ffmpeg.resolve())
+                with open(narration_concat_file_path_ffmpeg, "w") as f:
+                    for filename in valid_narration_filenames_ffmpeg:
+                        f.write(f"file '{(temp_dir / filename).resolve().as_posix()}'\n")
+                audio_input_options_ffmpeg_final.extend(["-f", "concat", "-safe", "0", "-i", narration_concat_file_path_ffmpeg_str])
+                narration_stream_ffmpeg_id = f"[{current_ffmpeg_input_idx_audio}:a]"
+                current_ffmpeg_input_idx_audio += 1
+            elif len(valid_narration_filenames_ffmpeg) == 1:
+                audio_input_options_ffmpeg_final.extend(["-i", str((temp_dir / valid_narration_filenames_ffmpeg[0]).resolve())])
+                narration_stream_ffmpeg_id = f"[{current_ffmpeg_input_idx_audio}:a]"
+                current_ffmpeg_input_idx_audio += 1
+        
+        bgm_filename_str = generated_files_summary.get("bgm_audio_file") # Should be relative filename
+        bgm_stream_ffmpeg_id = None
+        if req.bgm_enabled and bgm_filename_str and (temp_dir / bgm_filename_str).is_file():
+            audio_input_options_ffmpeg_final.extend(["-i", str((temp_dir / bgm_filename_str).resolve())])
+            bgm_stream_ffmpeg_id = f"[{current_ffmpeg_input_idx_audio}:a]"
+            current_ffmpeg_input_idx_audio += 1
+
+        ffmpeg_cmd.extend(audio_input_options_ffmpeg_final)
+
+        filter_complex_parts = []
+        
+        video_processing_chain_parts = []
+        if len(ffmpeg_video_filter_inputs) > 1:
+            concat_inputs_str = "".join(ffmpeg_video_filter_inputs)
+            video_processing_chain_parts.append(f"{concat_inputs_str}concat=n={len(ffmpeg_video_filter_inputs)}:v=1:a=0[vconcat_out]")
             current_video_stream_label = "[vconcat_out]"
-        else: 
-            # For a single video input, no concat, but still need to pass it through for scaling/padding
-            video_processing_chain = f"{video_filter_inputs[0]}null[vconcat_out];" # Use null filter to just label it
-            current_video_stream_label = "[vconcat_out]"
+        elif ffmpeg_video_filter_inputs: 
+            current_video_stream_label = ffmpeg_video_filter_inputs[0] 
+            video_processing_chain_parts.append(f"{current_video_stream_label}null[vconcat_out]") # Use null to ensure consistent naming for next step
+            current_video_stream_label = "[vconcat_out]" # Update to the output of null filter
+        else:
+             raise ValueError("FFmpeg: No video inputs after processing scenes.")
 
 
         target_w, target_h = parse_resolution(req.resolution)
-        scale_pad_filter = f"{current_video_stream_label}fps={DEFAULT_FPS},format=yuv420p,scale={target_w}:{target_h}:force_original_aspect_ratio=decrease:eval=frame,pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=black[vscaled_out]"
+        scale_pad_filter = f"fps={DEFAULT_FPS},format=yuv420p,scale={target_w}:{target_h}:force_original_aspect_ratio=decrease:eval=frame,pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=black[vscaled_out]"
+        video_processing_chain_parts.append(f"{current_video_stream_label}{scale_pad_filter}")
         
-        video_processing_chain += scale_pad_filter 
-        filter_complex_parts.append(video_processing_chain)
+        filter_complex_parts.append(";".join(video_processing_chain_parts))
         
         final_video_stream_for_map = "[vscaled_out]"
 
-        subtitle_file_path = generated_files_summary.get("subtitle_file")
-        if req.subtitles_enabled and subtitle_file_path and Path(subtitle_file_path).exists():
-            logger.info(f"[{request_id}] Adding subtitles from: {subtitle_file_path} to FFmpeg command.")
-            escaped_subtitle_path = str(Path(subtitle_file_path).resolve()).replace('\\', '/').replace(':', r'\\:')
+        subtitle_filename = generated_files_summary.get("subtitle_file") # Should be relative filename
+        if req.subtitles_enabled and subtitle_filename and (temp_dir / subtitle_filename).exists():
+            subtitle_file_path_obj = temp_dir / subtitle_filename
+            logger.info(f"[{request_id}] Adding subtitles from: {subtitle_file_path_obj} to FFmpeg command.")
+            escaped_subtitle_path = str(subtitle_file_path_obj.resolve()).replace('\\', '/').replace(':', r'\\:')
             
             force_style_parts = []
             if req.subtitle_font_name: force_style_parts.append(f"FontName='{req.subtitle_font_name}'")
@@ -1278,17 +1389,14 @@ Ensure total scene duration roughly matches target video duration. Output valid 
             filter_complex_parts.append(f"{final_video_stream_for_map}{subtitle_filter_string}[vout]")
             final_video_map_label = "[vout]"
         else:
-            if filter_complex_parts and final_video_stream_for_map == "[vscaled_out]" and not filter_complex_parts[-1].endswith("[vout]"):
-                 filter_complex_parts[-1] = filter_complex_parts[-1].replace("[vscaled_out]", "[vout]")
-            elif not filter_complex_parts and video_filter_inputs: 
-                 filter_complex_parts.append(f"{video_filter_inputs[0]}copy[vout]") 
+            filter_complex_parts.append(f"{final_video_stream_for_map}copy[vout]")
             final_video_map_label = "[vout]"
 
 
         final_audio_map_label = None
         audio_processing_filters = []
         fade_duration_seconds = 3.0
-        video_duration_for_fade = actual_total_processed_video_duration if actual_total_processed_video_duration > 0 else (req.duration or 10.0)
+        video_duration_for_fade = actual_total_ffmpeg_duration if actual_total_ffmpeg_duration > 0 else (req.duration or 10.0)
         fade_start_time = max(0, video_duration_for_fade - fade_duration_seconds)
         logger.info(f"[{request_id}] Audio fade out: start_time={fade_start_time}, duration={fade_duration_seconds}, video_duration_for_fade={video_duration_for_fade}")
 
@@ -1311,7 +1419,7 @@ Ensure total scene duration roughly matches target video duration. Output valid 
 
 
         if filter_complex_parts:
-            ffmpeg_cmd.extend(["-filter_complex", ";".join(processed_filter_parts for processed_filter_parts in filter_complex_parts if processed_filter_parts)])
+            ffmpeg_cmd.extend(["-filter_complex", ";".join(p.strip(";") for p in filter_complex_parts if p.strip())])
         
         ffmpeg_cmd.extend(["-map", final_video_map_label])
         if final_audio_map_label:
@@ -1326,12 +1434,11 @@ Ensure total scene duration roughly matches target video duration. Output valid 
             "-c:a", "aac", 
             "-b:a", "192k",
             "-movflags", "+faststart",
-            # "-shortest", # Replaced by -t below for more precise control
         ])
-        if actual_total_processed_video_duration > 0:
-             ffmpeg_cmd.extend(["-t", str(actual_total_processed_video_duration)])
+        if actual_total_ffmpeg_duration > 0:
+             ffmpeg_cmd.extend(["-t", str(actual_total_ffmpeg_duration)])
         
-        ffmpeg_cmd.append(str(final_video_output_path_temp)) # Output to temp first
+        ffmpeg_cmd.append(str(final_video_output_path)) 
 
         logger.info(f"[{request_id}] Executing FFmpeg command: {' '.join(ffmpeg_cmd)}")
         
@@ -1343,14 +1450,10 @@ Ensure total scene duration roughly matches target video duration. Output valid 
         }
 
         if success:
-            # Move to static serving directory
-            permanent_video_path = final_output_dir / final_video_filename
-            shutil.move(str(final_video_output_path_temp), str(permanent_video_path))
-            final_video_successfully_moved = True
-            
-            generated_files_summary["final_video_path"] = str(permanent_video_path.resolve())
+            final_video_successfully_moved = True 
+            generated_files_summary["final_video_path"] = final_video_filename # Store relative path
             generated_files_summary["final_video_url"] = f"/static/{STATIC_VIDEO_DIR_BASE.name}/{request_id}/{final_video_filename}"
-            logger.info(f"[{request_id}] Final video moved to {permanent_video_path} and URL {generated_files_summary['final_video_url']} prepared.")
+            logger.info(f"[{request_id}] Final video successfully written to {final_video_output_path} and URL {generated_files_summary['final_video_url']} prepared.")
             save_status(task_id, {"status": "completed", "message": "Video generation complete.", "result_url": generated_files_summary["final_video_url"], "current_step": current_step, "details": generated_files_summary})
 
         else:
@@ -1381,18 +1484,15 @@ Ensure total scene duration roughly matches target video duration. Output valid 
             "status": final_status_data.get("status", "error" if generated_files_summary["errors"] else "completed"), 
             "message": final_status_data.get("message", f"Processing finished. Errors: {len(generated_files_summary['errors'])}" if generated_files_summary["errors"] else "Video generation completed successfully."),
             "result_url": generated_files_summary.get("final_video_url"), 
-            "details": generated_files_summary,
+            "details": generated_files_summary, 
             "error_details": json.dumps(generated_files_summary["errors"]) if generated_files_summary["errors"] else None
         })
         save_status(task_id, final_status_data)
         
-        if CLEANUP_TEMP_FILES:
-            final_video_path_obj = Path(generated_files_summary.get("final_video_path", ""))
-            if final_video_successfully_moved or (generated_files_summary["errors"] and not (final_video_path_obj.exists() and temp_dir in final_video_path_obj.parents)):
-                 logger.info(f"[{request_id}] Cleaning up temporary directory: {temp_dir.resolve()}")
-                 shutil.rmtree(temp_dir, ignore_errors=True)
-            else:
-                 logger.info(f"[{request_id}] Temporary files for video generation kept at {temp_dir.resolve()}.")
+        # Cleanup temp_dir
+        if CLEANUP_TEMP_FILES and temp_dir.exists():
+            logger.info(f"[{request_id}] Cleaning up temporary directory: {temp_dir.resolve()}")
+            shutil.rmtree(temp_dir, ignore_errors=True)
             
     return generated_files_summary
 
@@ -1407,7 +1507,7 @@ async def generate_video_from_text_endpoint(
     logger.info(f"User {current_user.email} (ID: {current_user.id}) initiated video generation with prompt: '{req.prompt[:50]}...'")
     task_id = str(uuid.uuid4())
     
-    task_temp_dir = TEMP_DIR / task_id 
+    task_temp_dir = TEMP_DIR_ROOT / task_id 
     task_temp_dir.mkdir(parents=True, exist_ok=True) 
     
     initial_status = {
@@ -1425,12 +1525,13 @@ async def generate_video_from_text_endpoint(
             "final_video_path": None,
             "final_video_url": None,
             "errors": [],
-            "summary_file_path": str(task_temp_dir / f"generation_summary_{task_id}.json")
+            "summary_file_path": str(task_temp_dir / f"generation_summary_{task_id}.json"),
+            "_temp_dir": str(task_temp_dir.resolve()) 
         }
     }
     save_status(task_id, initial_status)
 
-    background_tasks.add_task(create_video_from_text_pipeline, req, fastapi_request, task_id, None, None)
+    background_tasks.add_task(create_video_from_text_pipeline, req, fastapi_request, task_id, original_task_details=None, edit_request_params=None)
     
     return VideoGenerationResponse(
         message="Video generation process started in the background.",
@@ -1442,7 +1543,7 @@ async def generate_video_from_text_endpoint(
 @router.post("/edit/{original_task_id}", response_model=VideoGenerationResponse, summary="Edit a previously generated video")
 async def edit_video(
     original_task_id: str,
-    edit_request: VideoEditRequest, # This is the Pydantic model defined earlier
+    edit_request: VideoEditRequest, 
     background_tasks: BackgroundTasks,
     fastapi_request: Request, 
     current_user: User = Depends(get_current_active_user)
@@ -1450,51 +1551,57 @@ async def edit_video(
     logger.info(f"User {current_user.email} (ID: {current_user.id}) initiated video edit for original task ID: {original_task_id}")
     logger.info(f"Edit request details: {edit_request.model_dump_json(indent=2, exclude_none=True)}")
 
-    original_status_file = TEMP_DIR / original_task_id / f"{original_task_id}_status.json"
-    if not original_status_file.exists():
-        logger.error(f"Original task status file not found: {original_status_file}")
-        raise HTTPException(status_code=404, detail=f"Original task {original_task_id} not found or its data is missing.")
+    original_summary_file_path = STATIC_VIDEO_DIR_ROOT / original_task_id / f"generation_summary_{original_task_id}.json"
+    if not original_summary_file_path.exists():
+        original_summary_file_path = TEMP_DIR_ROOT / original_task_id / f"{original_task_id}_status.json" 
+        if not original_summary_file_path.exists():
+            logger.error(f"Original task data file not found for task ID: {original_task_id} in either expected location.")
+            raise HTTPException(status_code=404, detail=f"Original task data for {original_task_id} not found.")
 
     try:
-        with open(original_status_file, "r", encoding="utf-8") as f:
-            original_task_status = json.load(f)
-        original_task_details = original_task_status.get("details")
-        if not original_task_details:
+        with open(original_summary_file_path, "r", encoding="utf-8") as f:
+            original_task_json = json.load(f)
+        
+        original_task_details_for_pipeline = original_task_json if "params" in original_task_json else original_task_json.get("details")
+        
+        if not original_task_details_for_pipeline:
             logger.error(f"Original task details not found in status file for {original_task_id}")
-            raise HTTPException(status_code=500, detail="Original task details not found.")
-        original_params_dict = original_task_details.get("params")
+            raise HTTPException(status_code=500, detail="Original task details structure is invalid.")
+        
+        original_params_dict = original_task_details_for_pipeline.get("params")
         if not original_params_dict:
-            logger.error(f"Original task parameters not found in status file for {original_task_id}")
+            logger.error(f"Original task parameters not found in data for {original_task_id}")
             raise HTTPException(status_code=500, detail="Original task parameters not found.")
+        
+        # Ensure original_task_details_for_pipeline has request_id and _temp_dir for asset reuse
+        if "request_id" not in original_task_details_for_pipeline:
+            original_task_details_for_pipeline["request_id"] = original_task_id
+        if "_temp_dir" not in original_task_details_for_pipeline:
+             original_task_details_for_pipeline["_temp_dir"] = str(TEMP_DIR_ROOT / original_task_id)
+
 
     except json.JSONDecodeError:
-        logger.error(f"Error decoding original task status file for {original_task_id}")
+        logger.error(f"Error decoding original task data file for {original_task_id}")
         raise HTTPException(status_code=500, detail="Could not load original task data due to JSON error.")
     except Exception as e:
         logger.error(f"Error reading original task data for {original_task_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Could not load original task data: {e}")
 
-    # Create a new VideoGenerationRequest by updating the original params with edit_request fields
     updated_params_dict = original_params_dict.copy()
 
-    # Update fields from VideoGenerationRequest based on edit_request
-    for field_name, field_value in edit_request.model_dump(exclude_unset=True).items():
-        if field_name not in ["edit_target", "target_indices", "new_prompt", "new_value_numeric", "new_value_string", "new_script_srt"]:
-            if field_value is not None: # Only update if a new value is provided
-                updated_params_dict[field_name] = field_value
+    for field_name, field_value in edit_request.model_dump(exclude={"edit_target", "target_indices", "new_prompt", "new_value_numeric", "new_value_string", "new_script_srt"}, exclude_none=True).items():
+        updated_params_dict[field_name] = field_value
     
-    # Handle specific edit_target logic that might override general params
-    if edit_request.edit_target == EditTargetEnum.NARRATION_FULL_SCRIPT and edit_request.new_prompt:
+    if edit_request.edit_target == EditTargetEnum.NARRATION_FULL_SCRIPT and edit_request.new_prompt is not None:
         updated_params_dict["narration_script_prompt"] = edit_request.new_prompt
-    elif edit_request.edit_target == EditTargetEnum.SUBTITLE_FULL_SCRIPT and edit_request.new_script_srt:
-        updated_params_dict["subtitle_script_prompt"] = edit_request.new_script_srt # This will be used to create the SRT
-    elif edit_request.edit_target == EditTargetEnum.BGM and edit_request.new_prompt:
-        updated_params_dict["bgm_prompt"] = edit_request.new_prompt
-
-    # Ensure subtitles are enabled if style is being edited
-    if edit_request.edit_target == EditTargetEnum.SUBTITLE_STYLE:
+    elif edit_request.edit_target == EditTargetEnum.SUBTITLE_FULL_SCRIPT and edit_request.new_script_srt is not None:
+        updated_params_dict["subtitle_script_prompt"] = edit_request.new_script_srt 
         updated_params_dict["subtitles_enabled"] = True
-
+    elif edit_request.edit_target == EditTargetEnum.BGM and edit_request.new_prompt is not None:
+        updated_params_dict["bgm_prompt"] = edit_request.new_prompt
+        updated_params_dict["bgm_enabled"] = True
+    elif edit_request.edit_target == EditTargetEnum.SUBTITLE_STYLE:
+        updated_params_dict["subtitles_enabled"] = True 
 
     try:
         edited_video_req_model = VideoGenerationRequest(**updated_params_dict)
@@ -1503,7 +1610,7 @@ async def edit_video(
         raise HTTPException(status_code=400, detail=f"Invalid parameters for video generation after edit: {e}")
 
     new_task_id = str(uuid.uuid4())
-    new_task_temp_dir = TEMP_DIR / new_task_id
+    new_task_temp_dir = TEMP_DIR_ROOT / new_task_id
     new_task_temp_dir.mkdir(parents=True, exist_ok=True)
     
     initial_status_for_edit = {
@@ -1523,12 +1630,13 @@ async def edit_video(
             "final_video_path": None,
             "final_video_url": None,
             "errors": [],
-            "summary_file_path": str(new_task_temp_dir / f"generation_summary_{new_task_id}.json")
+            "summary_file_path": str(new_task_temp_dir / f"generation_summary_{new_task_id}.json"),
+            "_temp_dir": str(new_task_temp_dir.resolve())
         }
     }
     save_status(new_task_id, initial_status_for_edit)
     
-    background_tasks.add_task(create_video_from_text_pipeline, edited_video_req_model, fastapi_request, new_task_id, original_task_details, edit_request)
+    background_tasks.add_task(create_video_from_text_pipeline, edited_video_req_model, fastapi_request, new_task_id, original_task_details_for_pipeline, edit_request)
 
     return VideoGenerationResponse(
         message=f"Video edit task initiated. Original task ID: {original_task_id}. New task ID for edited video: {new_task_id}.",
@@ -1562,22 +1670,33 @@ async def get_task_status_endpoint(task_id: str, request: Request):
 
 @router.get(f"/{STATIC_VIDEO_DIR_BASE.name}/{{task_id}}/{{filename:path}}")
 async def serve_generated_video_debug_file(task_id: str, filename: str):
-    file_path = STATIC_VIDEO_DIR / task_id / filename
+    file_path = STATIC_VIDEO_DIR_ROOT / task_id / filename # Use STATIC_VIDEO_DIR_ROOT
     if not file_path.is_file():
         logger.error(f"File not found: {file_path}")
         raise HTTPException(status_code=404, detail="File not found")
+    
+    media_type = "application/octet-stream" 
     if filename.endswith(".json"):
-        return FileResponse(path=str(file_path), media_type="application/json")
+        media_type = "application/json"
     elif filename.endswith((".mp4", ".mov", ".webm", ".avi")): 
-        return FileResponse(path=str(file_path), media_type=f"video/{Path(filename).suffix[1:]}")
-    else:
-        return FileResponse(path=str(file_path))
+        media_type = f"video/{Path(filename).suffix[1:]}"
+    elif filename.endswith(".png"):
+        media_type = "image/png"
+    elif filename.endswith((".jpg", ".jpeg")):
+        media_type = "image/jpeg"
+    elif filename.endswith(".mp3"):
+        media_type = "audio/mpeg"
+    elif filename.endswith(".wav"):
+        media_type = "audio/wav"
+        
+    return FileResponse(path=str(file_path), media_type=media_type, filename=filename)
 
+# Placeholder for main.py imports if they are not resolved (for standalone testing)
 if __name__ != "__main__": 
     try:
         from main import get_claude_response, IndividualAIResponse, app as main_app
-        # from models import User 
-        # from dependencies import get_current_active_user 
+        from models import User 
+        from dependencies import get_current_active_user 
     except ImportError as e:
         logger.warning(f"Could not import from main/models/dependencies: {e}. Using placeholders.")
         
@@ -1621,20 +1740,23 @@ else:
     import uvicorn
     from fastapi.staticfiles import StaticFiles
     
-    STATIC_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
+    STATIC_VIDEO_DIR_ROOT.mkdir(parents=True, exist_ok=True)
+    TEMP_DIR_ROOT.mkdir(parents=True, exist_ok=True)
     
-    if not Path("static").exists():
-        Path("static").mkdir(parents=True, exist_ok=True)
-    app.mount("/static", StaticFiles(directory="static"), name="static_files_root")
-
+    static_parent_dir_for_main = Path(STATIC_DIR) # "static"
+    if not static_parent_dir_for_main.exists():
+        static_parent_dir_for_main.mkdir(parents=True, exist_ok=True)
+    
+    app.mount(f"/{STATIC_DIR}", StaticFiles(directory=STATIC_DIR), name="static_files_root")
 
     class MockAppState:
         def __init__(self):
             self.deepl_translator = None 
     app.state = MockAppState()
     
-    logger.info(f"Serving static files from: {STATIC_VIDEO_DIR_BASE}")
-    logger.info(f"Static files URL prefix: /static/{STATIC_VIDEO_DIR_BASE.name}")
+    logger.info(f"Serving static files from base directory: {STATIC_DIR}")
+    logger.info(f"Generated videos will be in: {STATIC_VIDEO_DIR_ROOT}")
+    logger.info(f"Static files URL prefix for generated content: /static/{STATIC_VIDEO_DIR_BASE.name}")
     
     uvicorn.run(app, host="0.0.0.0", port=8001)
 
@@ -1650,17 +1772,17 @@ load_dotenv()
 
 # API Keys
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
-STABILITY_API_KEY = os.getenv("STABILITY_AI_KEY") # Corrected from STEDDY_API_KEY
+STABILITY_API_KEY = os.getenv("STABILITY_API_KEY")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
-ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY") 
-DEEPL_API_KEY = os.getenv("DEEPL_API_KEY") 
+ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY")
+DEEPL_API_KEY = os.getenv("DEEPL_API_KEY")
 
 # API Endpoints and Model Identifiers
 REPLICATE_API_URL = "https://api.replicate.com/v1/predictions"
 REPLICATE_ZEROSCOPE_MODEL_XL = "anotherjesse/zeroscope-v2-xl:9f7476737190e1a712580adfd5446408f14b2de0e6e8e168d68f2029fc221216"
-REPLICATE_ZEROSCOPE_MODEL_576W = "anotherjesse/zeroscope-v2-576w:1c8f6c34d800a8054187871f754559085323598320e960e699500244a8386153" # Example, confirm if this is the one you want as default or an option
+REPLICATE_ZEROSCOPE_MODEL_576W = "anotherjesse/zeroscope-v2-576w:1c8f6c34d800a8054187871f754559085323598320e960e699500244a8386153"
 STABILITY_TEXT_TO_IMAGE_API_URL_BASE = "https://api.stability.ai/v1/generation/{engine_id}/text-to-image"
-STABILITY_DEFAULT_ENGINE = "stable-diffusion-xl-1024-v1-0" # Example, use the latest or preferred engine
+STABILITY_DEFAULT_ENGINE = "stable-diffusion-xl-1024-v1-0"
 STABILITY_AUDIO_API_URL = "https://api.stability.ai/v1/generation/stable-audio-generate-v1"
 
 # Polling and Timeout settings for API calls
@@ -1672,13 +1794,13 @@ ASSEMBLYAI_POLL_INTERVAL = 5   # seconds
 ASSEMBLYAI_API_TIMEOUT = 300.0 # seconds for transcription
 
 # Video Processing Defaults
-DEFAULT_FPS = 24 # Changed from 25 to align with common video frame rates
+DEFAULT_FPS = 24
 
 # Directory Settings
-TEMP_DIR_BASE = "temp_files"  # Base directory for temporary files during processing
-STATIC_DIR = "static" # General static directory
+TEMP_DIR_BASE = "temp_files"  # Base directory for temporary files for each task
+STATIC_DIR = "static" # General static directory name
 STATIC_VIDEO_DIR_NAME = "generated_videos" # Subdirectory for generated videos
-STATIC_VIDEO_DIR = Path(STATIC_DIR) / STATIC_VIDEO_DIR_NAME # Full path to static videos directory
+STATIC_VIDEO_DIR_BASE = Path(STATIC_DIR) / STATIC_VIDEO_DIR_NAME # Full path to the root of generated videos
 
 # File Management
 CLEANUP_TEMP_FILES = True  # Set to False for debugging to keep intermediate files
@@ -1712,7 +1834,7 @@ FFMPEG_COMMAND = "ffmpeg" # Ensure ffmpeg is in PATH or provide full path
 
 # Ensure static directories exist
 Path(TEMP_DIR_BASE).mkdir(parents=True, exist_ok=True)
-STATIC_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
+STATIC_VIDEO_DIR_BASE.mkdir(parents=True, exist_ok=True) # This is STATIC_DIR / STATIC_VIDEO_DIR_NAME
 
 # API Key checks (optional, for developer awareness during startup)
 # if not STABILITY_API_KEY:
@@ -1725,5 +1847,4 @@ STATIC_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
 #     print("Warning: ASSEMBLYAI_API_KEY is not set in the environment variables.")
 # if not DEEPL_API_KEY:
 #     print("Warning: DEEPL_API_KEY is not set in the environment variables.")
-
 ```
