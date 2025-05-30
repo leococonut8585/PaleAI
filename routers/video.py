@@ -34,7 +34,7 @@ try:
         REPLICATE_API_TIMEOUT, STABILITY_API_TIMEOUT, ELEVENLABS_API_TIMEOUT,
         ASSEMBLYAI_POLL_INTERVAL, ASSEMBLYAI_API_TIMEOUT, DEFAULT_FPS,
         TEMP_DIR_BASE, STATIC_VIDEO_DIR_BASE, CLEANUP_TEMP_FILES, ELEVENLABS_LANG_VOICE_MAP, DEEPL_LANG_MAP,
-        REPLICATE_MAX_POLL_ATTEMPTS, FFMPEG_COMMAND
+        REPLICATE_MAX_POLL_ATTEMPTS, FFMPEG_COMMAND, STATIC_DIR # Added STATIC_DIR
     )
 except ImportError:
     logger = logging.getLogger(__name__)
@@ -60,7 +60,8 @@ except ImportError:
     ASSEMBLYAI_API_TIMEOUT = 300.0
     DEFAULT_FPS = 24 # Changed
     TEMP_DIR_BASE = "temp_files"
-    STATIC_VIDEO_DIR_BASE = Path("./static/generated_videos") # This will be used as the base for static files
+    STATIC_DIR = "static" # Fallback if not in config
+    STATIC_VIDEO_DIR_BASE = Path(STATIC_DIR) / "generated_videos" # This will be used as the base for static files
     CLEANUP_TEMP_FILES = True
     ELEVENLABS_LANG_VOICE_MAP = {"en": "21m00Tcm4TlvDq8ikA2E", "ja": "SOYHLrjzK2X1ezoPC6cr"}
     DEEPL_LANG_MAP = {"en": "EN-US", "ja": "JA"}
@@ -77,12 +78,24 @@ else:
 
 
 app = FastAPI() # This will be replaced by the app instance from main.py if imported
+# router = APIRouter() # Defined in main.py, this line should not be here if part of main app.
+# For standalone testing of this file, we might need a local router.
+# However, the intent seems to be that this is part of a larger app.
+# If running this file directly, the `if __name__ == "__main__":` block handles app setup.
+# So, we'll assume `router` will be available when imported by `main.py`.
+# If it's intended to be self-contained, then `router = APIRouter()` should be here,
+# and `app.include_router(router)` or similar in the main block.
+# For now, let's assume `router` is an `APIRouter` instance that will be imported or created.
+# Let's remove this local app instance and rely on the main app's router.
+# from fastapi import APIRouter # Ensure APIRouter is imported if used
+# router = APIRouter() # This should be defined in main.py and then imported here, or passed around.
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# CORS設定
-# app.add_middleware( # This should be in main.py
+# CORS設定 - This should ideally be in main.py if app is defined there
+# from fastapi.middleware.cors import CORSMiddleware # Moved import to top
+# app.add_middleware(
 #     CORSMiddleware,
 #     allow_origins=["*"],
 #     allow_credentials=True,
@@ -1733,7 +1746,13 @@ if __name__ != "__main__":
                 self.router = None # Placeholder for router if needed by main_app instance
 
         main_app = MockApp()
-        router = app # Use the local router if main one is not available.
+        # router = app # Use the local router if main one is not available.
+        # The above line is problematic if `app` is the FastAPI instance from this file,
+        # and `router` is expected to be an APIRouter.
+        # Assuming `router` will be correctly imported or assigned from `main.py`
+        from fastapi import APIRouter
+        router = APIRouter()
+
 
     REPLICATE_MAX_POLL_ATTEMPTS = REPLICATE_MAX_POLL_ATTEMPTS if 'REPLICATE_MAX_POLL_ATTEMPTS' in globals() else 30
     FFMPEG_COMMAND = FFMPEG_COMMAND if 'FFMPEG_COMMAND' in globals() else "ffmpeg"
@@ -1775,90 +1794,4 @@ else:
     
     uvicorn.run(app, host="0.0.0.0", port=8001)
 
-```python
-# Configuration settings for the FastAPI application
-
-import os
-from pathlib import Path
-from dotenv import load_dotenv
-
-load_dotenv()
-
-# API Keys
-REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
-STABILITY_API_KEY = os.getenv("STABILITY_API_KEY")
-ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
-ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY")
-DEEPL_API_KEY = os.getenv("DEEPL_API_KEY")
-
-# API Endpoints and Model Identifiers
-REPLICATE_API_URL = "https://api.replicate.com/v1/predictions"
-REPLICATE_ZEROSCOPE_MODEL_XL = "anotherjesse/zeroscope-v2-xl:9f7476737190e1a712580adfd5446408f14b2de0e6e8e168d68f2029fc221216"
-REPLICATE_ZEROSCOPE_MODEL_576W = "anotherjesse/zeroscope-v2-576w:1c8f6c34d800a8054187871f754559085323598320e960e699500244a8386153"
-STABILITY_TEXT_TO_IMAGE_API_URL_BASE = "https://api.stability.ai/v1/generation/{engine_id}/text-to-image"
-STABILITY_DEFAULT_ENGINE = "stable-diffusion-xl-1024-v1-0"
-STABILITY_AUDIO_API_URL = "https://api.stability.ai/v1/generation/stable-audio-generate-v1"
-
-# Polling and Timeout settings for API calls
-REPLICATE_POLL_INTERVAL = 10  # seconds
-REPLICATE_API_TIMEOUT = 300.0  # seconds
-STABILITY_API_TIMEOUT = 180.0  # seconds
-ELEVENLABS_API_TIMEOUT = 60.0  # seconds
-ASSEMBLYAI_POLL_INTERVAL = 5   # seconds
-ASSEMBLYAI_API_TIMEOUT = 300.0 # seconds for transcription
-
-# Video Processing Defaults
-DEFAULT_FPS = 24
-
-# Directory Settings
-TEMP_DIR_BASE = "temp_files"  # Base directory for temporary files for each task
-STATIC_DIR = "static" # General static directory name
-STATIC_VIDEO_DIR_NAME = "generated_videos" # Subdirectory for generated videos
-STATIC_VIDEO_DIR_BASE = Path(STATIC_DIR) / STATIC_VIDEO_DIR_NAME # Full path to the root of generated videos
-
-# File Management
-CLEANUP_TEMP_FILES = True  # Set to False for debugging to keep intermediate files
-
-# Voice mapping for ElevenLabs
-ELEVENLABS_LANG_VOICE_MAP = {
-    "ja": "hBWDuZMNs32sP5dKzMuc",      # Japanese
-    "en": "21m00Tcm4TlvDq8ikA2E",      # English (Example, replace with a preferred English voice ID)
-    "it": "fzDFBB4mgvMlL36gPXcz",      # Italian
-    "es": "0vrPGvXHhDD3rbGURCk8",      # Spanish
-    "fr": "iRYhWuT8tKZ81GesmMsh",      # French
-    "de": "sx7WD8TJIOrk5RQOptDH",      # German
-    "zh": "4VZIsMPtgggwNg7OXbPY",      # Chinese
-    "ko": "WqVy7827vjE2r3jWvbnP",      # Korean
-}
-
-# DeepL Language Codes (ensure these match DeepL's expected format)
-DEEPL_LANG_MAP = {
-    "en": "EN-US", 
-    "ja": "JA",
-    "es": "ES",
-    "fr": "FR",
-    "de": "DE",
-    "it": "IT",
-    "zh": "ZH",
-}
-
-# Other constants
-REPLICATE_MAX_POLL_ATTEMPTS = int(REPLICATE_API_TIMEOUT / REPLICATE_POLL_INTERVAL) if REPLICATE_POLL_INTERVAL > 0 else 30
-FFMPEG_COMMAND = "ffmpeg" # Ensure ffmpeg is in PATH or provide full path
-
-# Ensure static directories exist
-Path(TEMP_DIR_BASE).mkdir(parents=True, exist_ok=True)
-STATIC_VIDEO_DIR_BASE.mkdir(parents=True, exist_ok=True) # This is STATIC_DIR / STATIC_VIDEO_DIR_NAME
-
-# API Key checks (optional, for developer awareness during startup)
-# if not STABILITY_API_KEY:
-#     print("Warning: STABILITY_API_KEY is not set in the environment variables.")
-# if not REPLICATE_API_TOKEN:
-#     print("Warning: REPLICATE_API_TOKEN is not set in the environment variables.")
-# if not ELEVENLABS_API_KEY:
-#     print("Warning: ELEVENLABS_API_KEY is not set in the environment variables.")
-# if not ASSEMBLYAI_API_KEY:
-#     print("Warning: ASSEMBLYAI_API_KEY is not set in the environment variables.")
-# if not DEEPL_API_KEY:
-#     print("Warning: DEEPL_API_KEY is not set in the environment variables.")
 ```
