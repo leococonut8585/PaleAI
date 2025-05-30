@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -446,10 +447,10 @@
                         <div>
                             <label for="videoResolution" class="block text-xs font-medium text-gray-700">画質 (解像度):</label>
                             <select id="videoResolution" class="mt-1 p-2 border border-gray-300 rounded-md shadow-sm w-full text-sm focus:ring-teal-500 focus:border-teal-500">
-                                <option value="512p">512p (低)</option>
-                                <option value="720p">720p (中)</option>
-                                <option value="1080p" selected>1080p (高)</option>
-                                <option value="4k">4K (最高)</option>
+                                <option value="512x512">512x512 (正方形)</option>
+                                <option value="1024x576" selected>1024x576 (16:9 HD)</option>
+                                <option value="1280x720">1280x720 (720p HD)</option>
+                                <option value="1920x1080">1920x1080 (1080p FHD)</option>
                             </select>
                         </div>
                         <div>
@@ -460,29 +461,42 @@
                                 <option value="webm">WebM</option>
                             </select>
                         </div>
+                         <div>
+                            <label for="videoQualitySelect" class="block text-xs font-medium text-gray-700">品質プリセット:</label>
+                            <select id="videoQualitySelect" class="mt-1 p-2 border border-gray-300 rounded-md shadow-sm w-full text-sm focus:ring-teal-500 focus:border-teal-500">
+                                <option value="low">低 (高速)</option>
+                                <option value="medium" selected>中 (標準)</option>
+                                <option value="high">高 (高品質)</option>
+                            </select>
+                        </div>
+                         <div>
+                            <label for="videoFPS" class="block text-xs font-medium text-gray-700">フレームレート (FPS):</label>
+                            <input id="videoFPS" type="number" value="24" min="1" max="60" class="p-2 border border-gray-300 rounded-md shadow-sm w-full text-sm focus:ring-teal-500 focus:border-teal-500">
+                        </div>
                     </div>
 
                     <!-- Narration Options -->
                     <div id="videoNarrationOptionsContainer" class="space-y-2 border-t border-gray-200 pt-3 mt-3">
                         <label class="flex items-center text-sm font-medium text-gray-700">
-                            <input type="checkbox" id="videoNarration" class="mr-2 h-4 w-4 text-teal-600 border-gray-300 rounded focus:ring-teal-500" checked> ナレーションを追加する
+                            <input type="checkbox" id="videoNarrationEnabled" class="mr-2 h-4 w-4 text-teal-600 border-gray-300 rounded focus:ring-teal-500" checked> ナレーションを追加する
                         </label>
                         <div id="videoNarrationSettings" class="ml-6 mt-2 space-y-3">
                             <div>
                                 <label for="videoNarrationLang" class="block text-xs font-medium text-gray-600">ナレーション言語/ボイス:</label>
                                 <select id="videoNarrationLang" class="mt-1 p-2 border border-gray-300 rounded-md shadow-sm w-full text-sm focus:ring-teal-500 focus:border-teal-500">
-                                    <option value="JA" selected>日本語 (デフォルトボイス)</option>
-                                    <option value="EN">英語 (デフォルトボイス)</option>
-                                    <option value="ES">Español (デフォルトボイス)</option>
-                                    <option value="FR">Français (デフォルトボイス)</option>
-                                    <option value="DE">Deutsch (デフォルトボイス)</option>
-                                    <option value="ZH">中文 (デフォルトボイス)</option>
-                                    <option value="KO">한국어 (デフォルトボイス)</option>
+                                    <option value="ja" selected>日本語 (デフォルト)</option>
+                                    <option value="en">英語 (デフォルト)</option>
+                                    <option value="es">スペイン語 (デフォルト)</option>
+                                    <option value="fr">フランス語 (デフォルト)</option>
+                                    <option value="de">ドイツ語 (デフォルト)</option>
+                                    <option value="it">イタリア語 (デフォルト)</option>
+                                    <option value="zh">中国語 (デフォルト)</option>
+                                    <option value="ko">韓国語 (デフォルト)</option>
                                 </select>
                             </div>
                             <div>
-                                <label for="videoNarrationScript" class="block text-xs font-medium text-gray-600">ナレーション内容・タイミング指示:</label>
-                                <textarea id="videoNarrationScript" rows="2" class="mt-1 w-full p-2 border border-gray-300 rounded-md shadow-sm text-sm focus:ring-teal-500 focus:border-teal-500" placeholder="ナレーションのセリフや、各セリフをどのタイミングで再生するかの指示を入力..."></textarea>
+                                <label for="videoNarrationScriptPrompt" class="block text-xs font-medium text-gray-600">ナレーション原稿 (Claude生成用 / 省略可):</label>
+                                <textarea id="videoNarrationScriptPrompt" rows="2" class="mt-1 w-full p-2 border border-gray-300 rounded-md shadow-sm text-sm focus:ring-teal-500 focus:border-teal-500" placeholder="ナレーションのセリフや、各セリフをどのタイミングで再生するかの指示を入力..."></textarea>
                             </div>
                             <div>
                                 <label for="videoNarrationVoiceId" class="block text-xs font-medium text-gray-600">ElevenLabs ボイスID (任意):</label>
@@ -491,9 +505,159 @@
                         </div>
                     </div>
                     
+                    <!-- Subtitle Options -->
+                    <div id="videoSubtitleOptionsContainer" class="space-y-2 border-t border-gray-200 pt-3 mt-3">
+                        <label class="flex items-center text-sm font-medium text-gray-700">
+                            <input type="checkbox" id="subtitlesEnabled" class="mr-2 h-4 w-4 text-teal-600 border-gray-300 rounded focus:ring-teal-500" checked> 字幕を追加する
+                        </label>
+                        <div id="videoSubtitleSettings" class="ml-6 mt-2 space-y-3 hidden"> <!-- Initially hidden, controlled by JS -->
+                            <div>
+                                <label for="videoSubtitleScript" class="block text-xs font-medium text-gray-600">字幕のテキスト (SRT形式、または単純なテキスト):</label>
+                                <textarea id="videoSubtitleScript" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" rows="2" placeholder="字幕が必要な場合、ここにスクリプトを入力するか、ナレーションから自動生成されます。"></textarea>
+                            </div>
+                            <div>
+                                <label for="subtitleSourceLang" class="block text-xs font-medium text-gray-600">字幕の原文言語 (翻訳する場合):</label>
+                                <select id="subtitleSourceLang" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm">
+                                    <option value="">自動検出</option>
+                                    <option value="en">English</option>
+                                    <option value="ja">日本語</option>
+                                    <option value="es">Español</option>
+                                    <option value="fr">Français</option>
+                                    <option value="de">Deutsch</option>
+                                    <option value="it">Italiano</option>
+                                    <option value="zh">中文</option>
+                                    <option value="ko">한국어</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label for="subtitleTargetLang" class="block text-xs font-medium text-gray-600">字幕の翻訳先言語 (任意):</label>
+                                <select id="subtitleTargetLang" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-teal-500 text-sm">
+                                    <option value="">翻訳しない</option>
+                                    <option value="en">English</option>
+                                    <option value="ja">日本語</option>
+                                    <option value="es">Español</option>
+                                    <option value="fr">Français</option>
+                                    <option value="de">Deutsch</option>
+                                    <option value="it">Italiano</option>
+                                    <option value="zh">中文</option>
+                                    <option value="ko">한국어</option>
+                                </select>
+                            </div>
+                            <!-- Subtitle Style Settings Container -->
+                            <div id="videoSubtitleStyleSettingsContainer" class="hidden mt-2 space-y-1 pl-6">
+                                <div>
+                                    <label for="subtitleFontName" class="block text-xs font-medium text-gray-700">字幕フォント名:</label>
+                                    <input type="text" id="subtitleFontName" class="mt-1 block w-full p-1 border-gray-300 rounded-md shadow-sm text-xs" placeholder="例: Meiryo, Arial">
+                                </div>
+                                <div>
+                                    <label for="subtitleFontSize" class="block text-xs font-medium text-gray-700">字幕フォントサイズ:</label>
+                                    <input type="text" id="subtitleFontSize" class="mt-1 block w-full p-1 border-gray-300 rounded-md shadow-sm text-xs" placeholder="例: 24">
+                                </div>
+                                <div>
+                                    <label for="subtitlePrimaryColor" class="block text-xs font-medium text-gray-700">字幕 文字色:</label>
+                                    <input type="text" id="subtitlePrimaryColor" class="mt-1 block w-full p-1 border-gray-300 rounded-md shadow-sm text-xs" placeholder="例: &H00FFFFFF (白)">
+                                </div>
+                                <div>
+                                    <label for="subtitleOutlineColor" class="block text-xs font-medium text-gray-700">字幕 縁取り色:</label>
+                                    <input type="text" id="subtitleOutlineColor" class="mt-1 block w-full p-1 border-gray-300 rounded-md shadow-sm text-xs" placeholder="例: &H00000000 (黒)">
+                                </div>
+                                <div>
+                                    <label for="subtitleBackgroundColor" class="block text-xs font-medium text-gray-700">字幕 背景色:</label>
+                                    <input type="text" id="subtitleBackgroundColor" class="mt-1 block w-full p-1 border-gray-300 rounded-md shadow-sm text-xs" placeholder="例: &H80000000 (半透明黒)">
+                                </div>
+                                <div>
+                                    <label for="subtitleAlignment" class="block text-xs font-medium text-gray-700">字幕 配置 (Numpad):</label>
+                                    <select id="subtitleAlignment" class="mt-1 block w-full p-1 border-gray-300 rounded-md shadow-sm text-xs">
+                                        <option value="2">2 (下中央)</option>
+                                        <option value="1">1 (下左)</option>
+                                        <option value="3">3 (下右)</option>
+                                        <option value="5">5 (中中央)</option>
+                                        <option value="4">4 (中左)</option>
+                                        <option value="6">6 (中右)</option>
+                                        <option value="8">8 (上中央)</option>
+                                        <option value="7">7 (上左)</option>
+                                        <option value="9">9 (上右)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="subtitleMarginV" class="block text-xs font-medium text-gray-700">字幕 縦マージン (px):</label>
+                                    <input type="number" id="subtitleMarginV" class="mt-1 block w-full p-1 border-gray-300 rounded-md shadow-sm text-xs" placeholder="例: 10">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- BGM Options -->
+                    <div id="videoBgmOptionsContainer" class="space-y-2 border-t border-gray-200 pt-3 mt-3">
+                        <label class="flex items-center text-sm font-medium text-gray-700">
+                            <input type="checkbox" id="bgmEnabled" class="mr-2 h-4 w-4 text-teal-600 border-gray-300 rounded focus:ring-teal-500" checked> BGMを追加する
+                        </label>
+                        <div id="bgmSettings" class="ml-6 mt-2 space-y-3">
+                            <div>
+                                <label for="bgmPrompt" class="block text-xs font-medium text-gray-600">BGMの雰囲気・指示:</label>
+                                <input type="text" id="bgmPrompt" class="mt-1 w-full p-2 border border-gray-300 rounded-md shadow-sm text-sm focus:ring-teal-500 focus:border-teal-500" placeholder="例: 明るい、アップテンポ、感動的など">
+                            </div>
+                        </div>
+                    </div>
+
+                     <!-- Advanced Replicate Settings (Initially hidden) -->
+                    <div id="videoReplicateParamsContainer" class="hidden mt-3 pt-3 border-t space-y-1">
+                        <!--
+                        <div>
+                            <label for="replicatePromptPrefix" class="block text-xs font-medium text-gray-700">Replicate プロンプト接頭辞:</label>
+                            <input type="text" id="replicatePromptPrefix" class="mt-1 block w-full p-1 border-gray-300 rounded-md shadow-sm text-xs" placeholder="例: cinematic, detailed">
+                        </div>
+                        <div>
+                            <label for="replicateNegativePrompt" class="block text-xs font-medium text-gray-700">Replicate ネガティブプロンプト:</label>
+                            <input type="text" id="replicateNegativePrompt" class="mt-1 block w-full p-1 border-gray-300 rounded-md shadow-sm text-xs" placeholder="例: blurry, low quality, watermark">
+                        </div>
+                        <div>
+                            <label for="replicateGuidanceScale" class="block text-xs font-medium text-gray-700">Replicate ガイダンススケール:</label>
+                            <input type="number" step="0.1" id="replicateGuidanceScale" class="mt-1 block w-full p-1 border-gray-300 rounded-md shadow-sm text-xs" placeholder="例: 7.5">
+                        </div>
+                        <div>
+                            <label for="replicateNumInferenceSteps" class="block text-xs font-medium text-gray-700">Replicate 推論ステップ数:</label>
+                            <input type="number" id="replicateNumInferenceSteps" class="mt-1 block w-full p-1 border-gray-300 rounded-md shadow-sm text-xs" placeholder="例: 25">
+                        </div>
+                        <div>
+                            <label for="replicateSeed" class="block text-xs font-medium text-gray-700">Replicate シード値 (整数):</label>
+                            <input type="number" id="replicateSeed" class="mt-1 block w-full p-1 border-gray-300 rounded-md shadow-sm text-xs" placeholder="空の場合はランダム">
+                        </div>
+                        <div>
+                            <label for="replicateModelVersion" class="block text-xs font-medium text-gray-700">Replicate モデルバージョン:</label>
+                            <select id="replicateModelVersion" class="mt-1 block w-full p-1 border-gray-300 rounded-md shadow-sm text-xs">
+                                <option value="">デフォルト (Zeroscope XL)</option>
+                                <option value="da770b633b6a41a4b86751053006c0139184c800991394407950989936098d8e">Zeroscope v2 XL (1024x576)</option>
+                                <option value="9936c2001faa2194a261bf010517f94e2edD7e59c0579a143696223A6F56AE5A">Zeroscope v2 576w (576x320)</option>
+                            </select>
+                        </div>
+                        -->
+                    </div>
+
+
+                    <!-- Scene Prompts Area -->
+                    <div id="videoScenePromptsContainer" class="space-y-2 border-t border-gray-200 pt-3 mt-3">
+                        <div class="flex justify-between items-center">
+                            <h4 class="text-sm font-medium text-gray-700">シーン別プロンプト (任意)</h4>
+                            <button id="addScenePromptBtn" class="text-xs bg-blue-500 hover:bg-blue-600 text-white py-1 px-2 rounded-md">シーン追加</button>
+                        </div>
+                        <div id="scene-prompts-list">
+                            <!-- Scene prompt inputs will be added here by JS -->
+                        </div>
+                    </div>
+                    
                     <button id="videoGenerateBtn" class="bg-teal-500 hover:bg-teal-600 text-white px-4 py-2 rounded-md text-sm font-semibold shadow-sm focus:ring-2 focus:ring-offset-2 focus:ring-teal-500">動画を生成</button>
-                    <video id="videoPreview" class="mt-2 max-w-full border border-gray-300 rounded-md shadow hidden" controls></video>
-                    <a id="videoDownloadLink" class="hidden text-teal-600 hover:text-teal-700 underline mt-1 text-sm" download>ダウンロード</a>
+                    
+                    <div id="videoResultArea" class="mt-4 hidden">
+                        <div id="videoProgress" class="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700 mb-2">
+                            <div id="videoProgressBar" class="bg-teal-600 h-2.5 rounded-full" style="width: 0%"></div>
+                        </div>
+                        <p id="videoStatus" class="text-sm text-gray-600 mb-2"></p>
+                        <video id="videoPlayer" class="mt-2 max-w-full border border-gray-300 rounded-md shadow hidden" controls></video>
+                        <a id="videoDownloadLink" class="hidden text-teal-600 hover:text-teal-700 underline mt-1 text-sm" download>ダウンロード</a>
+                        <a id="videoDebugLink" class="hidden text-blue-500 hover:text-blue-700 underline mt-1 text-sm" target="_blank">デバッグ情報</a>
+                        <p id="videoError" class="text-red-500 text-sm mt-1"></p>
+                    </div>
                 </div>
 
                 <div id="talkModeContainer" class="hidden flex flex-col p-3 border rounded bg-gray-100 mb-2 space-y-2">
@@ -704,9 +868,9 @@
     const charCountLabel = document.getElementById('charCountLabel');
     const imageCountWrapper = document.getElementById('imageCountWrapper');
     const imageCountSelect = document.getElementById('imageCount');
-    const imageApiSelectWrapper = document.getElementById('imageApiSelectWrapper'); // 追加
-    const imageApiSelect = document.getElementById('imageApiSelect'); // 追加
-    const newImageGenerationUIArea = document.getElementById('newImageGenerationUIArea'); // Added for new image UI
+    const imageApiSelectWrapper = document.getElementById('imageApiSelectWrapper'); 
+    const imageApiSelect = document.getElementById('imageApiSelect'); 
+    const newImageGenerationUIArea = document.getElementById('newImageGenerationUIArea'); 
     const imageGenerationModeSelect = document.getElementById('imageGenerationModeSelect'); 
     const imageUploadButtonForGeneration = document.getElementById('imageUploadButtonForGeneration'); 
     const imagePromptInput = document.getElementById('imagePromptInput');
@@ -721,7 +885,7 @@
     const thinkingVideo = document.getElementById('thinkingVideo');
     const chatMessagesContainer = document.getElementById('chatMessagesContainer');
     const chatSearchInput = document.getElementById('chatSearch');
-    const chatSessionListDiv = document.getElementById('chatSessionList'); // ここで chatSessionListDiv を定義
+    const chatSessionListDiv = document.getElementById('chatSessionList'); 
     const sidebarTopLink = document.getElementById('sidebarTopLink');
 
     const loginFormArea = document.getElementById('loginFormArea');
@@ -788,10 +952,7 @@
     const templateContentInput = document.getElementById('templateContent');
     const templateCategoryInput = document.getElementById('templateCategory');
     const addTemplateBtn = document.getElementById('addTemplateBtn');
-    // const autoTranslateCheckbox = document.getElementById('autoTranslate'); // 該当IDがない場合はコメントアウトまたは削除
-    // const languageModeCheckbox = document.getElementById('languageMode'); // 該当IDがない場合はコメントアウトまたは削除
 
-    // ファイルアップロード関連のDOM要素
     const fileUploadBtn = document.getElementById('fileUploadBtn');
     const fileInput = document.getElementById('fileInput');
     let selectedFile = null;
@@ -802,34 +963,55 @@
     const videoDescription = document.getElementById('videoDescription');
     const videoDuration = document.getElementById('videoDuration');
     const videoResolution = document.getElementById('videoResolution');
-    const videoBgm = document.getElementById('videoBgm');
-    // const videoBgmMood = document.getElementById('videoBgmMood'); // This ID is no longer used
-    const videoBgm = document.getElementById('videoBgm'); // This is the checkbox
-    const videoBgmPrompt = document.getElementById('videoBgmPrompt');
-    const videoNarration = document.getElementById('videoNarration'); // Checkbox
-    const videoNarrationOptionsContainer = document.getElementById('videoNarrationOptionsContainer'); // Overall container for narration
-    const videoNarrationSettings = document.getElementById('videoNarrationSettings'); // Specific settings div
-    const videoNarrationLang = document.getElementById('videoNarrationLang'); // Select
-    const videoNarrationScript = document.getElementById('videoNarrationScript'); // Textarea
-    const videoNarrationVoiceId = document.getElementById('videoNarrationVoiceId'); // Input
-    const videoSubtitles = document.getElementById('videoSubtitles'); // Checkbox
+    const videoFPS = document.getElementById('videoFPS'); 
+    const videoQualitySelect = document.getElementById('videoQualitySelect'); 
+
+    const videoNarrationEnabledCheckbox = document.getElementById('videoNarrationEnabled'); 
+    const videoNarrationSettings = document.getElementById('videoNarrationSettings'); 
+    const videoNarrationLang = document.getElementById('videoNarrationLang'); 
+    const videoNarrationScriptPrompt = document.getElementById('videoNarrationScriptPrompt'); 
+    const videoNarrationVoiceId = document.getElementById('videoNarrationVoiceId'); 
+
+    const subtitlesEnabledCheckbox = document.getElementById('subtitlesEnabled'); 
+    const videoSubtitleSettings = document.getElementById('videoSubtitleSettings'); 
+    const videoSubtitleScriptTextarea = document.getElementById('videoSubtitleScript'); 
+    const subtitleSourceLangSelect = document.getElementById('subtitleSourceLang'); 
+    const subtitleTargetLangSelect = document.getElementById('subtitleTargetLang');
+    
+    // Subtitle Style UI Elements - Assigning DOM elements
+    videoSubtitleStyleSettingsContainer = document.getElementById('videoSubtitleStyleSettingsContainer'); 
+    subtitleFontNameInput = document.getElementById('subtitleFontName');
+    subtitleFontSizeInput = document.getElementById('subtitleFontSize');
+    subtitlePrimaryColorInput = document.getElementById('subtitlePrimaryColor');
+    subtitleOutlineColorInput = document.getElementById('subtitleOutlineColor');
+    subtitleBackgroundColorInput = document.getElementById('subtitleBackgroundColor');
+    subtitleAlignmentSelect = document.getElementById('subtitleAlignment');
+    subtitleMarginVInput = document.getElementById('subtitleMarginV');
+
+    // Replicate Params UI Elements (initially commented out in HTML, prepare JS vars)
+    let videoReplicateParamsContainer, replicatePromptPrefixInput, replicateNegativePromptInput,
+        replicateGuidanceScaleInput, replicateNumInferenceStepsInput, 
+        replicateSeedInput, replicateModelVersionSelect;
+    
+    const bgmEnabledCheckbox = document.getElementById('bgmEnabled'); 
+    const bgmSettings = document.getElementById('bgmSettings'); 
+    const bgmPromptTextarea = document.getElementById('bgmPrompt'); 
+
+    const advancedSettingsToggle = document.getElementById('advancedSettingsToggle');
+    const advancedSettingsDiv = document.getElementById('advancedSettings'); // This is the old container
     const videoProgress = document.getElementById('videoProgress');
     const videoProgressBar = document.getElementById('videoProgressBar');
-    const videoPreview = document.getElementById('videoPreview');
+    const videoStatus = document.getElementById('videoStatus'); 
+    const videoPlayer = document.getElementById('videoPlayer'); 
     const videoDownloadLink = document.getElementById('videoDownloadLink');
-    // New video elements for Step 1B
+    const videoError = document.getElementById('videoError'); 
+    const videoDebugLink = document.getElementById('videoDebugLink'); 
     const videoOutputFormat = document.getElementById('videoOutputFormat');
-    // const videoBgm = document.getElementById('videoBgm'); // Checkbox for BGM (already exists but will be used with new options)
-
-    // New video elements from previous attempt (ensure they are obtained if they exist in the final HTML)
-    // const videoBgmPrompt = document.getElementById('videoBgmPrompt'); // Already declared
-    const videoSubtitleOptions = document.getElementById('videoSubtitleOptions');
-    const videoSubtitleScript = document.getElementById('videoSubtitleScript');
-    const videoSubtitleTargetLang = document.getElementById('videoSubtitleTargetLang');
-    const videoBgmOptions = document.getElementById('videoBgmOptions');
     const videoScenePromptsContainer = document.getElementById('videoScenePromptsContainer');
-    const addScenePromptBtn = document.getElementById('addScenePromptBtn');
-    const videoResultArea = document.getElementById('videoResultArea');
+    const addScenePromptBtn = document.getElementById('addScenePromptBtn'); 
+    const videoResultArea = document.getElementById('videoResultArea'); 
+
+
     const talkModeContainer = document.getElementById('talkModeContainer');
     const talkInputLang = document.getElementById('talkInputLang');
     const talkOutputLang = document.getElementById('talkOutputLang');
@@ -845,6 +1027,8 @@
     const talkStartYes = document.getElementById('talkStartYes');
     const talkStartNo = document.getElementById('talkStartNo');
     const talkStartInputModeRadios = document.getElementsByName('talkStartInputMode');
+
+    let scenePromptCount = 0; 
 
     // Videos to display while the AI is "thinking"
     const THINKING_VIDEOS = ['/static/movie/ThinkMovie1.mp4', '/static/movie/ThinkMovie2.mp4'];
@@ -867,14 +1051,12 @@
         thinkingVideo.classList.add('hidden');
     }
 
-    // ★ 追加: モードの表示名取得ヘルパー関数
     function getModeDisplayName(modeValue) {
-        if (!aiModeSelect) return modeValue; // aiModeSelect が未定義の場合はそのまま返す
+        if (!aiModeSelect) return modeValue; 
         const optionElement = Array.from(aiModeSelect.options).find(opt => opt.value === modeValue);
         return optionElement ? optionElement.textContent : modeValue;
     }
 
-    // ★ 新規追加: 旧バージョンのモード名を現在のモード名に正規化
     function normalizeMode(modeValue) {
         if (modeValue === null || modeValue === undefined || modeValue === '') {
             console.warn(`normalizeMode: modeValue is empty or null/undefined ('${modeValue}'), defaulting to 'balance'. This likely indicates an issue with data from the backend or cache.`);
@@ -943,14 +1125,10 @@
             if (charCountLabel) charCountLabel.classList.add('hidden');
         }
 
-        // 画像生成モードの制御 (旧UIは常に非表示に)
-        // if (imageCountWrapper) imageCountWrapper.classList.remove('hidden'); // Old UI logic commented out
-        // if (imageApiSelectWrapper) imageApiSelectWrapper.classList.remove('hidden'); // Old UI logic commented out
-        if (imageCountWrapper) imageCountWrapper.classList.add('hidden'); // Ensure old UI is always hidden
-        if (imageApiSelectWrapper) imageApiSelectWrapper.classList.add('hidden'); // Ensure old UI is always hidden
+        if (imageCountWrapper) imageCountWrapper.classList.add('hidden'); 
+        if (imageApiSelectWrapper) imageApiSelectWrapper.classList.add('hidden'); 
 
 
-        // 新しい画像生成UIエリアの表示制御 と 他モードとの排他制御
         if (aiModeSelect.value === 'imagegen') {
             if (newImageGenerationUIArea) newImageGenerationUIArea.classList.remove('hidden');
             if (videoModeContainer) videoModeContainer.classList.add('hidden'); 
@@ -963,69 +1141,59 @@
             if (talkModeContainer) talkModeContainer.classList.remove('hidden');
             if (videoModeContainer) videoModeContainer.classList.add('hidden');
             if (newImageGenerationUIArea) newImageGenerationUIArea.classList.add('hidden'); 
-        } else { // Other modes (non-imagegen, non-videogen, non-talk)
+        } else { 
             if (videoModeContainer) videoModeContainer.classList.add('hidden');
             if (talkModeContainer) talkModeContainer.classList.add('hidden');
             if (newImageGenerationUIArea) newImageGenerationUIArea.classList.add('hidden');
         }
     }
-    // ★ 修正: aiModeSelect の 'change' イベントリスナー (新しいモード切り替えロジック)
     if (aiModeSelect) {
         aiModeSelect.addEventListener('change', async () => {
             const newModeSelectedByUser = aiModeSelect.value;
 
-            // 1. 現在のセッションで選択中のモードと同じなら何もしない
             if (currentSessionId !== null && newModeSelectedByUser === activeSessionOriginalMode) {
                 return;
             }
 
-            // --- ユーティリティ関数定義 (リスナー内スコープ) ---
             const startNewChatWithMode = (modeForNewChat) => {
-                resetChatUI(); // これが currentSessionId = null を設定し、関連UIをリセット
-                if (aiModeSelect) aiModeSelect.value = modeForNewChat; // ドロップダウンを新しいモードに設定
-                activeSessionOriginalMode = modeForNewChat; // 新しいチャットのモードを更新
-                previousAiMode = modeForNewChat; // previousAiMode も同期
-                talkModeConfirmed = (modeForNewChat === 'talk'); // トークモード確認状態を更新
-                toggleCharCountBox(); // UI要素更新
-                // resetChatUI 内の displayMessage が新しいモードで新規チャット開始をアナウンス
+                resetChatUI(); 
+                if (aiModeSelect) aiModeSelect.value = modeForNewChat; 
+                activeSessionOriginalMode = modeForNewChat; 
+                previousAiMode = modeForNewChat; 
+                talkModeConfirmed = (modeForNewChat === 'talk'); 
+                toggleCharCountBox(); 
             };
 
             const revertModeSelectionToActiveSession = () => {
-                if (aiModeSelect) aiModeSelect.value = activeSessionOriginalMode; // ドロップダウンを元のセッションのモードに戻す
+                if (aiModeSelect) aiModeSelect.value = activeSessionOriginalMode; 
             };
 
-            // 2. 「ペイルの対話」モードへの切り替え処理 (専用モーダルがある場合)
             if (newModeSelectedByUser === 'talk') {
-                if (currentSessionId === null || activeSessionOriginalMode !== 'talk') { // 新規チャット or 非トークモードからの切り替え
-                    previousAiMode = activeSessionOriginalMode; // ★重要: モーダル表示"前"のモードを記憶
-                    sessionStorage.setItem('intendedModeForNewChatViaModal', newModeSelectedByUser); // モーダル結果処理用
+                if (currentSessionId === null || activeSessionOriginalMode !== 'talk') { 
+                    previousAiMode = activeSessionOriginalMode; 
+                    sessionStorage.setItem('intendedModeForNewChatViaModal', newModeSelectedByUser); 
                     if (talkStartModal) {
-                        talkStartModal.classList.remove('hidden'); // 言語設定などのモーダル表示
+                        talkStartModal.classList.remove('hidden'); 
                     } else {
-                        // talkStartModal がない場合のフォールバック (通常はモーダルがある想定)
                         if (confirm(`「${getModeDisplayName(newModeSelectedByUser)}」モードで新規チャットを開始しますか？`)) {
                             startNewChatWithMode(newModeSelectedByUser);
                         } else {
-                            revertModeSelectionToActiveSession(); // 元のセッションのモードに戻す
+                            revertModeSelectionToActiveSession(); 
                         }
                     }
-                    return; // talkStartModalの結果待ち (またはフォールバック処理完了)
+                    return; 
                 }
-                // それ以外 (既にトークモードのセッションで再度トークを選択など) は最初のifで弾かれるはず
             }
 
-            // 3. 新規チャット状態 (currentSessionId === null) の場合 (かつトークモードではない)
             if (currentSessionId === null) {
-                activeSessionOriginalMode = newModeSelectedByUser; // 新規チャットのモードとして設定
+                activeSessionOriginalMode = newModeSelectedByUser; 
                 previousAiMode = newModeSelectedByUser;
-                talkModeConfirmed = false; // この分岐ではトークモードではない
+                talkModeConfirmed = false; 
                 toggleCharCountBox();
                 displayMessage(`新規チャットのモードを「${getModeDisplayName(newModeSelectedByUser)}」に設定しました。`, 'system');
                 return;
             }
 
-            // 4. 既存セッションがあり、異なるモード (トーク以外) へ変更しようとした場合
-            // (currentSessionId !== null && newModeSelectedByUser !== activeSessionOriginalMode && newModeSelectedByUser !== 'talk')
             if (confirm("モードを切り替えて新規チャットを開きますか？\n「いいえ」を選ぶと、現在のチャットに現在のモードのまま留まります。")) {
                 startNewChatWithMode(newModeSelectedByUser);
             } else {
@@ -1033,7 +1201,7 @@
             }
         });
     }
-    // ★ 既存の handleAiModeChange 関数は上記リスナーに統合されたため削除
+
     talkInputModeRadios.forEach(r => r.addEventListener('change', updateTalkInputMode));
     if (talkRecordBtn) {
         talkRecordBtn.addEventListener('click', async () => {
@@ -1062,25 +1230,23 @@
     if (talkStartYes) {
         talkStartYes.addEventListener('click', () => {
         const intendedMode = sessionStorage.getItem('intendedModeForNewChatViaModal');
-        sessionStorage.removeItem('intendedModeForNewChatViaModal'); // 確認後は削除
+        sessionStorage.removeItem('intendedModeForNewChatViaModal'); 
 
-        // モーダルで言語などを設定 (既存のロジック)
         if (talkInputLang && talkStartInputLang) talkInputLang.value = talkStartInputLang.value;
         if (talkOutputLang && talkStartOutputLang) talkOutputLang.value = talkStartOutputLang.value;
         if (talkStartInputModeRadios && talkInputModeRadios){
             const sel = Array.from(talkStartInputModeRadios).find(r => r.checked)?.value || 'text';
             talkInputModeRadios.forEach(r => { r.checked = (r.value === sel); });
         }
-        updateTalkInputMode(); // マイク/テキスト入力欄の切り替え
+        updateTalkInputMode(); 
 
         if (intendedMode === 'talk') {
-            // ★ ユーザーが「トークモードで新規チャット開始」をモーダル経由で確定した場合
-            talkModeConfirmed = true; // トークモード設定完了
-            resetChatUI(); // 新規チャットUI状態へ
-            if (aiModeSelect) aiModeSelect.value = 'talk'; // ドロップダウンをトークモードに
-            activeSessionOriginalMode = 'talk';    // 新規チャットのモードをトークに
-            previousAiMode = 'talk';               // previousAiMode も同期
-            toggleCharCountBox();                  // UI更新
+            talkModeConfirmed = true; 
+            resetChatUI(); 
+            if (aiModeSelect) aiModeSelect.value = 'talk'; 
+            activeSessionOriginalMode = 'talk';    
+            previousAiMode = 'talk';               
+            toggleCharCountBox();                  
         }
 
         if (talkStartModal) talkStartModal.classList.add('hidden');
@@ -1088,29 +1254,27 @@
     }
     if (talkStartNo) {
         talkStartNo.addEventListener('click', () => {
-        sessionStorage.removeItem('intendedModeForNewChatViaModal'); // フラグをクリア
-        // ★ モーダル表示前に記憶した previousAiMode (元のセッションのモード or 新規チャット時の選択) に戻す
+        sessionStorage.removeItem('intendedModeForNewChatViaModal'); 
         if (aiModeSelect) aiModeSelect.value = previousAiMode;
-        // talkModeConfirmed は変更しない (トークモードへの移行をキャンセルしたため)
-        // toggleCharCountBox(); // aiModeSelect.value が戻るので、必要なら呼び出すが、通常は不要か
         if (talkStartModal) talkStartModal.classList.add('hidden');
         });
     }
 
-    // --- APIエンドポイント ---
-    const API_BASE_URL = 'http://127.0.0.1:8000'; // 環境に応じて変更
+    const API_BASE_URL = ''; 
     const API_ENDPOINT_COLLABORATIVE_ANSWER = `${API_BASE_URL}/collaborative_answer_v2`;
     const API_ENDPOINT_REGISTER = `${API_BASE_URL}/auth/register`;
     const API_ENDPOINT_LOGIN = `${API_BASE_URL}/auth/login`;
     const API_ENDPOINT_USERS_ME = `${API_BASE_URL}/users/me`;
-    const API_ENDPOINT_CHAT_SESSIONS = `${API_BASE_URL}/chat/sessions`; // routers/chat.py の prefix を反映
+    const API_ENDPOINT_CHAT_SESSIONS = `${API_BASE_URL}/chat/sessions`; 
     const API_ENDPOINT_FOLDERS = `${API_BASE_URL}/folders`;
     const API_ENDPOINT_MEMORY = `${API_BASE_URL}/memory`;
     const API_ENDPOINT_TEMPLATES = `${API_BASE_URL}/templates`;
     const API_ENDPOINT_TRANSLATE = `${API_BASE_URL}/translate`;
     const API_ENDPOINT_IMAGE_GEN = `${API_BASE_URL}/images/generate`;
     const API_ENDPOINT_IMAGE_GEN_NEW = `${API_BASE_URL}/images/generate_new`;
-    const API_ENDPOINT_VIDEO_GEN = `${API_BASE_URL}/video/generate`;
+    const API_ENDPOINT_VIDEO_GEN = `${API_BASE_URL}/video/generate_from_text/`; 
+    const API_ENDPOINT_VIDEO_EDIT = `${API_BASE_URL}/video/edit`; 
+    const API_ENDPOINT_VIDEO_STATUS = `${API_BASE_URL}/video/status`; 
     const API_ENDPOINT_TALK_GEN = `${API_BASE_URL}/talk/generate`;
     const API_ENDPOINT_TALK_UPLOAD = `${API_BASE_URL}/talk/upload_audio`;
 
@@ -1120,27 +1284,24 @@
         'HR','SK','NO','TH','ID','VI','TL','SR','PL','NL'
     ];
 
-    // --- 状態管理変数 ---
     let currentSessionId = null;
-    let currentFolderId = 0; // 0: 全て, -1: 未分類, その他: folder id
-    const sessionLoading = {}; // セッションごとの処理中状態
-    const pendingSessionPromises = {}; // 新規作成中セッションのPromise管理
+    let currentFolderId = 0; 
+    const sessionLoading = {}; 
+    const pendingSessionPromises = {}; 
     let currentUserProfileImage = null;
     let foldersCache = [];
-    let allSessionsCache = []; // ★ 追加: 全セッション情報をキャッシュする配列
-    let activeSessionOriginalMode = aiModeSelect ? aiModeSelect.value : 'balance'; // ★ 追加: 現在アクティブなセッションの実際のモード
-    let previousAiMode = aiModeSelect ? aiModeSelect.value : 'balance'; // ★ 修正: talkStartModal表示前のモード退避用など (aiModeSelect の存在確認を追加)
+    let allSessionsCache = []; 
+    let activeSessionOriginalMode = aiModeSelect ? aiModeSelect.value : 'balance'; 
+    let previousAiMode = aiModeSelect ? aiModeSelect.value : 'balance'; 
     let talkModeConfirmed = false;
     let mediaRecorder = null;
     let recordedChunks = [];
     let selectedImageForGeneration = null;
 
-    // --- トークン管理 ---
     function saveToken(token) { localStorage.setItem('paleio_token', token); }
     function getToken() { return localStorage.getItem('paleio_token'); }
     function removeToken() { localStorage.removeItem('paleio_token'); }
 
-    // --- 認証付きAPIリクエストヘルパー ---
     async function makeAuthenticatedRequest(url, options = {}) {
         const token = getToken();
         const headers = { ...options.headers };
@@ -1153,12 +1314,12 @@
         if (token) {
             headers['Authorization'] = `Bearer ${token}`;
         }
-        if (options.body instanceof FormData) { // FormDataの場合はContent-Typeをブラウザに任せる
+        if (options.body instanceof FormData) { 
             delete headers['Content-Type'];
         }
         try {
             const response = await fetch(url, { ...options, headers });
-            if (response.status === 401) { // Unauthorized
+            if (response.status === 401) { 
                 console.warn('Unauthorized. Logging out.');
                 handleLogout();
                 alert('認証が切れています。再度ログインしてください。');
@@ -1170,12 +1331,10 @@
             return response;
         } catch (error) {
             console.error(`API request to ${url} failed:`, error);
-            // ネットワークエラーなどの場合もここでキャッチ
-            throw error; // エラーを再スローして呼び出し元で処理できるようにする
+            throw error; 
         }
     }
 
-    // --- UI更新関数 ---
     function updateUIAfterLogin(userData) {
         if (loginFormArea) loginFormArea.classList.add('hidden');
         if (registerFormArea) registerFormArea.classList.add('hidden');
@@ -1202,12 +1361,12 @@
             }
         }
         loadFolders();
-        loadChatSessions(); // ログイン後にチャットセッションを読み込む
+        loadChatSessions(); 
     }
 
     function updateUIAfterLogout() {
         if (loginFormArea) loginFormArea.classList.remove('hidden');
-        if (registerFormArea) registerFormArea.classList.add('hidden'); // 登録フォームも隠す
+        if (registerFormArea) registerFormArea.classList.add('hidden'); 
         if (userInfoArea) userInfoArea.classList.add('hidden');
         if (globalSearchInput) globalSearchWrapper.classList.add('hidden');
         if (bulkSendBtn) bulkSendBtn.classList.add('hidden');
@@ -1235,8 +1394,7 @@
         }
     }
 
-    // --- 空のチャット画面表示用関数 ---
-function resetChatUI() {
+    function resetChatUI() {
         if (!chatArea || !chatMessagesContainer) return;
         hideThinkingVideo();
         if (loadingIndicator) loadingIndicator.classList.add('hidden');
@@ -1253,7 +1411,7 @@ function resetChatUI() {
         previousAiMode = newChatMode;
         talkModeConfirmed = (newChatMode === 'talk');
 
-        console.log(`resetChatUI: 新しいチャットのモードを「${getModeDisplayName(newChatMode)}」に設定。activeSessionOriginalMode は ${activeSessionOriginalMode}`);
+        console.log(`resetChatUI: 新しいチャットのモードを「${getModeDisplayName(newChatMode)}」に設定しました。activeSessionOriginalMode は ${activeSessionOriginalMode}`);
         displayMessage(`新しいチャットをモード「${getModeDisplayName(newChatMode)}」で開始しました。`, 'system');
         if (chatArea) chatArea.classList.remove('hidden');
         if (promptTextarea) promptTextarea.focus();
@@ -1261,7 +1419,6 @@ function resetChatUI() {
     }
 
 
-// --- メッセージ表示関数 ---
 function displayMessage(content, role, aiModelName = null, messageId = null, searchFragments = null, searchSummary = null, searchModeWarnings = null) {
     if (!chatMessagesContainer) return;
     const messageWrapper = document.createElement('div');
@@ -1282,7 +1439,7 @@ function displayMessage(content, role, aiModelName = null, messageId = null, sea
         characterImage.alt = 'User';
         speechBubbleCard.classList.add('user-bubble');
     } else if (role === 'ai') {
-        characterImage.src = '/static/pic/Ukiyozaru.png'; // 正しく表示されるよう画像を更新済み
+        characterImage.src = '/static/pic/Ukiyozaru.png'; 
         characterImage.alt = 'AI';
         speechBubbleCard.classList.add('ai-bubble');
         if (aiModelName) {
@@ -1291,7 +1448,7 @@ function displayMessage(content, role, aiModelName = null, messageId = null, sea
             modelLabel.textContent = aiModelName;
             speechBubbleCard.appendChild(modelLabel);
         }
-    } else { // system メッセージ
+    } else { 
         const systemDiv = document.createElement('div');
         systemDiv.classList.add('text-xs', 'text-gray-500', 'italic', 'text-center', 'my-2', 'w-full', 'py-1', 'px-3', 'bg-gray-100', 'rounded');
         try {
@@ -1306,21 +1463,14 @@ function displayMessage(content, role, aiModelName = null, messageId = null, sea
     }
 
     const contentDiv = document.createElement('div');
-    // proseクラスはMarkdown用なので、画像の場合は外すことも検討
-    // ここでは一旦共通でつけておくが、画像表示に影響があれば調整
     contentDiv.classList.add('prose', 'prose-sm', 'max-w-none', 'markdown-body');
 
     const currentSelectedMode = aiModeSelect.value;
 
     if (role === 'ai' && currentSelectedMode === 'imagegen') {
-        // ★★★ 画像生成モードのAI応答の場合 ★★★
-        // content には画像URLの配列から作られたHTML文字列が渡ってくる想定
-        // (submitBtnのイベントリスナー内の data.urls.map(...).join('') 部分)
-        // または、エラーの場合はエラーメッセージ文字列
-        if (content.startsWith('<img src="data:image')) { // 正常な画像データの場合
-             contentDiv.innerHTML = content; // そのままHTMLとしてセット (marked.parseしない)
-             // 画像の場合は copyButton や highlight.js は不要
-        } else { // エラーメッセージなどのテキストの場合
+        if (content.startsWith('<img src="data:image') || content.startsWith('<img src="http')) { 
+             contentDiv.innerHTML = content; 
+        } else { 
             try {
                 contentDiv.innerHTML = marked.parse(content || "");
             } catch (e) {
@@ -1329,7 +1479,6 @@ function displayMessage(content, role, aiModelName = null, messageId = null, sea
             }
         }
     } else if ((currentSelectedMode === 'search6' || currentSelectedMode === 'supersearch') && role === 'ai') {
-        // 検索モードの処理 (変更なし)
         if (content) {
             try {
                 contentDiv.innerHTML = marked.parse(content || "");
@@ -1342,7 +1491,6 @@ function displayMessage(content, role, aiModelName = null, messageId = null, sea
         } else {
              contentDiv.innerHTML = marked.parse('*検索結果の主要コンテンツがありませんでした。*');
         }
-       // ... (searchFragments, searchSummary などの処理は省略せずそのまま)
         if (searchFragments && Array.isArray(searchFragments) && searchFragments.length > 0) {
             const fragmentsWrapper = document.createElement('div');
             fragmentsWrapper.className = 'search-fragments-container';
@@ -1403,7 +1551,7 @@ function displayMessage(content, role, aiModelName = null, messageId = null, sea
                 fragmentsListDiv.appendChild(itemDiv);
             });
             fragmentsWrapper.appendChild(fragmentsListDiv);
-            speechBubbleCard.appendChild(fragmentsWrapper); // fragmentsWrapperをspeechBubbleCardに追加
+            speechBubbleCard.appendChild(fragmentsWrapper); 
         }
 
         if (searchSummary) {
@@ -1431,7 +1579,7 @@ function displayMessage(content, role, aiModelName = null, messageId = null, sea
             }
             speechBubbleCard.appendChild(warningsContainer);
         }
-    } else { // 通常のテキスト応答 (ユーザーメッセージも含む)
+    } else { 
         try {
             contentDiv.innerHTML = marked.parse(content || "");
         } catch (e) {
@@ -1447,7 +1595,6 @@ function displayMessage(content, role, aiModelName = null, messageId = null, sea
     }
     speechBubbleCard.appendChild(contentDiv);
 
-    // 翻訳ボタンの追加ロジック (変更なし、ただし画像生成モードでは表示しないようにする)
     if (role === 'ai' && currentSelectedMode !== 'imagegen' && !(currentSelectedMode === 'search6' || currentSelectedMode === 'supersearch')) {
         const transBtn = document.createElement('button');
         transBtn.className = 'text-xs text-blue-600 underline mt-2';
@@ -1467,9 +1614,7 @@ function displayMessage(content, role, aiModelName = null, messageId = null, sea
         });
         speechBubbleCard.appendChild(transBtn);
         speechBubbleCard.appendChild(transDiv);
-        // autoTranslateCheckbox の処理は変更なし
     }
-    // ユーザーメッセージの自動翻訳は変更なし
 
     characterArea.appendChild(characterImage);
     messageWrapper.appendChild(characterArea);
@@ -1520,12 +1665,12 @@ function displayMessage(content, role, aiModelName = null, messageId = null, sea
                 e.preventDefault();
                 unassignedDiv.classList.remove('drop-target');
                 const sid = e.dataTransfer.getData('text/plain');
-                if (sid) moveSessionToFolder(sid, 0);
+                if (sid) moveSessionToFolder(sid, 0); // 0 or null for unassigned
             });
             const noneBtn = document.createElement('button');
             noneBtn.className = 'flex-grow px-3 py-1 text-sm text-left text-gray-700 focus:outline-none';
             noneBtn.textContent = '未分類';
-            noneBtn.addEventListener('click', () => handleFolderSelection(-1));
+            noneBtn.addEventListener('click', () => handleFolderSelection(-1)); // -1 for unassigned
             unassignedDiv.appendChild(noneBtn);
             folderListDiv.appendChild(unassignedDiv);
 
@@ -1549,7 +1694,7 @@ function displayMessage(content, role, aiModelName = null, messageId = null, sea
                 actions.className = 'folder-button-actions flex items-center pr-2';
                 const editBtn = document.createElement('button');
                 editBtn.className = 'edit-folder-btn action-button text-gray-500 hover:text-blue-600';
-                editBtn.textContent = '✏';
+                editBtn.textContent = '✏️';
                 editBtn.title = '名称変更';
                 editBtn.addEventListener('click', (e) => { e.stopPropagation(); handleEditFolder(folder.id, folder.name); });
                 const delBtn = document.createElement('button');
@@ -1565,7 +1710,7 @@ function displayMessage(content, role, aiModelName = null, messageId = null, sea
             });
         } catch (error) {
             console.error('フォルダ一覧読込エラー:', error);
-            if (error.message !== 'auth') {
+            if (error.message !== 'auth' && folderListDiv) {
                 folderListDiv.innerHTML = `<p class="text-xs text-red-500 px-2">読み込み失敗</p>`;
             }
         }
@@ -1593,12 +1738,12 @@ function displayMessage(content, role, aiModelName = null, messageId = null, sea
     }
 
     async function handleDeleteFolder(folderId, folderName) {
-        if (confirm(`フォルダ「${folderName}」を削除しますか？`)) {
+        if (confirm(`フォルダ「${folderName}」を削除しますか？このフォルダ内のチャットは「未分類」に移動します。`)) {
             try {
                 const res = await makeAuthenticatedRequest(`${API_ENDPOINT_FOLDERS}/${folderId}`, { method: 'DELETE' });
                 if (res.status === 204 || res.ok) {
                     await loadFolders();
-                    await loadChatSessions();
+                    await loadChatSessions(); // Refresh sessions as they might have moved to unclassified
                 } else {
                     const err = await res.json().catch(() => ({ detail: '削除失敗' }));
                     throw new Error(err.detail);
@@ -1614,6 +1759,13 @@ function displayMessage(content, role, aiModelName = null, messageId = null, sea
     function handleFolderSelection(folderId) {
         currentFolderId = folderId;
         loadChatSessions();
+        // Highlight selected folder
+        document.querySelectorAll('.folder-element').forEach(el => el.classList.remove('session-button-active'));
+        const selectedFolderEl = document.querySelector(`.folder-element[data-folder-id="${folderId}"]`) || 
+                                (folderId === 0 ? document.querySelector('.folder-element button:first-child').parentElement : 
+                                 (folderId === -1 ? document.querySelectorAll('.folder-element button')[1].parentElement : null));
+        if (selectedFolderEl) selectedFolderEl.classList.add('session-button-active');
+
     }
 
     if (globalSearchInput) {
@@ -1824,7 +1976,7 @@ function displayMessage(content, role, aiModelName = null, messageId = null, sea
             return;
         }
         if (!chatSessionListDiv) return;
-        chatSessionListDiv.innerHTML = '<p class="text-xs text-gray-500 px-2">履歴読込中...</p>'; // 読込中メッセージ
+        chatSessionListDiv.innerHTML = '<p class="text-xs text-gray-500 px-2">履歴読込中...</p>'; 
 
         try {
             const response = await makeAuthenticatedRequest(API_ENDPOINT_CHAT_SESSIONS, { method: 'GET' });
@@ -1838,20 +1990,22 @@ function displayMessage(content, role, aiModelName = null, messageId = null, sea
             console.log("Processed allSessionsCache with normalized_mode_for_debug:", JSON.parse(JSON.stringify(allSessionsCache)));
             chatSessionListDiv.innerHTML = '';
 
-            if (currentFolderId === -1) {
+            if (currentFolderId === -1) { // Uncategorized
                 sessions = sessions.filter(s => !s.folder_id);
-            } else if (currentFolderId > 0) {
+            } else if (currentFolderId > 0) { // Specific folder
                 sessions = sessions.filter(s => s.folder_id === currentFolderId);
             }
+            // If currentFolderId is 0, show all sessions (no filtering needed here)
+
 
             if (sessions && sessions.length > 0) {
                 sessions.sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at));
 
                 sessions.forEach(session => {
-                    const sessionElementContainer = document.createElement('div'); // ★★★ 各セッションのコンテナ ★★★
+                    const sessionElementContainer = document.createElement('div'); 
                     sessionElementContainer.className = 'session-element flex items-center w-full hover:bg-teal-50 rounded-md group';
                     sessionElementContainer.setAttribute('data-session-id', session.id);
-                    sessionElementContainer.setAttribute('data-status', session.status || 'complete');
+                    sessionElementContainer.setAttribute('data-status', session.status || 'complete'); // Ensure status is set
 
                     sessionElementContainer.draggable = true;
                     sessionElementContainer.addEventListener('dragstart', (e) => {
@@ -1864,41 +2018,43 @@ function displayMessage(content, role, aiModelName = null, messageId = null, sea
 
                     const sessionButton = document.createElement('button');
                     sessionButton.className = 'flex items-center flex-grow px-3 py-2 text-xs text-left text-gray-700 focus:outline-none transition-colors duration-150 ease-in-out';
-                    if (session.id === currentSessionId) {
+                    if (session.id === currentSessionId) { // Compare with potentially pending ID
+                        sessionElementContainer.classList.add('session-button-active'); // Highlight container
                         sessionButton.classList.add('session-button-active');
                     }
 
+
                     const titleText = session.title ? (session.title.length > 15 ? session.title.substring(0, 12) + '...' : session.title) : `セッション ${session.id}`;
-                    const updatedAt = new Date(session.updated_at || session.created_at); // updated_at がなければ created_at
+                    const updatedAt = new Date(session.updated_at || session.created_at); 
                     const formattedDate = `${updatedAt.toLocaleDateString('ja-JP', { month: '2-digit', day: '2-digit' })} ${updatedAt.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`;
 
                     sessionButton.innerHTML = `
                         <span class="session-title-text flex-grow" title="${session.title || ''}">${titleText}</span>
                         <span class="text-xs text-gray-400 flex-shrink-0 ml-1">${formattedDate}</span>
                     `;
-                    if (session.status && session.status !== 'complete') {
+                    
+                    if (session.status === 'loading' || (sessionLoading[session.id] || (typeof session.id === 'string' && session.id.startsWith('pending-') && sessionLoading[session.id]))) {
                         const sp = document.createElement('span');
-                        sp.className = 'session-loading-spinner';
+                        sp.className = 'session-loading-spinner ml-auto'; 
                         sessionButton.appendChild(sp);
                     }
+
+
                     sessionButton.addEventListener('click', () => handleSessionSelection(session.id));
 
-                    // アクションボタンコンテナ
                     const actionsDiv = document.createElement('div');
-                    actionsDiv.className = 'session-button-actions flex items-center pr-2'; // 通常は非表示、ホバーで表示はCSSで
+                    actionsDiv.className = 'session-button-actions flex items-center pr-2'; 
 
-                    // 編集ボタン
                     const editBtn = document.createElement('button');
                     editBtn.className = 'edit-session-title-btn action-button text-gray-500 hover:text-blue-600';
                     editBtn.innerHTML = '✏️';
                     editBtn.title = "タイトル編集";
                     editBtn.dataset.sessionId = session.id;
                     editBtn.addEventListener('click', (e) => {
-                        e.stopPropagation(); // 親のセッション選択イベントを発火させない
+                        e.stopPropagation(); 
                         handleEditTitle(session.id, session.title);
                     });
 
-                    // 削除ボタン
                     const deleteBtn = document.createElement("button");
                     deleteBtn.className = "delete-session-btn action-button text-gray-500 hover:text-red-600 delete";
                     deleteBtn.innerHTML = "🗑";
@@ -1937,21 +2093,26 @@ function displayMessage(content, role, aiModelName = null, messageId = null, sea
             }
         }
 
-        if (currentSessionId !== null) {
+        if (currentSessionId !== null && !String(currentSessionId).startsWith('pending-')) {
             const currentActiveSession = allSessionsCache.find(s => s.id === currentSessionId);
             if (currentActiveSession && aiModeSelect) {
                 const originalMode = currentActiveSession.mode;
-                const normalizedMode = normalizeMode(originalMode);
-                console.log(`loadChatSessions後、アクティブセッション ${currentSessionId} の元のモード: '${originalMode}', 正規化後: '${normalizedMode}'`);
+                const normalizedMode = normalizeMode(originalMode); 
                 if (aiModeSelect.value !== normalizedMode) {
-                    console.log(`aiModeSelect (${aiModeSelect.value}) と異なるため、'${normalizedMode}' に再設定します。`);
                     aiModeSelect.value = normalizedMode;
                     activeSessionOriginalMode = normalizedMode;
                     toggleCharCountBox();
                 }
             } else if (currentActiveSession === undefined && aiModeSelect) {
-                console.warn(`loadChatSessions後、セッション ${currentSessionId} はキャッシュにありませんでした。`);
+                 console.warn(`loadChatSessions後、セッション ${currentSessionId} はキャッシュにありませんでした。モードは ${aiModeSelect.value} のままです。`);
+                 activeSessionOriginalMode = normalizeMode(aiModeSelect.value); 
             }
+        } else if (currentSessionId === null && aiModeSelect) { 
+            const currentDisplayedMode = normalizeMode(aiModeSelect.value);
+            activeSessionOriginalMode = currentDisplayedMode;
+            previousAiMode = currentDisplayedMode;
+            talkModeConfirmed = (currentDisplayedMode === 'talk');
+            toggleCharCountBox();
         }
     }
 
@@ -1967,7 +2128,7 @@ function displayMessage(content, role, aiModelName = null, messageId = null, sea
                     const err = await response.json().catch(() => ({ detail: 'タイトル更新失敗' }));
                     throw new Error(err.detail);
                 }
-                await loadChatSessions(); // リストを再描画して更新を反映
+                await loadChatSessions(); 
                 alert('タイトルを更新しました。');
             } catch (error) {
                 console.error('タイトル更新エラー:', error);
@@ -1984,14 +2145,14 @@ function displayMessage(content, role, aiModelName = null, messageId = null, sea
                 const response = await makeAuthenticatedRequest(`${API_ENDPOINT_CHAT_SESSIONS}/${sessionId}`, {
                     method: 'DELETE'
                 });
-                // DELETEは204 No Contentを返すことが多い
                 if (response.status === 204 || response.ok) {
-                    if (currentSessionId === sessionId) { // 削除したのが現在のセッションならクリア
+                    if (currentSessionId === sessionId) { 
                         currentSessionId = null;
                         if (chatMessagesContainer) chatMessagesContainer.innerHTML = '';
-                        displayMessage('チャットセッションが削除されました。', 'system');
+                        displayMessage('チャットセッションが削除されました。新しいチャットを開始するか、既存のチャットを選択してください。', 'system');
+                        resetChatUI(); 
                     }
-                    await loadChatSessions(); // リストを再描画
+                    await loadChatSessions(); 
                     alert('セッションを削除しました。');
                 } else {
                     const err = await response.json().catch(() => ({ detail: 'セッション削除失敗' }));
@@ -2006,551 +2167,46 @@ function displayMessage(content, role, aiModelName = null, messageId = null, sea
         }
     }
 
-async function handleMoveSession(sessionId, currentFolder) {
+async function moveSessionToFolder(sessionId, folderId) {
         try {
-            const res = await makeAuthenticatedRequest(API_ENDPOINT_FOLDERS, { method: 'GET' });
+            const res = await makeAuthenticatedRequest(`${API_ENDPOINT_FOLDERS}/${folderId}/sessions/${sessionId}`, { method: 'PUT' });
             if (!res.ok) {
-                const err = await res.json().catch(() => ({ detail: 'フォルダ一覧取得失敗' }));
+                const err = await res.json().catch(() => ({ detail: '移動失敗' }));
                 throw new Error(err.detail);
             }
-            const folders = await res.json();
-            let promptMsg = '移動先フォルダIDを入力してください:\n0: (ルート/未分類に戻す)\n';
-            folders.forEach(f => { promptMsg += `${f.id}: ${f.name}\n`; });
-            const input = prompt(promptMsg, currentFolder !== null ? String(currentFolder) : "0");
-
-            if (input === null) return;
-
-            const targetFolderId = parseInt(input);
-            if (isNaN(targetFolderId)) {
-                alert('無効なフォルダIDが入力されました。');
-                return;
-            }
-
-            const requestBody = { folder_id: targetFolderId === 0 ? null : targetFolderId };
-
-            const moveRes = await makeAuthenticatedRequest(`${API_ENDPOINT_CHAT_SESSIONS}/${sessionId}/folder`, {
-                method: 'PUT',
-                body: JSON.stringify(requestBody)
-            });
-
-            if (!moveRes.ok) {
-                const err2 = await moveRes.json().catch(() => ({ detail: 'セッションのフォルダ移動に失敗しました。' }));
-                throw new Error(err2.detail);
-            }
-            alert('セッションをフォルダに移動しました。');
-            await loadChatSessions();
-        } catch (error) {
-            if (error.message !== 'auth') {
-                alert(`フォルダ移動エラー: ${error.message}`);
-            }
-            console.error('フォルダ移動エラー:', error);
-        }
-    }
-
-async function handleToggleStar(sessionId, value) {
-    try {
-        const res = await makeAuthenticatedRequest(`${API_ENDPOINT_CHAT_SESSIONS}/${sessionId}/star`, {
-            method: 'PUT',
-            body: JSON.stringify({ starred: value })
-        });
-        if (!res.ok) {
-            const err = await res.json().catch(() => ({ detail: 'スター更新失敗' }));
-            throw new Error(err.detail);
-        }
-        await loadChatSessions();
-    } catch (error) {
-        if (error.message !== 'auth') {
-            alert(`スター更新エラー: ${error.message}`);
-        }
-    }
-}
-
-async function handleEditTags(sessionId, currentTags) {
-    const newTags = prompt('タグをカンマ区切りで入力してください:', currentTags);
-    if (newTags === null) return;
-    try {
-        const res = await makeAuthenticatedRequest(`${API_ENDPOINT_CHAT_SESSIONS}/${sessionId}/tags`, {
-            method: 'PUT',
-            body: JSON.stringify({ tags: newTags })
-        });
-        if (!res.ok) {
-            const err = await res.json().catch(() => ({ detail: 'タグ更新失敗' }));
-            throw new Error(err.detail);
-        }
-        await loadChatSessions();
-    } catch (error) {
-        if (error.message !== 'auth') {
-            alert(`タグ更新エラー: ${error.message}`);
-        }
-    }
-}
-    async function moveSessionToFolder(sessionId, folderId) {
-        try {
-            const moveRes = await makeAuthenticatedRequest(`${API_ENDPOINT_FOLDERS}/${folderId}/sessions/${sessionId}`, { method: 'PUT' });
-            if (!moveRes.ok) {
-                const err2 = await moveRes.json().catch(() => ({ detail: '移動失敗' }));
-                throw new Error(err2.detail);
-            }
-            await loadChatSessions();
+            await loadChatSessions(); 
         } catch (error) {
             if (error.message !== 'auth') {
                 alert(`フォルダ移動エラー: ${error.message}`);
             }
         }
     }
-
-async function handleSessionSelection(sessionId, suppressMessages = false) {
-        console.log(`handleSessionSelection CALLED for session ID: ${sessionId}, current aiModeSelect.value before processing: ${aiModeSelect ? aiModeSelect.value : 'N/A'}`);
-        if (isNaN(parseInt(sessionId))) {
-            console.warn("無効なセッションIDが選択されました:", sessionId);
-            return;
-        }
-        const newSelectedSessionId = parseInt(sessionId);
-
-        let forceModeUpdate = false;
-        if (currentSessionId === newSelectedSessionId && chatMessagesContainer && chatMessagesContainer.childElementCount > 0 && !chatMessagesContainer.innerHTML.includes('読込中...')) {
-            const selectedSessionFromCacheCheck = allSessionsCache.find(s => s.id === newSelectedSessionId);
-            if (selectedSessionFromCacheCheck && aiModeSelect && aiModeSelect.value !== normalizeMode(selectedSessionFromCacheCheck.mode)) {
-                forceModeUpdate = true;
-            }
-            if (!forceModeUpdate) {
-                const newlySelectedButtonContainer = chatSessionListDiv.querySelector(`.session-element[data-session-id="${newSelectedSessionId}"]`);
-                if (newlySelectedButtonContainer && !newlySelectedButtonContainer.classList.contains('session-button-active')) {
-                    const allSessionElements = chatSessionListDiv.querySelectorAll('.session-element.session-button-active');
-                    allSessionElements.forEach(el => el.classList.remove('session-button-active'));
-                    newlySelectedButtonContainer.classList.add('session-button-active');
-                }
-                return;
-            }
-        }
-
-        currentSessionId = newSelectedSessionId;
-
-        const selectedSessionFromCache = allSessionsCache.find(s => s.id === currentSessionId);
-        let isLoadingSession = false;
-        const sessionStatusElement = chatSessionListDiv.querySelector(`.session-element[data-session-id="${currentSessionId}"]`);
-        let originalModeValue = null;
-
-        if (selectedSessionFromCache) {
-            originalModeValue = selectedSessionFromCache.mode;
-            console.log(`Session ${currentSessionId} found in cache. Original mode from cache: '${originalModeValue}'`);
-            const normalizedMode = normalizeMode(originalModeValue);
-            console.log(`Normalized mode (from cache) for session ${currentSessionId}: '${normalizedMode}'`);
-            activeSessionOriginalMode = normalizedMode;
-            if (aiModeSelect) {
-                aiModeSelect.value = normalizedMode;
-                console.log(`Set aiModeSelect.value to: '${aiModeSelect.value}' (from cache)`);
-            }
-            previousAiMode = normalizedMode;
-            talkModeConfirmed = (normalizedMode === 'talk');
-            toggleCharCountBox();
-            if (sessionStatusElement && sessionStatusElement.dataset.status === 'loading') {
-                isLoadingSession = true;
-            } else if (sessionLoading[currentSessionId]) {
-                isLoadingSession = true;
-            }
-        } else {
-            console.warn(`選択されたセッション ${currentSessionId} が allSessionsCache に見つかりません。サーバーから詳細を取得試行...`);
-            try {
-                const res = await makeAuthenticatedRequest(`${API_ENDPOINT_CHAT_SESSIONS}/${currentSessionId}`, { method: 'GET' });
-                if (res.ok) {
-                    const sessionDetail = await res.json();
-                    originalModeValue = sessionDetail.mode;
-                    console.log(`Server response for session ${currentSessionId}: Original mode from server: '${originalModeValue}'`);
-                    const normalizedMode = normalizeMode(originalModeValue);
-                    console.log(`Normalized mode (from server) for session ${currentSessionId}: '${normalizedMode}'`);
-                    activeSessionOriginalMode = normalizedMode;
-                    if (aiModeSelect) {
-                        aiModeSelect.value = normalizedMode;
-                        console.log(`Set aiModeSelect.value to: '${aiModeSelect.value}' (from server)`);
-                    }
-                    previousAiMode = normalizedMode;
-                    talkModeConfirmed = (normalizedMode === 'talk');
-                    toggleCharCountBox();
-                    const cacheIndex = allSessionsCache.findIndex(s => s.id === currentSessionId);
-                    if (cacheIndex > -1) {
-                        allSessionsCache[cacheIndex] = sessionDetail;
-                    } else {
-                        allSessionsCache.push(sessionDetail);
-                    }
-                } else {
-                    console.error(`サーバーからのセッション ${currentSessionId} 詳細取得失敗。デフォルトモードにフォールバックします。`);
-                    const fallbackMode = 'balance';
-                    if (aiModeSelect) aiModeSelect.value = fallbackMode;
-                    activeSessionOriginalMode = fallbackMode;
-                    console.log(`Set aiModeSelect.value to fallback mode ${fallbackMode}`);
-                    toggleCharCountBox();
-                }
-            } catch (e) {
-                console.error(`サーバーからのセッション ${currentSessionId} 詳細取得中にエラー:`, e);
-                const fallbackMode = 'balance';
-                if (aiModeSelect) aiModeSelect.value = fallbackMode;
-                activeSessionOriginalMode = fallbackMode;
-                console.log(`Set aiModeSelect.value to fallback mode ${fallbackMode} due to error`);
-                toggleCharCountBox();
-            }
-        }
-
-        if (isLoadingSession) {
-            console.log(`セッション ${currentSessionId} はローディング中です。思考中表示を復元します。`);
-            if (loadingIndicator) loadingIndicator.classList.remove('hidden');
-            showThinkingVideo();
-        } else {
-            hideThinkingVideo();
-            if (loadingIndicator) loadingIndicator.classList.add('hidden');
-        }
-
-        if (chatSessionListDiv) {
-            const allSessionElements = chatSessionListDiv.querySelectorAll('.session-element > button.session-button-active, .session-element.session-button-active');
-            allSessionElements.forEach(el => el.classList.remove('session-button-active'));
-            const newlySelectedButtonContainer = chatSessionListDiv.querySelector(`.session-element[data-session-id="${currentSessionId}"]`);
-            if (newlySelectedButtonContainer) {
-                newlySelectedButtonContainer.classList.add('session-button-active');
-                const btnInside = newlySelectedButtonContainer.querySelector('button');
-                if (btnInside && !btnInside.classList.contains('session-button-active')) {
-                    // btnInside.classList.add('session-button-active');
-                }
-            }
-        }
-
-        if (chatMessagesContainer) chatMessagesContainer.innerHTML = '';
-        if (!suppressMessages) displayMessage(`セッション ${currentSessionId} のメッセージを読込中...`, 'system');
-
-        try {
-            const response = await makeAuthenticatedRequest(`${API_ENDPOINT_CHAT_SESSIONS}/${currentSessionId}/messages`, { method: 'GET' });
-            if (!response.ok) {
-                const err = await response.json().catch(() => ({ detail: `メッセージの取得に失敗しました (セッションID: ${currentSessionId})` }));
-                throw new Error(err.detail);
-            }
-            const messages = await response.json();
-            if (chatMessagesContainer) chatMessagesContainer.innerHTML = '';
-
-            if (messages && messages.length > 0) {
-                messages.forEach(msg => displayMessage(
-                    msg.content,
-                    msg.role,
-                    msg.ai_model,
-                    msg.id,
-                    msg.search_fragments,
-                    msg.search_summary_text,
-                    msg.search_mode_warnings
-                ));
-            } else if (!suppressMessages) {
-                displayMessage(`この会話にはまだメッセージがありません。`, 'system');
-            }
-        } catch (error) {
-            console.error(`メッセージ読込エラー (SessionID: ${currentSessionId}):`, error);
-            if (chatMessagesContainer) chatMessagesContainer.innerHTML = '';
-            if (error.message !== 'auth' && !suppressMessages) {
-                displayMessage(`メッセージの読み込みに失敗しました: ${error.message}`, 'system');
-            }
-        }
-    }
-
-function highlightMessage(messageId) {
-        const target = document.querySelector(`[data-message-id="${messageId}"]`);
-        if (target) {
-            target.classList.add('bg-yellow-100');
-            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            setTimeout(() => target.classList.remove('bg-yellow-100'), 2000);
-        }
-    }
-
-    async function ensureSessionReady() {
-        if (currentSessionId !== null && currentSessionId < 0 && pendingSessionPromises[currentSessionId]) {
-            const newId = await pendingSessionPromises[currentSessionId];
-            if (newId) {
-                currentSessionId = newId;
-            } else {
-                currentSessionId = null;
-            }
-        }
-    }
-
-
-    // --- イベントリスナーと関連処理 (ログイン、登録、ログアウトなど) ---
-    if (loginButton) {
-        loginButton.addEventListener('click', async () => {
-            const email = loginEmailInput.value; const password = loginPasswordInput.value;
-            if (!email || !password) { alert('メールアドレスまたはユーザー名とパスワードを入力してください。'); return; }
-            try {
-                const formData = new FormData(); // FastAPIのOAuth2PasswordRequestFormはFormDataを期待
-                formData.append('username', email); // FastAPIのOAuth2PasswordRequestFormは'username'キーを期待
-                formData.append('password', password);
-                // Content-Type は fetch が FormData の場合自動設定するので不要
-                const response = await fetch(API_ENDPOINT_LOGIN, { method: 'POST', body: formData });
-                if (!response.ok) {
-                    const err = await response.json().catch(()=>({detail:'ログインに失敗しました。メールアドレスまたはパスワードを確認してください。'}));
-                    throw new Error(err.detail);
-                }
-                const tokenData = await response.json();
-                saveToken(tokenData.access_token);
-                await fetchCurrentUserAndSetupUI(); // ログイン成功後にUI更新とセッション読み込み
-            } catch (error) {
-                console.error('ログインエラー:', error);
-                alert(error.message);
-            }
-        });
-    }
-    if (registerButton) {
-        registerButton.addEventListener('click', () => {
-            const username = registerUsernameInput.value;
-            const email = registerEmailInput.value;
-            const password = registerPasswordInput.value;
-            const gender = Array.from(genderInputs).find(r => r.checked)?.value;
-            const color1 = color1Input.value;
-            const color2 = color2Input.value;
-            if (!username || username.length < 4 || username.length > 20) { alert('ユーザー名は4〜20文字で入力してください'); return; }
-            if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { alert('正しいメールアドレスを入力してください'); return; }
-            if (!password || password.length < 8) { alert('パスワードは8文字以上で入力してください'); return; }
-            if (!gender) { alert('性別を選択してください'); return; }
-            sessionStorage.setItem('pendingRegistration', JSON.stringify({ username, email, password, gender, color1, color2 }));
-            window.location.href = 'register_progress.html';
-        });
-    }
-
-    if (logoutButton) { logoutButton.addEventListener('click', handleLogout); }
-
-        function updateImageUploadButtonVisibility() {
-            if (!imageGenerationModeSelect) return;
-            const selectedMode = imageGenerationModeSelect.value;
-            const showUpload = selectedMode === 'arrange_image' || selectedMode === 'generate_from_image';
-            if (imageUploadButtonForGeneration) {
-                imageUploadButtonForGeneration.style.display = showUpload ? 'block' : 'none';
-            }
-            if (additionalPromptGroups) {
-                additionalPromptGroups.querySelectorAll('input[type="file"]').forEach(inp => {
-                    inp.style.display = showUpload ? 'block' : 'none';
-                });
-            }
-        }
-
-        function clearOptions(selectEl) {
-            if (!selectEl) return;
-            while (selectEl.firstChild) selectEl.removeChild(selectEl.firstChild);
-        }
-
-        function updateImageSettingOptions() {
-            if (!imageQualitySetting || !imageSizeSetting || !imageFormatSetting) return;
-            const mode = imageGenerationModeSelect ? imageGenerationModeSelect.value : 'high_quality';
-            const setOpts = (el, arr) => {
-                clearOptions(el);
-                arr.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = v; el.appendChild(o); });
-            };
-            if (mode === 'high_quality' || mode === 'generate_from_image') {
-                setOpts(imageQualitySetting, ['standard', 'hd']);
-                setOpts(imageSizeSetting, ['1024x1024', '1024x1792', '1792x1024']);
-                setOpts(imageFormatSetting, ['png', 'jpeg']);
-            } else if (mode === 'speedy') {
-                setOpts(imageQualitySetting, ['standard']);
-                setOpts(imageSizeSetting, ['512x512', '768x768', '1024x1024']);
-                setOpts(imageFormatSetting, ['png', 'jpeg']);
-            } else if (mode === 'arrange_image') {
-                setOpts(imageQualitySetting, ['standard']);
-                setOpts(imageSizeSetting, ['256x256', '512x512', '1024x1024']);
-                setOpts(imageFormatSetting, ['png']);
-            }
-        }
-
-        function createPromptGroup(idx) {
-            const group = document.createElement('div');
-            group.className = 'mt-2 image-prompt-group';
-            const label = document.createElement('label');
-            label.className = 'block text-sm font-medium text-gray-700';
-            label.textContent = `プロンプト${idx + 1}:`;
-            label.htmlFor = `imagePromptInput_${idx}`;
-            const textarea = document.createElement('textarea');
-            textarea.id = `imagePromptInput_${idx}`;
-            textarea.rows = 3;
-            textarea.className = 'mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500 text-sm';
-            const uploadLabel = document.createElement('label');
-            uploadLabel.className = 'block text-sm font-medium text-gray-700 mt-2';
-            uploadLabel.textContent = 'アップロード画像 (必要なモード時):';
-            const fileInput = document.createElement('input');
-            fileInput.type = 'file';
-            fileInput.id = `imageUploadExtra_${idx}`;
-            fileInput.style.display = 'none';
-            fileInput.className = 'mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-teal-50 file:text-teal-700 hover:file:bg-teal-100';
-            group.appendChild(label);
-            group.appendChild(textarea);
-            group.appendChild(uploadLabel);
-            group.appendChild(fileInput);
-            return group;
-        }
-
-        function updatePromptGroupCount() {
-            if (!imageBatchCountSelect || !additionalPromptGroups) return;
-            let desired = parseInt(imageBatchCountSelect.value || '1');
-            desired = Math.max(1, Math.min(10, desired));
-            let current = additionalPromptGroups.querySelectorAll('.image-prompt-group').length + 1;
-            while (current < desired) {
-                const idx = additionalPromptGroups.querySelectorAll('.image-prompt-group').length + 1;
-                additionalPromptGroups.appendChild(createPromptGroup(idx));
-                current++;
-            }
-            while (additionalPromptGroups.querySelectorAll('.image-prompt-group').length + 1 > desired) {
-                additionalPromptGroups.removeChild(additionalPromptGroups.lastElementChild);
-            }
-            updateImageUploadButtonVisibility();
-        }
-
-        async function handleImageGeneration() {
-            if (!getToken()) { alert('ログインしてください'); return; }
-            if (!imagePromptInput) return;
-            generatedImageDisplayArea.innerHTML = '';
-            const count = parseInt(imageBatchCountSelect.value || '1');
-            const mode = imageGenerationModeSelect.value;
-            const quality = imageQualitySetting.value;
-            const size = imageSizeSetting.value;
-            const format = imageFormatSetting.value;
-
-            const groups = [
-                { prompt: imagePromptInput.value, fileInput: imageUploadButtonForGeneration }
-            ];
-            additionalPromptGroups.querySelectorAll('.image-prompt-group').forEach((g, idx) => {
-                const t = g.querySelector('textarea');
-                const f = g.querySelector('input[type="file"]');
-                groups.push({ prompt: t ? t.value : '', fileInput: f });
-            });
-
-            for (let i = 0; i < Math.min(count, groups.length); i++) {
-                const { prompt, fileInput } = groups[i];
-                if (!prompt) continue;
-                const payload = {
-                    generation_mode: mode,
-                    prompt,
-                    image_settings: { quality, size, format },
-                    batch_count: 1
-                };
-                const fd = new FormData();
-                fd.append('payload', JSON.stringify(payload));
-                if (fileInput && fileInput.files && fileInput.files[0]) {
-                    fd.append('image_file', fileInput.files[0]);
-                }
-                try {
-                    const res = await makeAuthenticatedRequest(API_ENDPOINT_IMAGE_GEN_NEW, { method: 'POST', body: fd });
-                    if (res.ok) {
-                        const data = await res.json();
-                        if (data.images && Array.isArray(data.images)) {
-                            data.images.forEach(img => renderGeneratedImage(img.url, prompt, mode, quality, size, format));
-                        }
-                    } else {
-                        generatedImageDisplayArea.innerHTML += `<p class="text-red-500 text-sm">エラー: ${res.status}</p>`;
-                    }
-                } catch (e) {
-                    generatedImageDisplayArea.innerHTML += `<p class="text-red-500 text-sm">通信エラー</p>`;
-                }
-            }
-        }
-
-        function renderGeneratedImage(url, originalPrompt, mode, quality, size, format) {
-            const wrapper = document.createElement('div');
-            wrapper.className = 'relative inline-block m-2';
-            const img = document.createElement('img');
-            img.src = url;
-            img.className = 'max-w-xs rounded-md';
-            const dl = document.createElement('a');
-            dl.href = url;
-            dl.download = 'image.png';
-            dl.className = 'absolute bottom-1 right-1 bg-white bg-opacity-70 text-xs px-1 rounded';
-            dl.textContent = 'DL';
-            const redoBtn = document.createElement('button');
-            redoBtn.className = 'absolute bottom-1 right-10 bg-white bg-opacity-70 text-xs px-1 rounded';
-            redoBtn.textContent = 'やり直し';
-            redoBtn.addEventListener('click', () => {
-                if (wrapper.querySelector('.redo-container')) return;
-                const rc = document.createElement('div');
-                rc.className = 'redo-container mt-1 flex';
-                const inp = document.createElement('input');
-                inp.type = 'text';
-                inp.placeholder = '追加指示';
-                inp.className = 'border text-xs flex-grow rounded mr-1';
-                const sb = document.createElement('button');
-                sb.textContent = '再生成';
-                sb.className = 'bg-teal-500 text-white text-xs px-2 rounded';
-                rc.appendChild(inp);
-                rc.appendChild(sb);
-                wrapper.appendChild(rc);
-                sb.addEventListener('click', async () => {
-                    const extra = inp.value.trim();
-                    if (!extra) return;
-                    const newPrompt = `${originalPrompt} ${extra}`;
-                    const payload = { generation_mode: mode, prompt: newPrompt, image_settings: { quality, size, format }, batch_count: 1 };
-                    const fd = new FormData();
-                    fd.append('payload', JSON.stringify(payload));
-                    try {
-                        const res = await makeAuthenticatedRequest(API_ENDPOINT_IMAGE_GEN_NEW, { method: 'POST', body: fd });
-                        if (res.ok) {
-                            const d = await res.json();
-                            if (d.images && d.images[0]) {
-                                img.src = d.images[0].url;
-                                dl.href = d.images[0].url;
-                            }
-                        }
-                    } finally {
-                        wrapper.removeChild(rc);
-                    }
-                });
-            });
-            wrapper.appendChild(img);
-            wrapper.appendChild(dl);
-            wrapper.appendChild(redoBtn);
-            generatedImageDisplayArea.appendChild(wrapper);
-        }
-
-    function handleLogout() { removeToken(); updateUIAfterLogout(); }
-
-    if (showRegisterLink) { showRegisterLink.addEventListener('click', (e) => { e.preventDefault(); toggleForms(true); }); }
-    if (showLoginLink) { showLoginLink.addEventListener('click', (e) => { e.preventDefault(); toggleForms(false); }); }
-
-    async function fetchCurrentUserAndSetupUI() {
-        const token = getToken();
-        if (!token) {
-            updateUIAfterLogout();
-            return;
-        }
-        try {
-            const response = await makeAuthenticatedRequest(API_ENDPOINT_USERS_ME, { method: 'GET' });
-            if (!response.ok) { // makeAuthenticatedRequest内で401は処理されるが、念のため
-                throw new Error('ユーザー情報の取得に失敗しました。');
-            }
-            const userData = await response.json();
-            updateUIAfterLogin(userData);
-        } catch (error) {
-            console.warn(error.message); // トークン切れなどの場合
-            handleLogout(); // ユーザー情報取得失敗時はログアウト扱い
-        }
-    }
-    
-    // --- プロンプト送信処理 ---
 
     if (submitBtn) {
         submitBtn.addEventListener('click', async () => {
-            const promptValue = promptTextarea.value.trim(); // ユーザーが直接入力したプロンプト
-            let sendPrompt = promptValue; // AIに送る基本プロンプト (翻訳などが適用される可能性あり)
+            let promptValue = promptTextarea.value.trim();
+            let sendPrompt = promptValue;
 
-            // (中略: 翻訳処理 (languageModeCheckbox) などがあれば、sendPrompt を更新)
-
-            if (!promptValue && !selectedFile) { // プロンプトもファイルも無い場合は送信しない
+            if (!promptValue && !selectedFile) {
                 alert('プロンプトを入力するか、ファイルを指定してください。');
                 return;
             }
-            if (!getToken()) { alert('チャット機能を利用するにはログインが必要です。'); return; }
+            if (!getToken()) {
+                alert('チャット機能を利用するにはログインが必要です。');
+                return;
+            }
 
             const selectedMode = aiModeSelect.value;
 
-            // ユーザーの入力(プロンプトまたはファイル名)を先に表示
             if (promptValue) {
                 displayMessage(promptValue, 'user');
             } else if (selectedFile && selectedFile.name) {
-                // プロンプトが空でファイルのみの場合、ファイル名をユーザーメッセージとして表示する例
                 displayMessage(`ファイル「${selectedFile.name}」を送信します。`, 'user');
             }
             promptTextarea.value = '';
 
-            await ensureSessionReady();
-
-            if (currentSessionId === null) { // 新規セッションの場合
+            // Ensure session is fully created before proceeding
+            if (currentSessionId === null || String(currentSessionId).startsWith('pending-')) {
                 try {
                     let provisionalTitle = "新しいチャット";
                     if (promptValue) {
@@ -2558,46 +2214,78 @@ function highlightMessage(messageId) {
                     } else if (selectedFile && selectedFile.name) {
                         provisionalTitle = `ファイル: ${selectedFile.name.substring(0,20)}`;
                     }
+                    
+                    const tempSessionId = `pending-${Date.now()}`;
+                    const oldCurrentSessionId = currentSessionId; 
+                    currentSessionId = tempSessionId; 
+                    activeSessionOriginalMode = selectedMode;
+
+                    const placeholderSession = { 
+                        id: tempSessionId, 
+                        title: provisionalTitle, 
+                        mode: selectedMode, 
+                        updated_at: new Date().toISOString(), 
+                        status: 'loading' 
+                    };
+                    allSessionsCache.unshift(placeholderSession);
+                    loadChatSessions(); 
+                    handleSessionSelection(tempSessionId, true); 
+
                     const createRes = await makeAuthenticatedRequest(API_ENDPOINT_CHAT_SESSIONS, {
                         method: 'POST',
                         body: JSON.stringify({ title: provisionalTitle, mode: selectedMode, status: 'loading' })
                     });
+
                     if (createRes.ok) {
                         const newS = await createRes.json();
+                        console.log(`New session created: ${newS.id}`);
+                        const pIdx = allSessionsCache.findIndex(s => s.id === tempSessionId);
+                        if (pIdx > -1) {
+                            allSessionsCache[pIdx] = { ...allSessionsCache[pIdx], ...newS, status: 'complete' };
+                        }
                         currentSessionId = newS.id;
-                        activeSessionOriginalMode = selectedMode;
-                        await loadChatSessions();
-                        const allSessionElements = chatSessionListDiv.querySelectorAll('.session-element > button');
-                        allSessionElements.forEach(btn => btn.classList.remove('session-button-active'));
-                        const newlyActiveButton = chatSessionListDiv.querySelector(`.session-element[data-session-id="${currentSessionId}"] > button`);
-                        if (newlyActiveButton) newlyActiveButton.classList.add('session-button-active');
-
+                        activeSessionOriginalMode = normalizeMode(newS.mode); 
+                        if (aiModeSelect) aiModeSelect.value = activeSessionOriginalMode;
+                        toggleCharCountBox();
+                        await loadChatSessions(); 
+                        handleSessionSelection(currentSessionId, true); 
                     } else {
                          console.error('新規セッションの作成に失敗しました。');
                          displayMessage('エラー: 新規チャットセッションを開始できませんでした。', 'system');
+                         const pIdx = allSessionsCache.findIndex(s => s.id === tempSessionId);
+                         if (pIdx > -1) allSessionsCache.splice(pIdx, 1);
+                         currentSessionId = oldCurrentSessionId; 
+                         loadChatSessions();
                          return;
                     }
                 } catch(e) {
-                    console.error('新規セッション作成エラー:', e);
+                    console.error('新規セッション作成フローエラー:', e);
                     displayMessage(`エラー: ${e.message || '新規セッションの作成に失敗しました。'}`, 'system');
                     return;
                 }
             }
+            
             loadingIndicator.classList.remove('hidden');
             showThinkingVideo();
 
-            const requestSessionId = currentSessionId;
-            const targetKey = requestSessionId !== null ? String(requestSessionId) : 'new';
+            const requestSessionId = currentSessionId; 
+            const targetKey = String(requestSessionId);
             sessionLoading[targetKey] = true;
             const container = document.querySelector(`.session-element[data-session-id="${requestSessionId}"]`);
             if (container) {
                 container.dataset.status = 'loading';
+                if (!container.querySelector('.session-loading-spinner')) {
+                    const spinner = document.createElement('span');
+                    spinner.className = 'session-loading-spinner ml-auto';
+                    const buttonInside = container.querySelector('button');
+                    if (buttonInside) buttonInside.appendChild(spinner);
+                }
             }
 
             try {
                 const formData = new FormData();
                 formData.append('prompt', sendPrompt);
-                formData.append('mode', selectedMode);
+                formData.append('mode', selectedMode); 
                 if (requestSessionId !== null) {
                     formData.append('session_id', String(requestSessionId));
                 }
@@ -2631,40 +2319,40 @@ function highlightMessage(messageId) {
 
                 const responseCameForSessionId = data.processed_session_id;
 
-                if (responseCameForSessionId === currentSessionId || (currentSessionId === null && responseCameForSessionId === requestSessionId)) {
-                    console.log(`応答は現在アクティブなセッション ${currentSessionId} (または新規 ${responseCameForSessionId}) に対するものです。UIを更新します。`);
-                    if (data.mode_executed && aiModeSelect) {
-                        const originalModeExecuted = data.mode_executed;
-                        console.log(`応答データに original mode_executed: '${originalModeExecuted}' が含まれています。`);
-                        const normalizedMode = normalizeMode(originalModeExecuted);
-                        console.log(`Normalized mode_executed: '${normalizedMode}'`);
-                        aiModeSelect.value = normalizedMode;
-                        activeSessionOriginalMode = normalizedMode;
-                        toggleCharCountBox();
-                    } else if (aiModeSelect && selectedMode) {
-                        console.warn(`応答データに mode_executed がありません。リクエスト時のモード '${selectedMode}' を使用します。`);
-                        const normalizedFallbackMode = normalizeMode(selectedMode);
-                        aiModeSelect.value = normalizedFallbackMode;
-                        activeSessionOriginalMode = normalizedFallbackMode;
-                        toggleCharCountBox();
+                const sessionInCache = allSessionsCache.find(s => s.id === responseCameForSessionId);
+                if (sessionInCache) {
+                    sessionInCache.status = data.overall_error ? 'error' : 'complete';
+                    sessionInCache.updated_at = new Date().toISOString(); 
+                    if (data.mode_executed) {
+                         sessionInCache.mode = data.mode_executed; 
+                         if (responseCameForSessionId === currentSessionId) {
+                             activeSessionOriginalMode = normalizeMode(data.mode_executed);
+                             if (aiModeSelect) aiModeSelect.value = activeSessionOriginalMode;
+                             toggleCharCountBox();
+                         }
                     }
+                }
+                await loadChatSessions();
 
+                if (responseCameForSessionId === currentSessionId) {
+                    console.log(`応答は現在アクティブなセッション ${currentSessionId} に対するものです。UIを更新します。`);
+                    
                     if (data.overall_error) {
-                        displayMessage(`全体エラー: ${data.overall_error}`, 'ai', 'SystemError');
+                        displayMessage(`全体エラー: ${data.overall_error}`, 'ai', 'SystemError', data.message_id);
                     } else if (data.mode_executed === 'imagegen' && data.step7_final_answer_v2_openai && data.step7_final_answer_v2_openai.response && data.step7_final_answer_v2_openai.source === "Image Generation Result") {
-                        displayMessage(data.step7_final_answer_v2_openai.response, 'ai', 'ImageGen');
+                        displayMessage(data.step7_final_answer_v2_openai.response, 'ai', 'ImageGen', data.message_id);
                     } else if (data.step7_final_answer_v2_openai && (data.step7_final_answer_v2_openai.response || data.step7_final_answer_v2_openai.error)) {
                         displayMessage(
                             data.step7_final_answer_v2_openai.response || `エラー: ${data.step7_final_answer_v2_openai.error}`,
                             'ai',
                             data.step7_final_answer_v2_openai.source || 'AI',
-                            null,
+                            data.message_id,
                             data.search_fragments,
                             data.search_summary_text,
                             data.search_mode_warnings
                         );
                     } else {
-                        displayMessage('AIから有効な応答がありませんでした。', 'ai', 'System');
+                        displayMessage('AIから有効な応答がありませんでした。', 'ai', 'System', data.message_id);
                     }
 
                     if (data.file_processing_step && data.file_processing_step.response) {
@@ -2675,236 +2363,258 @@ function highlightMessage(messageId) {
 
                     if (data.generated_download_url && data.generated_file_name) {
                         let fullDownloadUrl = data.generated_download_url;
-                        if (!data.generated_download_url.startsWith('http') && !data.generated_download_url.startsWith('/')) {
-                            fullDownloadUrl = `/${data.generated_download_url}`;
+                        if (!fullDownloadUrl.startsWith('http') && !fullDownloadUrl.startsWith('/')) {
+                            fullDownloadUrl = `/${fullDownloadUrl}`; 
                         }
-                        if (!data.generated_download_url.startsWith('http')) {
+                        if (!fullDownloadUrl.startsWith('http') && !fullDownloadUrl.startsWith(API_BASE_URL)) {
                             fullDownloadUrl = `${API_BASE_URL}${fullDownloadUrl.startsWith('/') ? '' : '/'}${data.generated_download_url.replace(/^\/+/, '')}`;
                         }
-                        const downloadLinkHtml = `ファイル「${data.generated_file_name}」の準備ができました: <a href="${API_BASE_URL}${data.generated_download_url}" target="_blank" class="text-blue-600 underline hover:text-blue-800" download="${data.generated_file_name}">ここをクリックしてダウンロード</a>`;
+                        const downloadLinkHtml = `ファイル「${data.generated_file_name}」の準備ができました: <a href="${fullDownloadUrl}" target="_blank" class="text-blue-600 underline hover:text-blue-800" download="${data.generated_file_name}">ここをクリックしてダウンロード</a>`;
                         displayMessage(
                             downloadLinkHtml,
                             'ai',
                             data.step7_final_answer_v2_openai?.source || 'ファイル生成システム'
                         );
                     }
-
                 } else if (responseCameForSessionId) {
                     console.log(`バックグラウンドセッション ${responseCameForSessionId} に応答がありました。UIは直接更新せず、リストを更新します。`);
-                    const sessionInCache = allSessionsCache.find(s => s.id === responseCameForSessionId);
-                    if (sessionInCache) {
-                        sessionInCache.hasUnread = true;
-                        sessionInCache.status = data.overall_error ? 'error' : 'complete';
-                    }
                 }
 
-                await loadChatSessions();
-
-                if (requestSessionId === null && data.processed_session_id) {
-                    currentSessionId = data.processed_session_id;
-                    if (data.mode_executed) {
-                        const normalizedMode = normalizeMode(data.mode_executed);
-                        console.log(`Normalized mode (new session) from '${data.mode_executed}' -> '${normalizedMode}'`);
-                        activeSessionOriginalMode = normalizedMode;
-                        if (aiModeSelect) aiModeSelect.value = normalizedMode;
-                        toggleCharCountBox();
-                    }
-                    console.log("新規チャットセッションIDがサーバーから割り振られました:", currentSessionId, "モード:", activeSessionOriginalMode);
-                }
-
-
-            if(loadingIndicator) loadingIndicator.classList.add('hidden');
-            hideThinkingVideo();
-            const cSuccess = document.querySelector(`.session-element[data-session-id="${requestSessionId}"]`);
-            if (cSuccess) {
-                cSuccess.dataset.status = data && data.overall_error ? 'error' : 'complete';
-                const spinner = cSuccess.querySelector('.session-loading-spinner');
-                if (spinner) spinner.remove();
-            }
-        } catch (error) {
-            console.error('リクエストエラー:', error);
-            displayMessage(`リクエスト処理中にエラー: ${error.message || '不明なエラー'}`, 'ai', 'SystemError');
-            if(loadingIndicator) loadingIndicator.classList.add('hidden');
-            hideThinkingVideo();
-            const cError = document.querySelector(`.session-element[data-session-id="${requestSessionId}"]`);
-            if (cError) {
-                cError.dataset.status = 'error';
-                const spinner = cError.querySelector('.session-loading-spinner');
-                if (spinner) spinner.remove();
-            }
-        } finally {
-            selectedFile = null;
-            if (fileInput) fileInput.value = '';
-            const targetKeyFinally = requestSessionId !== null ? String(requestSessionId) : 'new';
-            sessionLoading[targetKeyFinally] = false;
-        }
-        });
-    }
-
-    if (videoGenerateBtn) {
-        videoGenerateBtn.addEventListener('click', async () => {
-            const desc = videoDescription.value.trim();
-            if (!desc) { alert('テキスト説明を入力してください。'); return; }
-            if (!getToken()) { alert('この機能を利用するにはログインが必要です。'); return; }
-            videoProgressBar.style.width = '0%';
-            videoProgress.classList.remove('hidden');
-            loadingIndicator.classList.remove('hidden');
-            showThinkingVideo();
-            try {
-                if (!getToken()) { alert('この機能を利用するにはログインが必要です。'); return; }
-                const description = videoDescription.value.trim();
-                const duration = videoDuration.value;
-                const resolution = videoResolution.value;
-                const outputFormat = videoOutputFormat.value;
-                
-                let narrationDetails = null;
-                if (videoNarration.checked) {
-                    narrationDetails = {
-                        lang: videoNarrationLang.value,
-                        script: videoNarrationScript.value.trim(),
-                        voiceId: videoNarrationVoiceId.value.trim()
-                    };
-                }
-
-                console.log('Video description:', description);
-                console.log('Duration:', duration, 'Resolution:', resolution, 'Output Format:', outputFormat);
-                if (narrationDetails) {
-                    console.log('Narration Details:', narrationDetails);
-                } else {
-                    console.log('Narration: Disabled');
-                }
-                
-                if(description){
-                    let alertMessage = `動画説明: ${description}\n長さ: ${duration}秒\n解像度: ${resolution}\nフォーマット: ${outputFormat}`;
-                    if (narrationDetails) {
-                        alertMessage += `\nナレーション言語: ${narrationDetails.lang}\nナレーション原稿: ${narrationDetails.script || '(自動生成)'}\nボイスID: ${narrationDetails.voiceId || '(デフォルト)'}`;
-                    }
-                    alertMessage += '\n（実際の生成はまだ実装されていません）';
-                    alert(alertMessage);
-                    // ダミーの動画URLでプレビューとダウンロードリンクを表示する例
-                    if (videoPreview) {
-                        videoPreview.src = "/static/movie/ThinkMovie1.mp4"; // ダミーの動画パス
-                        videoPreview.classList.remove('hidden');
-                    }
-                    if (videoDownloadLink) {
-                        videoDownloadLink.href = "/static/movie/ThinkMovie1.mp4";
-                        videoDownloadLink.classList.remove('hidden');
-                    }
-                    if (videoResultArea) videoResultArea.classList.remove('hidden'); // Show the area
-                } else {
-                    alert("動画の説明を入力してください。");
-                }
-            });
-        }
-
-    }
-
-    if (videoNarration) {
-        videoNarration.addEventListener('change', () => {
-            if (videoNarrationSettings) {
-                videoNarrationSettings.classList.toggle('hidden', !videoNarration.checked);
-            }
-        });
-        // Initial state
-        if (videoNarrationSettings) {
-            videoNarrationSettings.style.display = videoNarration.checked ? 'block' : 'none';
-        }
-    }
-
-    if (talkSendBtn) {
-        talkSendBtn.addEventListener('click', async () => {
-            const mode = Array.from(talkInputModeRadios).find(r => r.checked)?.value || 'text';
-            let text = talkInputText.value.trim();
-            let audioUrl = null;
-            if (mode === 'mic') {
-                if (recordedChunks.length === 0) { alert('録音がありません'); return; }
-                const blob = new Blob(recordedChunks, { type: 'audio/webm' });
-                const fd = new FormData();
-                fd.append('file', blob, 'recording.webm');
-                const upRes = await makeAuthenticatedRequest(API_ENDPOINT_TALK_UPLOAD, { method: 'POST', body: fd });
-                if (!upRes.ok) { alert('音声アップロード失敗'); return; }
-                const upData = await upRes.json();
-                audioUrl = upData.url;
-                text = '';
-                recordedChunks = [];
-            }
-            if (!text && !audioUrl) { alert('テキストを入力してください。'); return; }
-            if (!getToken()) { alert('この機能を利用するにはログインが必要です。'); return; }
-            if (text) displayMessage(text, 'user');
-            talkInputText.value = '';
-            loadingIndicator.classList.remove('hidden');
-            showThinkingVideo();
-            try {
-                const body = {
-                    text,
-                    audio_url: audioUrl,
-                    input_lang: talkInputLang.value,
-                    target_lang: talkOutputLang.value,
-                    session_id: currentSessionId
-                };
-                const res = await makeAuthenticatedRequest(API_ENDPOINT_TALK_GEN, {
-                    method: 'POST',
-                    body: JSON.stringify(body)
-                });
-                if (!res.ok) throw new Error('生成に失敗しました');
-                const data = await res.json();
-                if (data.video_url) {
-                    talkVideo.src = data.video_url;
-                    talkVideo.classList.remove('hidden');
-                }
-                if (data.subtitle) {
-                    talkSubtitle.textContent = data.subtitle;
-                }
-                let aiHtml = '';
-                if (data.video_url) aiHtml += `<video src="${data.video_url}" class="max-w-xs" controls></video>`;
-                if (data.subtitle) aiHtml += `<div class="mt-1 text-sm">${data.subtitle}</div>`;
-                displayMessage(aiHtml || '応答なし', 'ai', 'Talk');
-                if (data.session_id && currentSessionId !== data.session_id) {
-                    currentSessionId = data.session_id;
-                    await loadChatSessions();
-                } else if (currentSessionId) {
-                    await loadChatSessions();
-                }
-            } catch (e) {
-                console.error('talk mode error', e);
-                displayMessage('トーク生成に失敗しました', 'ai', 'AIError');
+            } catch (error) {
+                console.error('リクエストエラー:', error);
+                displayMessage(`リクエスト処理中にエラー: ${error.message || '不明なエラー'}`, 'ai', 'SystemError');
             } finally {
+                selectedFile = null;
+                if (fileInput) fileInput.value = '';
+                sessionLoading[targetKey] = false;
+                const finalContainer = document.querySelector(`.session-element[data-session-id="${requestSessionId}"]`);
+                if (finalContainer) {
+                    finalContainer.dataset.status = 'complete'; // Or error if applicable
+                    const spinner = finalContainer.querySelector('.session-loading-spinner');
+                    if (spinner) spinner.remove();
+                }
                 hideThinkingVideo();
-                loadingIndicator.classList.add('hidden');
+                if(loadingIndicator) loadingIndicator.classList.add('hidden');
             }
+        });
+    }
+    
+    if (videoGenerateBtn) {
+        videoGenerateBtn.addEventListener('click', async (event) => {
+            event.preventDefault(); 
+            const overallPrompt = videoDescription.value.trim();
+            if (!overallPrompt) {
+                alert('動画の全体的な説明を入力してください。');
+                return;
+            }
+            if (!getToken()) { alert('この機能を利用するにはログインが必要です。'); return; }
+
+            videoResultArea.classList.remove('hidden');
+            if (videoPlayer) videoPlayer.src = ""; 
+            if (videoPlayer) videoPlayer.classList.add('hidden');
+            if (videoDownloadLink) videoDownloadLink.href = "#";
+            if (videoDownloadLink) videoDownloadLink.classList.add('hidden');
+            if (videoDebugLink) videoDebugLink.href = "#";
+            if (videoDebugLink) videoDebugLink.classList.add('hidden');
+            if (videoError) videoError.textContent = '';
+            if (videoError) videoError.classList.add('hidden');
+            if (videoStatus) videoStatus.textContent = '動画生成リクエスト中...';
+            if (videoProgressBar) videoProgressBar.style.width = '0%';
+            if (videoProgressBar) videoProgressBar.textContent = '0%';
+            
+            if (loadingIndicator) loadingIndicator.classList.remove('hidden');
+            showThinkingVideo();
+
+            const scenePromptElements = document.querySelectorAll('#scene-prompts-list .scene-prompt-item');
+            const scene_prompts = Array.from(scenePromptElements).map(el => {
+                const input = el.querySelector('input[type="text"]');
+                return input ? input.value.trim() : '';
+            }).filter(prompt => prompt !== '');
+
+
+            const payload = {
+                prompt: overallPrompt,
+                duration: parseInt(videoDuration.value),
+                resolution: videoResolution.value,
+                fps: parseInt(videoFPS.value), // Added FPS
+                scene_prompts: scene_prompts.length > 0 ? scene_prompts : null,
+                narration_enabled: videoNarrationEnabledCheckbox.checked,
+                narration_script_prompt: videoNarrationEnabledCheckbox.checked ? videoNarrationScriptPrompt.value.trim() : null,
+                narration_lang: videoNarrationEnabledCheckbox.checked ? videoNarrationLang.value : "en",
+                narration_voice_id: videoNarrationEnabledCheckbox.checked && videoNarrationVoiceId.value.trim() ? videoNarrationVoiceId.value.trim() : null,
+                
+                subtitles_enabled: subtitlesEnabledCheckbox.checked,
+                subtitle_script_prompt: subtitlesEnabledCheckbox.checked ? videoSubtitleScriptTextarea.value.trim() : null,
+                subtitle_source_lang: subtitlesEnabledCheckbox.checked && subtitleSourceLangSelect.value ? subtitleSourceLangSelect.value : null,
+                subtitle_target_lang: subtitlesEnabledCheckbox.checked && subtitleTargetLangSelect.value ? subtitleTargetLangSelect.value : null,
+                subtitle_font_name: subtitlesEnabledCheckbox.checked && subtitleFontNameInput && subtitleFontNameInput.value.trim() ? subtitleFontNameInput.value.trim() : null,
+                subtitle_font_size: subtitlesEnabledCheckbox.checked && subtitleFontSizeInput && subtitleFontSizeInput.value.trim() ? subtitleFontSizeInput.value.trim() : null,
+                subtitle_primary_color: subtitlesEnabledCheckbox.checked && subtitlePrimaryColorInput && subtitlePrimaryColorInput.value.trim() ? subtitlePrimaryColorInput.value.trim() : null,
+                subtitle_outline_color: subtitlesEnabledCheckbox.checked && subtitleOutlineColorInput && subtitleOutlineColorInput.value.trim() ? subtitleOutlineColorInput.value.trim() : null,
+                subtitle_background_color: subtitlesEnabledCheckbox.checked && subtitleBackgroundColorInput && subtitleBackgroundColorInput.value.trim() ? subtitleBackgroundColorInput.value.trim() : null,
+                subtitle_alignment: subtitlesEnabledCheckbox.checked && subtitleAlignmentSelect && subtitleAlignmentSelect.value ? parseInt(subtitleAlignmentSelect.value) : null,
+                subtitle_margin_v: subtitlesEnabledCheckbox.checked && subtitleMarginVInput && subtitleMarginVInput.value ? parseInt(subtitleMarginVInput.value) : null,
+
+                bgm_enabled: bgmEnabledCheckbox.checked,
+                bgm_prompt: bgmEnabledCheckbox.checked && bgmPromptTextarea.value.trim() ? bgmPromptTextarea.value.trim() : null,
+                output_format: videoOutputFormat.value,
+                video_quality: videoQualitySelect.value, 
+                
+                replicate_prompt_prefix: videoReplicateParamsContainer && !videoReplicateParamsContainer.classList.contains('hidden') && replicatePromptPrefixInput.value.trim() ? replicatePromptPrefixInput.value.trim() : null,
+                replicate_negative_prompt: videoReplicateParamsContainer && !videoReplicateParamsContainer.classList.contains('hidden') && replicateNegativePromptInput.value.trim() ? replicateNegativePromptInput.value.trim() : "blurry, low quality, worst quality, low resolution, text, watermark, bad anatomy, artifacts, deformed, ugly, noise, grain",
+                replicate_guidance_scale: videoReplicateParamsContainer && !videoReplicateParamsContainer.classList.contains('hidden') && replicateGuidanceScaleInput.value ? parseFloat(replicateGuidanceScaleInput.value) : 7.5,
+                replicate_num_inference_steps: videoReplicateParamsContainer && !videoReplicateParamsContainer.classList.contains('hidden') && replicateNumInferenceStepsInput.value ? parseInt(replicateNumInferenceStepsInput.value) : 25,
+                replicate_seed: videoReplicateParamsContainer && !videoReplicateParamsContainer.classList.contains('hidden') && replicateSeedInput.value ? parseInt(replicateSeedInput.value) : -1, 
+                replicate_model_version: videoReplicateParamsContainer && !videoReplicateParamsContainer.classList.contains('hidden') && replicateModelVersionSelect.value ? replicateModelVersionSelect.value : null,
+            };
+            
+            console.log("Sending payload to /video/generate_from_text/:", JSON.stringify(payload, null, 2));
+
+            try {
+                const response = await makeAuthenticatedRequest(API_ENDPOINT_VIDEO_GEN, {
+                    method: 'POST',
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.task_id) {
+                    currentVideoTaskId = data.task_id;
+                    videoStatus.textContent = `動画生成開始 (タスクID: ${data.task_id})... ${data.message}`;
+                    if (videoStatusPollInterval) clearInterval(videoStatusPollInterval);
+                    videoStatusPollInterval = setInterval(() => pollVideoStatus(currentVideoTaskId, new Request(window.location.origin + data.status_url)), 3000); 
+                } else {
+                    videoStatus.textContent = "動画生成リクエスト失敗";
+                    videoError.textContent = data.detail || data.error || "不明なエラーが発生しました。";
+                    videoError.classList.remove('hidden');
+                    if (loadingIndicator) loadingIndicator.classList.add('hidden');
+                    hideThinkingVideo();
+                }
+            } catch (error) {
+                console.error('Video generation error:', error);
+                videoStatus.textContent = "動画生成リクエストエラー";
+                if (error.message !== 'auth') {
+                    videoError.textContent = error.message || "通信エラーが発生しました。";
+                    videoError.classList.remove('hidden');
+                }
+                if (loadingIndicator) loadingIndicator.classList.add('hidden');
+                hideThinkingVideo();
+            }
+        });
+    }
+
+    if (videoNarrationEnabledCheckbox) { 
+        videoNarrationEnabledCheckbox.addEventListener('change', (event) => {
+            if (videoNarrationSettings) {
+                videoNarrationSettings.classList.toggle('hidden', !event.target.checked);
+            }
+        });
+        if (videoNarrationSettings) videoNarrationSettings.style.display = videoNarrationEnabledCheckbox.checked ? 'block' : 'none';
+    }
+    
+    if (subtitlesEnabledCheckbox) { 
+        subtitlesEnabledCheckbox.addEventListener('change', (event) => {
+            const isChecked = event.target.checked;
+            if (videoSubtitleSettings) videoSubtitleSettings.classList.toggle('hidden', !isChecked);
+            if (videoSubtitleStyleSettingsContainer) videoSubtitleStyleSettingsContainer.classList.toggle('hidden', !isChecked);
+        });
+        // Initial state based on checkbox
+        if (videoSubtitleSettings) videoSubtitleSettings.style.display = subtitlesEnabledCheckbox.checked ? 'block' : 'none';
+        if (videoSubtitleStyleSettingsContainer) videoSubtitleStyleSettingsContainer.style.display = subtitlesEnabledCheckbox.checked ? 'block' : 'none';
+    }
+
+
+    if (bgmEnabledCheckbox) { 
+        bgmEnabledCheckbox.addEventListener('change', (event) => {
+            if (bgmSettings) { 
+                bgmSettings.classList.toggle('hidden', !event.target.checked);
+            }
+        });
+        if (bgmSettings) {
+            bgmSettings.style.display = bgmEnabledCheckbox.checked ? 'block' : 'none';
+        }
+    }
+
+    if (addScenePromptBtn) { 
+        let scenePromptCounter = 0; 
+        addScenePromptBtn.addEventListener('click', () => {
+            scenePromptCounter++;
+            const scenePromptsList = document.getElementById('scene-prompts-list');
+            if (!scenePromptsList) {
+                console.error("Element with ID 'scene-prompts-list' not found.");
+                return;
+            }
+            
+            const newSceneDiv = document.createElement('div');
+            newSceneDiv.className = 'scene-prompt-item mt-2 flex items-center space-x-2';
+            
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'flex-grow p-2 border border-gray-300 rounded-md shadow-sm text-sm focus:ring-teal-500 focus:border-teal-500';
+            input.placeholder = `シーン ${scenePromptsList.children.length + 1} のプロンプト...`;
+            input.name = `scene_prompt_${scenePromptIdx}`; 
+            
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'text-red-500 hover:text-red-700 remove-scene-btn text-xl font-bold';
+            removeBtn.innerHTML = '&times;'; 
+            removeBtn.title = "このシーンを削除";
+            
+            removeBtn.addEventListener('click', () => {
+                newSceneDiv.remove();
+            });
+            
+            newSceneDiv.appendChild(input);
+            newSceneDiv.appendChild(removeBtn);
+            scenePromptsList.appendChild(newSceneDiv);
         });
     }
 
     // --- 初期化処理 ---
     document.addEventListener('DOMContentLoaded', () => {
-        // --- ファイルアップロードボタンと実際のinput要素の連携 ---
+        // Initialize DOM element variables for subtitle styles
+        videoSubtitleStyleSettingsContainer = document.getElementById('videoSubtitleStyleSettingsContainer'); 
+        subtitleFontNameInput = document.getElementById('subtitleFontName');
+        subtitleFontSizeInput = document.getElementById('subtitleFontSize');
+        subtitlePrimaryColorInput = document.getElementById('subtitlePrimaryColor');
+        subtitleOutlineColorInput = document.getElementById('subtitleOutlineColor');
+        subtitleBackgroundColorInput = document.getElementById('subtitleBackgroundColor');
+        subtitleAlignmentSelect = document.getElementById('subtitleAlignment');
+        subtitleMarginVInput = document.getElementById('subtitleMarginV');
+
+        // Initialize DOM element variables for Replicate params
+        videoReplicateParamsContainer = document.getElementById('videoReplicateParamsContainer');
+        replicatePromptPrefixInput = document.getElementById('replicatePromptPrefix');
+        replicateNegativePromptInput = document.getElementById('replicateNegativePrompt');
+        replicateGuidanceScaleInput = document.getElementById('replicateGuidanceScale');
+        replicateNumInferenceStepsInput = document.getElementById('replicateNumInferenceSteps');
+        replicateSeedInput = document.getElementById('replicateSeed');
+        replicateModelVersionSelect = document.getElementById('replicateModelVersion');
+
         if (fileUploadBtn) {
             fileUploadBtn.addEventListener('click', () => {
-                if (fileInput) fileInput.click(); // 隠れたfile inputを起動
+                if (fileInput) fileInput.click(); 
             });
         }
 
-        // --- ファイルが選択された際の処理 ---
         if (fileInput) {
             fileInput.addEventListener('change', (event) => {
                 if (event.target.files && event.target.files.length > 0) {
                     selectedFile = event.target.files[0];
                     if (selectedFile) {
-                        // UIに選択されたファイル名を表示するなどのフィードバック
                         displayMessage(`ファイル「${selectedFile.name}」（サイズ: ${Math.round(selectedFile.size / 1024)}KB）を選択しました。プロンプトと一緒に送信されます。`, 'system');
                     }
                 } else {
-                    selectedFile = null; // ファイル選択がキャンセルされた場合
+                    selectedFile = null; 
                 }
             });
         }
 
-        // --- プロンプト入力エリアへのドラッグ＆ドロップ対応 ---
-        if (promptTextarea) { // promptTextarea は既に取得済みのはず
+        if (promptTextarea) { 
             promptTextarea.addEventListener('dragover', (event) => {
-                event.preventDefault(); // デフォルトの動作をキャンセル
+                event.preventDefault(); 
                 event.stopPropagation();
-                promptTextarea.classList.add('border-blue-400', 'border-2', 'border-dashed'); // ドラッグ中のスタイル
+                promptTextarea.classList.add('border-blue-400', 'border-2', 'border-dashed'); 
             });
 
             promptTextarea.addEventListener('dragleave', (event) => {
@@ -2919,18 +2629,15 @@ function highlightMessage(messageId) {
                 promptTextarea.classList.remove('border-blue-400', 'border-2', 'border-dashed');
 
                 if (event.dataTransfer.files && event.dataTransfer.files.length > 0) {
-                    // 複数のファイルがドロップされた場合、最初のファイルのみを扱う
                     selectedFile = event.dataTransfer.files[0];
-                    if (fileInput) { // 隠れたinputにもファイルをセット（一貫性のため）
+                    if (fileInput) { 
                         try {
                             fileInput.files = event.dataTransfer.files;
                         } catch (e) {
-                            // セキュリティ上の理由で直接 fileInput.files に DataTransfer.files を設定できない場合がある
                             console.warn("直接的なファイルリスト設定に失敗:", e);
                         }
                     }
                     displayMessage(`ファイル「${selectedFile.name}」（サイズ: ${Math.round(selectedFile.size / 1024)}KB）をドロップしました。プロンプトと一緒に送信されます。`, 'system');
-                    // event.dataTransfer.clearData(); // 通常は不要
                 }
             });
         }
@@ -2940,49 +2647,52 @@ function highlightMessage(messageId) {
             sessionStorage.removeItem('prefillEmail');
         }
         if (typeof hljs !== 'undefined') { hljs.highlightAll(); }
-        fetchCurrentUserAndSetupUI(); // ページ読み込み時にユーザー情報を確認・UIセットアップ
+        fetchCurrentUserAndSetupUI(); 
         loadFolders();
         populateLangSelect(talkInputLang);
         populateLangSelect(talkOutputLang);
         populateLangSelect(talkStartInputLang);
         populateLangSelect(talkStartOutputLang);
 
-        // ★ モード関連グローバル変数の初期化 (aiModeSelect の存在確認を追加)
         const initialMode = aiModeSelect ? normalizeMode(aiModeSelect.value) : 'balance';
         activeSessionOriginalMode = initialMode;
         previousAiMode = initialMode;
         talkModeConfirmed = (initialMode === 'talk');
 
         updateTalkInputMode();
-        toggleCharCountBox(); // 初期モードに基づいてUI要素を正しく設定
+        toggleCharCountBox(); 
 
         if (imageGenerationModeSelect) {
             imageGenerationModeSelect.addEventListener('change', () => {
                 updateImageUploadButtonVisibility();
                 updateImageSettingOptions();
             });
+            updateImageUploadButtonVisibility(); 
+            updateImageSettingOptions(); 
         }
         if (imageBatchCountSelect) {
             imageBatchCountSelect.addEventListener('change', updatePromptGroupCount);
         }
-        updatePromptGroupCount();
-        updateImageSettingOptions();
+        updatePromptGroupCount(); 
 
         const sidebar = document.getElementById('sidebar');
         const sidebarToggle = document.getElementById('sidebarToggle');
         const sidebarToggleLabel = document.getElementById('sidebarToggleLabel');
 
         function applySidebarState(collapsed) {
-            if (collapsed) {
-                sidebar.classList.add('collapsed');
-                sidebarToggle.innerHTML = '&#9654;';
-                if (sidebarToggleLabel) sidebarToggleLabel.textContent = 'Open';
-            } else {
-                sidebar.classList.remove('collapsed');
-                sidebarToggle.innerHTML = '&#9664;';
-                if (sidebarToggleLabel) sidebarToggleLabel.textContent = 'Close';
+            if (sidebar) { 
+                if (collapsed) {
+                    sidebar.classList.add('collapsed');
+                    if (sidebarToggle) sidebarToggle.innerHTML = '&#9654;';
+                    if (sidebarToggleLabel) sidebarToggleLabel.textContent = 'Open';
+                } else {
+                    sidebar.classList.remove('collapsed');
+                    if (sidebarToggle) sidebarToggle.innerHTML = '&#9664;';
+                    if (sidebarToggleLabel) sidebarToggleLabel.textContent = 'Close';
+                }
             }
         }
+
 
         let sidebarCollapsed = localStorage.getItem('sidebarCollapsed') === '1';
         applySidebarState(sidebarCollapsed);
@@ -3006,7 +2716,7 @@ function highlightMessage(messageId) {
                 console.log('Topに戻るが押された');
                 e.preventDefault();
                 resetChatUI();
-                chatSessionListDiv.scrollTo({ top: 0, behavior: 'smooth' });
+                if (chatSessionListDiv) chatSessionListDiv.scrollTo({ top: 0, behavior: 'smooth' });
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             });
         }
@@ -3015,27 +2725,20 @@ function highlightMessage(messageId) {
             newChatButton.addEventListener('click', () => {
                 console.log('新しい会話ボタンが押された');
                 if (!getToken()) { alert('この機能を利用するにはログインが必要です。'); return; }
-
-                // ★ resetChatUIが呼ばれる前に、新しいチャットのデフォルトモードをaiModeSelectに基づいて設定
                 const newChatInitialMode = aiModeSelect ? normalizeMode(aiModeSelect.value) : 'balance';
                 activeSessionOriginalMode = newChatInitialMode;
                 previousAiMode = newChatInitialMode;
                 talkModeConfirmed = (newChatInitialMode === 'talk');
-                // toggleCharCountBox(); // resetChatUI の後、または activeSessionOriginalMode 設定時に呼ぶ
-                                    // aiModeSelect.value が変わらないなら不要。変わるなら必要。
-                                    // ここでは resetChatUI の中で aiModeSelect.value を使うので、
-                                    // aiModeSelect.value 自体はまだ変わっていない。
-                resetChatUI(); // この中で displayMessage が呼ばれ、現在の aiModeSelect.value を使う
-                if (aiModeSelect) aiModeSelect.value = newChatInitialMode; // resetChatUIの後でドロップダウンを確実に同期
-                toggleCharCountBox(); // UI要素をモードに合わせて更新
+                resetChatUI(); 
+                if (aiModeSelect) aiModeSelect.value = newChatInitialMode; 
+                toggleCharCountBox(); 
             });
         }
-        // Enterキーでの送信
         if(promptTextarea) {
             promptTextarea.addEventListener('keypress', function(e) {
                 if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault(); // デフォルトの改行動作をキャンセル
-                    submitBtn.click();    // 送信ボタンのクリックイベントを発火
+                    e.preventDefault(); 
+                    submitBtn.click();    
                 }
             });
         }
@@ -3051,7 +2754,10 @@ function highlightMessage(messageId) {
         }
 
         async function loadTemplates() {
-            if (!getToken()) { templateList.innerHTML = '<p class="text-xs text-gray-500">ログインしてください</p>'; return; }
+            if (!getToken() || !templateList) { 
+                if(templateList) templateList.innerHTML = '<p class="text-xs text-gray-500">ログインしてください</p>'; 
+                return; 
+            }
             templateList.innerHTML = '<p class="text-xs text-gray-500">読込中...</p>';
             try {
                 const res = await makeAuthenticatedRequest(API_ENDPOINT_TEMPLATES, { method: 'GET' });
@@ -3085,7 +2791,7 @@ function highlightMessage(messageId) {
                     div.appendChild(actions);
                     templateList.appendChild(div);
                 });
-            } catch (e) { templateList.innerHTML = '<p class="text-xs text-red-500">読み込み失敗</p>'; }
+            } catch (e) { if(templateList) templateList.innerHTML = '<p class="text-xs text-red-500">読み込み失敗</p>'; }
         }
 
         if(templateBtn){
@@ -3107,10 +2813,34 @@ function highlightMessage(messageId) {
                 loadTemplates();
             });
         }
+        
+        if (advancedSettingsToggle && (videoReplicateParamsContainer)) { // Check for videoReplicateParamsContainer
+            advancedSettingsToggle.addEventListener('click', () => {
+                if (videoReplicateParamsContainer) videoReplicateParamsContainer.classList.toggle('hidden'); // Toggle new container
+                
+                const isHidden = videoReplicateParamsContainer && videoReplicateParamsContainer.classList.contains('hidden');
+                advancedSettingsArrow.textContent = isHidden ? '▼' : '▲';
+            });
+            // Initial state for advanced Replicate settings
+             if (videoReplicateParamsContainer) videoReplicateParamsContainer.classList.add('hidden'); // Ensure it's hidden initially
+        }
 
+
+        if (imageGenerationModeSelect) {
+             imageGenerationModeSelect.addEventListener('change', updateImageUploadButtonVisibility);
+             updateImageUploadButtonVisibility(); 
+        }
         if (executeImageGenerationButton) {
             executeImageGenerationButton.addEventListener('click', handleImageGeneration);
+        }
+
+        // Initial setup for subtitle style visibility
+        if (subtitlesEnabledCheckbox && videoSubtitleSettings && videoSubtitleStyleSettingsContainer) {
+            const isChecked = subtitlesEnabledCheckbox.checked;
+            videoSubtitleSettings.classList.toggle('hidden', !isChecked);
+            videoSubtitleStyleSettingsContainer.classList.toggle('hidden', !isChecked);
         }
     });
 </script>
 </html>
+```
