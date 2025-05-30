@@ -1793,5 +1793,3 @@ else:
     logger.info(f"Static files URL prefix for generated content: /static/{STATIC_VIDEO_DIR_BASE.name}")
     
     uvicorn.run(app, host="0.0.0.0", port=8001)
-
-```
