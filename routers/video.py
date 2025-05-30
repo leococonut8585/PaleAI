@@ -1,4 +1,3 @@
-```python
 from fastapi import FastAPI, Request, File, UploadFile, BackgroundTasks, HTTPException, Depends
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -83,13 +82,13 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # CORS設定
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# app.add_middleware( # This should be in main.py
+#     CORSMiddleware,
+#     allow_origins=["*"],
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
 
 TEMP_DIR_ROOT = Path(TEMP_DIR_BASE) # Root for all temporary task directories
 STATIC_VIDEO_DIR_ROOT = Path(STATIC_VIDEO_DIR_BASE) # Root for all static video directories
@@ -1694,7 +1693,8 @@ async def serve_generated_video_debug_file(task_id: str, filename: str):
 # Placeholder for main.py imports if they are not resolved (for standalone testing)
 if __name__ != "__main__": 
     try:
-        from main import get_claude_response, IndividualAIResponse, app as main_app
+        from main import get_claude_response, IndividualAIResponse, app as main_app, router # Added router
+        from fastapi.middleware.cors import CORSMiddleware # Added
         from models import User 
         from dependencies import get_current_active_user 
     except ImportError as e:
@@ -1730,8 +1730,10 @@ if __name__ != "__main__":
         class MockApp:
             def __init__(self):
                 self.state = MockAppState()
+                self.router = None # Placeholder for router if needed by main_app instance
 
         main_app = MockApp()
+        router = app # Use the local router if main one is not available.
 
     REPLICATE_MAX_POLL_ATTEMPTS = REPLICATE_MAX_POLL_ATTEMPTS if 'REPLICATE_MAX_POLL_ATTEMPTS' in globals() else 30
     FFMPEG_COMMAND = FFMPEG_COMMAND if 'FFMPEG_COMMAND' in globals() else "ffmpeg"
@@ -1739,17 +1741,30 @@ if __name__ != "__main__":
 else: 
     import uvicorn
     from fastapi.staticfiles import StaticFiles
+    from fastapi.middleware.cors import CORSMiddleware # Added for standalone main
+    
+    # Ensure STATIC_DIR is defined for standalone execution
+    STATIC_DIR = "static" # Or Path("static") if you prefer Path objects consistently
     
     STATIC_VIDEO_DIR_ROOT.mkdir(parents=True, exist_ok=True)
     TEMP_DIR_ROOT.mkdir(parents=True, exist_ok=True)
     
-    static_parent_dir_for_main = Path(STATIC_DIR) # "static"
+    static_parent_dir_for_main = Path(STATIC_DIR) 
     if not static_parent_dir_for_main.exists():
         static_parent_dir_for_main.mkdir(parents=True, exist_ok=True)
     
+    # Add CORS middleware when running standalone
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    
     app.mount(f"/{STATIC_DIR}", StaticFiles(directory=STATIC_DIR), name="static_files_root")
 
-    class MockAppState:
+    class MockAppState: # Ensure app.state exists even when standalone
         def __init__(self):
             self.deepl_translator = None 
     app.state = MockAppState()
@@ -1760,7 +1775,6 @@ else:
     
     uvicorn.run(app, host="0.0.0.0", port=8001)
 
-```
 ```python
 # Configuration settings for the FastAPI application
 
