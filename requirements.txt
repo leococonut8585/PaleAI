@@ -4,8 +4,8 @@ pydantic
 python-dotenv
 httpx
 asyncio
-# sqlalchemy
-# alembic
+sqlalchemy
+alembic
 
 # AI & externes API SDKs
 anthropic
@@ -14,11 +14,19 @@ elevenlabs
 assemblyai
 deepl
 stability-sdk
+passlib
+bcrypt
 
 # Media Processing
 moviepy
 Pillow
+python-jose[cryptography]
 
 # FastAPI Utilities
 python-multipart
 jinja2
+pymupdf
+python-docx
+openpyxl
+boto3
+replicate
