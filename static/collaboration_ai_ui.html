@@ -3162,6 +3162,42 @@ async function moveSessionToFolder(sessionId, folderId) {
         } else {
             console.error('DOMContentLoaded: showLoginLink NOT found.');
         }
+
+        // const registerSuccessLogin = document.getElementById('registerSuccessLogin'); // Already defined globally
+        if (registerSuccessLogin) {
+            console.log('DOMContentLoaded: registerSuccessLogin found, adding event listener.');
+            registerSuccessLogin.addEventListener('click', (event) => {
+                event.preventDefault(); // Prevent default anchor/button behavior
+                console.log('registerSuccessLogin: click event fired.');
+
+                // ログインフォームを表示
+                toggleForms(false); // trueで登録フォーム、falseでログインフォーム表示
+                console.log('registerSuccessLogin: toggleForms(false) called.');
+
+                // sessionStorageから事前入力用のメールアドレスを取得
+                const prefillEmail = sessionStorage.getItem('prefillEmail');
+                if (prefillEmail && loginEmailInput) {
+                    loginEmailInput.value = prefillEmail;
+                    console.log('registerSuccessLogin: Email prefilled in login form:', prefillEmail);
+                    sessionStorage.removeItem('prefillEmail'); // 使用後は削除
+                    console.log('registerSuccessLogin: prefillEmail removed from sessionStorage.');
+                    loginEmailInput.focus(); // メール入力欄にフォーカス
+                } else if (!loginEmailInput) {
+                    console.warn('registerSuccessLogin: loginEmailInput not found for prefill.');
+                } else {
+                    console.log('registerSuccessLogin: No prefillEmail found in sessionStorage.');
+                }
+
+                // 新規登録成功メッセージなどを非表示にする (必要に応じて)
+                if (registerSuccess) {
+                     registerSuccess.classList.add('hidden');
+                     console.log('registerSuccessLogin: registerSuccess area hidden.');
+                }
+            });
+            console.log('DOMContentLoaded: registerSuccessLogin event listener ADDED.');
+        } else {
+            console.error('DOMContentLoaded: registerSuccessLogin button NOT found.');
+        }
     });
 </script>
 </html>
