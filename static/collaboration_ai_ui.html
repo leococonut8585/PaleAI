@@ -1300,18 +1300,22 @@
 
     function saveToken(token) { localStorage.setItem('paleio_token', token); }
     function getToken() { return localStorage.getItem('paleio_token'); }
-    function removeToken() { localStorage.removeItem('paleio_token'); }
+    function removeToken() {
+        console.log('removeToken: function called');
+        console.log('removeToken: removing paleio_token from localStorage...');
+        localStorage.removeItem('paleio_token');
+        console.log('removeToken: paleio_token removed.');
+    }
 
     function handleLogout() {
-        removeToken(); // ローカルストレージからトークンを削除
-        updateUIAfterLogout(); // UIをログアウト状態に更新
-        // 必要であれば、ここにサーバーへのログアウト通知API呼び出しを追加
-        console.log('User logged out.');
-        // ログインページにリダイレクトするか、UIの状態をログインフォーム表示に戻す
-        // updateUIAfterLogoutがこれを処理しているはずなので、追加のページ遷移は不要かもしれません。
-        // もしログインページへの明確な遷移が必要なら以下を有効化
-        // window.location.hash = ''; // URLハッシュをクリアするなど
-        // toggleForms(false); // ログインフォームを表示する関数があれば呼び出す
+        console.log('handleLogout: function called');
+        console.log('handleLogout: calling removeToken...');
+        removeToken();
+        console.log('handleLogout: removeToken finished.');
+        console.log('handleLogout: calling updateUIAfterLogout...');
+        updateUIAfterLogout();
+        console.log('handleLogout: updateUIAfterLogout finished.');
+        console.log('User logged out.'); // 既存のログ
     }
 
     async function makeAuthenticatedRequest(url, options = {}) {
@@ -1377,23 +1381,72 @@
     }
 
     function updateUIAfterLogout() {
-        if (loginFormArea) loginFormArea.classList.remove('hidden');
-        if (registerFormArea) registerFormArea.classList.add('hidden'); 
-        if (userInfoArea) userInfoArea.classList.add('hidden');
-        if (globalSearchInput) globalSearchWrapper.classList.add('hidden');
-        if (bulkSendBtn) bulkSendBtn.classList.add('hidden');
-        if (cloneSessionBtn) cloneSessionBtn.classList.add('hidden');
-        if (folderSection) folderSection.classList.add('hidden');
-        if (sessionSection) sessionSection.classList.add('hidden');
-        if (chatArea) chatArea.classList.add('hidden');
-        if (chatSearchInput) chatSearchInput.classList.add('hidden');
-        if (userNameDisplay) userNameDisplay.textContent = '未ログイン';
-        if (userAvatar) userAvatar.textContent = '?';
+        console.log('updateUIAfterLogout: function called');
+        if (loginFormArea) {
+            loginFormArea.classList.remove('hidden');
+            console.log('updateUIAfterLogout: loginFormArea displayed.');
+        }
+        if (registerFormArea) {
+            registerFormArea.classList.add('hidden');
+            console.log('updateUIAfterLogout: registerFormArea hidden.');
+        }
+        if (userInfoArea) {
+            userInfoArea.classList.add('hidden');
+            console.log('updateUIAfterLogout: userInfoArea hidden.');
+        }
+        if (globalSearchInput) {
+            globalSearchWrapper.classList.add('hidden');
+            console.log('updateUIAfterLogout: globalSearchWrapper hidden.');
+        }
+        if (bulkSendBtn) {
+            bulkSendBtn.classList.add('hidden');
+            console.log('updateUIAfterLogout: bulkSendBtn hidden.');
+        }
+        if (cloneSessionBtn) {
+            cloneSessionBtn.classList.add('hidden');
+            console.log('updateUIAfterLogout: cloneSessionBtn hidden.');
+        }
+        if (folderSection) {
+            folderSection.classList.add('hidden');
+            console.log('updateUIAfterLogout: folderSection hidden.');
+        }
+        if (sessionSection) {
+            sessionSection.classList.add('hidden');
+            console.log('updateUIAfterLogout: sessionSection hidden.');
+        }
+        if (chatArea) {
+            chatArea.classList.add('hidden');
+            console.log('updateUIAfterLogout: chatArea hidden.');
+        }
+        if (chatSearchInput) {
+            chatSearchInput.classList.add('hidden');
+            console.log('updateUIAfterLogout: chatSearchInput hidden.');
+        }
+        if (userNameDisplay) {
+            userNameDisplay.textContent = '未ログイン';
+            console.log('updateUIAfterLogout: userNameDisplay updated.');
+        }
+        if (userAvatar) {
+            userAvatar.textContent = '?';
+            console.log('updateUIAfterLogout: userAvatar updated.');
+        }
         currentUserProfileImage = null;
+        console.log('updateUIAfterLogout: currentUserProfileImage cleared.');
         currentSessionId = null;
-        if (chatMessagesContainer) chatMessagesContainer.innerHTML = '';
-        if (chatSessionListDiv) chatSessionListDiv.innerHTML = '<p class="text-xs text-gray-500 px-2">ログインするとチャット一覧が表示されます。</p>';
-        if (folderListDiv) folderListDiv.innerHTML = '<p class="text-xs text-gray-500 px-2">ログインしてください</p>';
+        console.log('updateUIAfterLogout: currentSessionId cleared.');
+        if (chatMessagesContainer) {
+            chatMessagesContainer.innerHTML = '';
+            console.log('updateUIAfterLogout: chatMessagesContainer cleared.');
+        }
+        if (chatSessionListDiv) {
+            chatSessionListDiv.innerHTML = '<p class="text-xs text-gray-500 px-2">ログインするとチャット一覧が表示されます。</p>';
+            console.log('updateUIAfterLogout: chatSessionListDiv reset.');
+        }
+        if (folderListDiv) {
+            folderListDiv.innerHTML = '<p class="text-xs text-gray-500 px-2">ログインしてください</p>';
+            console.log('updateUIAfterLogout: folderListDiv reset.');
+        }
+        console.log('updateUIAfterLogout: function finished');
     }
 
     function toggleForms(showRegister) {
@@ -2882,12 +2935,18 @@ async function moveSessionToFolder(sessionId, folderId) {
         }
 
         // Logout button event listener
+        console.log('DOMContentLoaded: Attempting to get logoutButton');
         // const logoutButton = document.getElementById('logoutButton'); // Already defined globally
         if (logoutButton) {
+            console.log('DOMContentLoaded: logoutButton found, adding event listener.');
             logoutButton.addEventListener('click', (event) => {
+                console.log('logoutButton: click event fired.');
                 event.preventDefault(); // Prevent default form submission or link behavior
                 handleLogout();
             });
+            console.log('DOMContentLoaded: logoutButton event listener added.');
+        } else {
+            console.error('DOMContentLoaded: logoutButton NOT found.');
         }
     });
 </script>
