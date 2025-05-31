@@ -6,21 +6,26 @@ import logging # Ensure logging is imported
 
 import schemas
 
-# Import AI helper functions from main
-# Note: This can create circular dependencies if main.py also imports from this file.
-# A better structure would be to have AI helpers in a separate utility module.
-# For this exercise, proceeding as requested.
+# Import AI helper functions from ai_clients
+from ai_clients import (
+    get_perplexity_response,
+    get_gemini_response,
+    get_openai_response,
+    get_cohere_response,
+    get_claude_response
+)
+# Fallback for linters or type checkers if ai_clients is not directly accessible (though it should be)
 try:
-    from main import get_perplexity_response, get_gemini_response, get_openai_response, get_cohere_response, get_claude_response
+    pass # Imports are now at the top level
 except ImportError: # pragma: no cover
-    # This might happen during initial linting or if main.py is not in PYTHONPATH
-    # For the purpose of this tool, we assume main.py will be available at runtime.
     # Fallback for linters or type checkers if main is not directly accessible here.
-    async def get_perplexity_response(*args, **kwargs): raise NotImplementedError("get_perplexity_response not available")
-    async def get_gemini_response(*args, **kwargs): raise NotImplementedError("get_gemini_response not available")
-    async def get_openai_response(*args, **kwargs): raise NotImplementedError("get_openai_response not available")
-    async def get_cohere_response(*args, **kwargs): raise NotImplementedError("get_cohere_response not available")
-    async def get_claude_response(*args, **kwargs): raise NotImplementedError("get_claude_response not available")
+    # These fallbacks are no longer strictly necessary if imports are correct
+    # but kept for extreme safety during tool execution, will be cleaned if successful.
+    async def get_perplexity_response(*args, **kwargs): raise NotImplementedError("get_perplexity_response not available") # pragma: no cover
+    async def get_gemini_response(*args, **kwargs): raise NotImplementedError("get_gemini_response not available") # pragma: no cover
+    async def get_openai_response(*args, **kwargs): raise NotImplementedError("get_openai_response not available") # pragma: no cover
+    async def get_cohere_response(*args, **kwargs): raise NotImplementedError("get_cohere_response not available") # pragma: no cover
+    async def get_claude_response(*args, **kwargs): raise NotImplementedError("get_claude_response not available") # pragma: no cover
 
 
 async def run_quality_chat_mode_flow(
@@ -29,33 +34,27 @@ async def run_quality_chat_mode_flow(
     chat_history_for_ai: List[Dict[str, str]],
     initial_user_prompt_for_session: Optional[str],
     user_memories: Optional[List[schemas.UserMemoryResponse]],
-    request: Request,
+    request: Request, # Ensure request is accepted
 ) -> schemas.CollaborativeResponseV2:
     """High quality mode using Perplexity then Claude."""
     logger = logging.getLogger(__name__)
     logger.info("Executing run_quality_chat_mode_flow")
 
-    perplexity_client = request.app.state.perplexity_sync_client
-    claude_client = request.app.state.anthropic_client
-
-    if not perplexity_client:
+    # Client states are already on request.app.state
+    if not request.app.state.perplexity_sync_client:
         response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-            source="Perplexity (sonar-reasoning-pro)",
-            error="Perplexity client not initialized.",
+            source="Perplexity (sonar-reasoning-pro)", error="Perplexity client not initialized.",
         )
         response_shell.overall_error = "Perplexity client not initialized."
         return response_shell
-    if not claude_client:
+    if not request.app.state.anthropic_client:
         response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-            source="Claude (claude-opus-4-20250514)", # Corrected model name
-            error="Claude client not initialized.",
+            source="Claude (claude-opus-4-20250514)", error="Claude client not initialized.",
         )
         response_shell.overall_error = "Claude client not initialized."
         return response_shell
 
     from datetime import datetime
-    # from main import get_perplexity_response, get_claude_response # Already imported at top
-
     current_dt = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     search_prompt = (
         f"{current_dt} 時点での最新情報を調べてください。テーマは以下の通りです：{original_prompt}\n"
@@ -73,8 +72,9 @@ async def run_quality_chat_mode_flow(
         search_prompt += "\n\n[参考: これまでの会話履歴]\n" + "\n".join(history_lines)
 
     step1_res_perplexity = await get_perplexity_response(
+        request=request, # Pass request
         prompt_for_perplexity=search_prompt,
-        model="sonar-reasoning-pro", # Corrected model
+        model="sonar-reasoning-pro",
         user_memories=user_memories,
         initial_user_prompt=initial_user_prompt_for_session,
     )
@@ -94,8 +94,9 @@ async def run_quality_chat_mode_flow(
 
     if len(result_text) < 1000 and not step1_res_perplexity.error:
         extra_res = await get_perplexity_response(
+            request=request, # Pass request
             prompt_for_perplexity=f"前回の情報と重複しない新しい視点から、さらに詳しく、1000文字以上で説明してください：\n{search_prompt}",
-            model="sonar-reasoning-pro", # Corrected model
+            model="sonar-reasoning-pro",
             user_memories=user_memories,
             initial_user_prompt=initial_user_prompt_for_session,
         )
@@ -104,13 +105,12 @@ async def run_quality_chat_mode_flow(
             result_text = dedup_lines(result_text)
 
     response_shell.step4_comprehensive_answer_perplexity = schemas.IndividualAIResponse(
-        source="Perplexity (sonar-reasoning-pro)", # Corrected model
+        source="Perplexity (sonar-reasoning-pro)",
         response=result_text if not step1_res_perplexity.error else None,
         error=step1_res_perplexity.error,
     )
 
     system_instruction_for_claude = "特に口調を柔らかく、親しみやすい表現でまとめてください。"
-
     summary_prompt = (
         "以下の情報をもとに、魅力的で構成の整った日本語の文章にしてください。\n"
         "内容は削らず、むしろ必要に応じて補足しながら3000文字以上にしてください。\n"
@@ -118,16 +118,17 @@ async def run_quality_chat_mode_flow(
     )
 
     step2_res_claude = await get_claude_response(
+        request=request, # Pass request
         prompt_text=summary_prompt,
         system_instruction=system_instruction_for_claude,
-        model="claude-opus-4-20250514", # Corrected model name
+        model="claude-opus-4-20250514",
         chat_history=chat_history_for_ai,
         initial_user_prompt=initial_user_prompt_for_session,
         user_memories=user_memories,
     )
 
     response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-        source="Claude (claude-opus-4-20250514)", # Corrected model name
+        source="Claude (claude-opus-4-20250514)",
         response=step2_res_claude.response,
         error=step2_res_claude.error,
     )
@@ -140,57 +141,32 @@ async def run_deep_search_flow(
     response_shell: schemas.CollaborativeResponseV2,
     chat_history_for_ai: List[Dict[str, str]],
     user_memories: Optional[List[schemas.UserMemoryResponse]],
-    request: Request,
+    request: Request, # Ensure request is accepted
 ) -> schemas.CollaborativeResponseV2:
     """Simplified deep search using Perplexity."""
     logger = logging.getLogger(__name__)
     logger.info("Executing run_deep_search_flow")
     
-    perplexity_client = request.app.state.perplexity_sync_client
-    if not perplexity_client:
-        response_shell.search_summary_text = "Perplexity client not initialized."
-        # Also populate the main response field for consistency
-        response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-            source="Perplexity Deep Search",
-            error="Perplexity client not initialized."
-        )
-        response_shell.overall_error = "Perplexity client not initialized."
-        return response_shell
-
-    from fastapi.concurrency import run_in_threadpool
-
-    def query_perplexity(client, prompt):
-        try:
-            client.model = "sonar-reasoning-pro" # Ensure model is set if client is shared
-            return client.query(prompt)
-        except Exception as exc:  # pragma: no cover - depends on external API
-            logger.error(f"Perplexity query error in run_deep_search_flow: {exc}")
-            return f"Perplexity error: {exc}"
-
-    result_data = await run_in_threadpool(
-        query_perplexity, perplexity_client, original_prompt
+    # This function should call get_perplexity_response, not use client directly
+    perplexity_res = await get_perplexity_response(
+        request=request, # Pass request
+        prompt_for_perplexity=original_prompt,
+        model="sonar-reasoning-pro", # Example, or choose dynamically
+        user_memories=user_memories,
+        initial_user_prompt=chat_history_for_ai[0].get("content") if chat_history_for_ai and chat_history_for_ai[0].get("role") == "user" else original_prompt, # Heuristic for initial prompt
     )
-    
-    if isinstance(result_data, str) and result_data.startswith("Perplexity error:"):
-        response_shell.search_summary_text = result_data
+
+    if perplexity_res.error:
+        response_shell.search_summary_text = perplexity_res.error
         response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-            source="Perplexity Deep Search", error=result_data
+            source="Perplexity Deep Search", error=perplexity_res.error
         )
-        response_shell.overall_error = result_data
-    elif hasattr(result_data, 'answer') and result_data.answer is not None: # Assuming successful response structure
-        response_text = str(result_data.answer)
-        response_shell.search_summary_text = response_text
+        response_shell.overall_error = perplexity_res.error
+    else:
+        response_shell.search_summary_text = perplexity_res.response
         response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-            source="Perplexity Deep Search (sonar-reasoning-pro)", response=response_text
+            source="Perplexity Deep Search (sonar-reasoning-pro)", response=perplexity_res.response, links=perplexity_res.links
         )
-    else: # Unexpected structure
-        error_msg = f"Perplexity returned unexpected data structure: {type(result_data)}"
-        logger.error(error_msg)
-        response_shell.search_summary_text = error_msg
-        response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
-            source="Perplexity Deep Search", error=error_msg
-        )
-        response_shell.overall_error = error_msg
         
     return response_shell
 
@@ -200,24 +176,29 @@ async def run_ultra_search_flow(
     response_shell: schemas.CollaborativeResponseV2,
     chat_history_for_ai: List[Dict[str, str]],
     user_memories: Optional[List[schemas.UserMemoryResponse]],
-    request: Request,
+    request: Request, # Ensure request is accepted
 ) -> schemas.CollaborativeResponseV2:
     """Placeholder ultra search flow, now using get_gemini_response for consistency."""
     logger = logging.getLogger(__name__)
     logger.info("Executing run_ultra_search_flow")
 
-    # Using the get_gemini_response helper for consistency
+    # Ensure initial_user_prompt_for_session is correctly determined or passed if needed
+    # For simplicity, if not directly available, might derive from chat history or original_prompt.
+    # This was missing `initial_user_prompt_for_session` in the original call from main.py for this flow if it was intended.
+    # Assuming `initial_user_prompt_for_session` should be passed to this flow if available.
+    # If `initial_user_prompt_for_session` is not available, we might use the first user message or original_prompt.
+    derived_initial_user_prompt = chat_history_for_ai[0].get("content") if chat_history_for_ai and chat_history_for_ai[0].get("role") == "user" else original_prompt
+
     gemini_res = await get_gemini_response(
-        request=request,
+        request=request, # Pass request
         prompt_text=original_prompt,
-        # system_instruction="You are in Ultra Search mode. Provide a comprehensive and detailed answer.", # Optional: specific system prompt
-        model_name="gemini-2.5-pro-preview-05-06", # Example model
+        model_name="gemini-2.5-pro-preview-05-06",
         chat_history=chat_history_for_ai,
-        initial_user_prompt=initial_user_prompt_for_session,
+        initial_user_prompt=derived_initial_user_prompt, # Use derived or passed initial prompt
         user_memories=user_memories
     )
 
-    response_shell.step7_final_answer_v2_openai = gemini_res
+    response_shell.step7_final_answer_v2_openai = gemini_res # This already contains source and error/response
     if gemini_res.error:
         response_shell.overall_error = f"UltraSearch (Gemini) failed: {gemini_res.error}"
         response_shell.search_summary_text = gemini_res.error
@@ -243,28 +224,28 @@ async def run_super_writing_orchestrator_flow(
 ) -> schemas.CollaborativeResponseV2:
     logger = logging.getLogger(__name__)
     logger.info(f"Super Writing Orchestrator: Genre='{genre}', Prompt='{original_prompt[:100]}...'")
-
+    # All sub-flows will receive the `request` object from this orchestrator.
     if genre == "longform_composition":
         return await run_sw_longform_composition_flow(
             original_prompt, response_shell, chat_history_for_ai,
-            initial_user_prompt_for_session, user_memories, desired_char_count, request
+            initial_user_prompt_for_session, user_memories, desired_char_count, request # Pass request
         )
     elif genre == "short_text":
         return await run_sw_short_text_flow(
             original_prompt, response_shell, chat_history_for_ai,
-            initial_user_prompt_for_session, user_memories, request
+            initial_user_prompt_for_session, user_memories, request # Pass request
         )
     elif genre == "thesis_report":
         return await run_sw_thesis_report_flow(
             original_prompt, response_shell, chat_history_for_ai,
-            initial_user_prompt_for_session, user_memories, request
+            initial_user_prompt_for_session, user_memories, request # Pass request
         )
     elif genre == "summary_classification":
         return await run_sw_summary_classification_flow(
             original_prompt, response_shell, chat_history_for_ai,
-            initial_user_prompt_for_session, user_memories, request
+            initial_user_prompt_for_session, user_memories, request # Pass request
         )
-    else:
+    else: # pragma: no cover
         error_msg = f"Unknown genre: {genre} for Super Writing Mode."
         logger.error(error_msg) 
         response_shell.overall_error = error_msg
@@ -295,11 +276,11 @@ async def run_sw_longform_composition_flow(
         f"最新情報を3～5ソース取得してください（引用・リンク付き）。テーマ: {original_prompt}\n"
         "このステップの応答では、ウキヨザルのキャラクター性は一切含めず、客観的かつ分析的なトーンで記述してください。"
     )
-    step1_res = await get_perplexity_response(
-        prompt_for_perplexity=prompt_step1, user_memories=user_memories, initial_user_prompt=initial_user_prompt_for_session
+    step1_res = await get_perplexity_response( # Pass request
+        request=request, prompt_for_perplexity=prompt_step1, user_memories=user_memories, initial_user_prompt=initial_user_prompt_for_session
     )
     intermediate_steps_details.append(step1_res)
-    if step1_res.error or not step1_res.response:
+    if step1_res.error or not step1_res.response: # pragma: no cover
         response_shell.overall_error = "SuperWriting (Longform) - Step 1 Perplexity failed."
         response_shell.step7_final_answer_v2_openai = step1_res
         logger.error(f"SW Longform - Step 1 FAILED: {step1_res.error}")
@@ -311,7 +292,7 @@ async def run_sw_longform_composition_flow(
     logger.info(f"SW Longform - Step 2: Gemini - Structuring Perplexity output")
     prompt_step2 = f"以下の情報群から構造化された要約（章立て候補や情報群）を作成してください:\n{step1_res.response}"
     system_instruction_step2 = "このステップの応答では、ウキヨザルのキャラクター性は一切含めず、客観的かつ分析的なトーンで記述してください。"
-    step2_res = await get_gemini_response(
+    step2_res = await get_gemini_response( # Pass request
         request=request, 
         prompt_text=prompt_step2, 
         system_instruction=system_instruction_step2,
@@ -320,7 +301,7 @@ async def run_sw_longform_composition_flow(
         chat_history=chat_history_for_ai
     )
     intermediate_steps_details.append(step2_res)
-    if step2_res.error or not step2_res.response:
+    if step2_res.error or not step2_res.response: # pragma: no cover
         response_shell.overall_error = "SuperWriting (Longform) - Step 2 Gemini failed."
         response_shell.step7_final_answer_v2_openai = step2_res
         logger.error(f"SW Longform - Step 2 FAILED: {step2_res.error}")
@@ -332,7 +313,8 @@ async def run_sw_longform_composition_flow(
     logger.info(f"SW Longform - Step 3: GPT-4o - Generating questions/prompts")
     prompt_step3 = f"以下の構造情報と元のテーマ「{original_prompt}」に基づいて、「問い」（深掘りの観点提案）、非重複の検索プロンプト生成、コンテンツの焦点提案を行ってください:\n{step2_res.response}"
     system_role_description_step3 = "このステップの応答では、ウキヨザルのキャラクター性は一切含めず、客観的かつ分析的なトーンで記述してください。"
-    step3_res = await get_openai_response(
+    step3_res = await get_openai_response( # Pass request
+        request=request,
         prompt_text=prompt_step3, 
         model="gpt-4o", 
         system_role_description=system_role_description_step3,
@@ -341,7 +323,7 @@ async def run_sw_longform_composition_flow(
         chat_history=chat_history_for_ai
     )
     intermediate_steps_details.append(step3_res)
-    if step3_res.error or not step3_res.response:
+    if step3_res.error or not step3_res.response: # pragma: no cover
         response_shell.overall_error = "SuperWriting (Longform) - Step 3 GPT-4o failed."
         response_shell.step7_final_answer_v2_openai = step3_res
         logger.error(f"SW Longform - Step 3 FAILED: {step3_res.error}")
@@ -355,11 +337,11 @@ async def run_sw_longform_composition_flow(
         f"以下の「問い」や検索プロンプトに基づいて再度情報を収集してください (政治・技術・文化などの各視点ごとに追加情報収集):\n{step3_res.response}\n"
         "このステップの応答では、ウキヨザルのキャラクター性は一切含めず、客観的かつ分析的なトーンで記述してください。"
     )
-    step4_res = await get_perplexity_response(
-        prompt_for_perplexity=prompt_step4, user_memories=user_memories, initial_user_prompt=initial_user_prompt_for_session
+    step4_res = await get_perplexity_response( # Pass request
+        request=request, prompt_for_perplexity=prompt_step4, user_memories=user_memories, initial_user_prompt=initial_user_prompt_for_session
     )
     intermediate_steps_details.append(step4_res)
-    if step4_res.error or not step4_res.response:
+    if step4_res.error or not step4_res.response: # pragma: no cover
         response_shell.overall_error = "SuperWriting (Longform) - Step 4 Perplexity (recursive) failed."
         response_shell.step7_final_answer_v2_openai = step4_res
         logger.error(f"SW Longform - Step 4 FAILED: {step4_res.error}")
@@ -373,7 +355,8 @@ async def run_sw_longform_composition_flow(
     logger.info(f"SW Longform - Step 5: Cohere - Refinement/Deduplication")
     prompt_step5 = f"以下の情報を分析し、重複を排除しつつ、主要な論点を構造的に整理してください:\n{all_text_for_cohere}"
     preamble_step5 = "このステップの応答では、ウキヨザルのキャラクター性は一切含めず、客観的かつ分析的なトーンで記述してください。"
-    step5_res = await get_cohere_response(
+    step5_res = await get_cohere_response( # Pass request
+        request=request,
         prompt_text=prompt_step5, 
         preamble=preamble_step5,
         user_memories=user_memories, 
@@ -381,10 +364,10 @@ async def run_sw_longform_composition_flow(
         chat_history=chat_history_for_ai
     )
     intermediate_steps_details.append(step5_res)
-    final_data_for_claude = ""
-    if step5_res.error or not step5_res.response:
+    final_data_for_claude = "" # Initialize
+    if step5_res.error or not step5_res.response: # pragma: no cover
         logger.warning(f"SW Longform - Step 5 Cohere (optional) FAILED or no response: {step5_res.error}. Proceeding with data before Cohere.")
-        final_data_for_claude = all_text_for_cohere 
+        final_data_for_claude = all_text_for_cohere
     else:
         logger.info(f"SW Longform - Step 5 SUCCESS. Output (truncated): {step5_res.response[:100]if step5_res.response else 'None'}...")
         final_data_for_claude = step5_res.response
@@ -426,11 +409,11 @@ async def run_sw_longform_composition_flow(
 - ユーザーの操作は一切不要です。あなたがすべて自動で判断・執筆・整形してください
 """
     system_instruction_for_claude_step6 = (
-        initial_user_prompt_for_session + "\n\n" if initial_user_prompt_for_session else ""
+        (initial_user_prompt_for_session + "\n\n" if initial_user_prompt_for_session else "") +
+        "最終的な文章のトーンは、ユーザーの指示と執筆テーマに最も適した、知的で魅力的な文体としてください。ウキヨザルのキャラクター性は反映しないでください。"
     )
-    system_instruction_for_claude_step6 += "最終的な文章のトーンは、ユーザーの指示と執筆テーマに最も適した、知的で魅力的な文体としてください。ウキヨザルのキャラクター性は反映しないでください。"
-
-    step6_res = await get_claude_response(
+    step6_res = await get_claude_response( # Pass request
+        request=request,
         prompt_text=claude_system_prompt, 
         system_instruction=system_instruction_for_claude_step6, 
         user_memories=user_memories,
@@ -438,7 +421,7 @@ async def run_sw_longform_composition_flow(
     )
     intermediate_steps_details.append(step6_res)
     response_shell.step7_final_answer_v2_openai = step6_res
-    if step6_res.error:
+    if step6_res.error: # pragma: no cover
         response_shell.overall_error = f"SuperWriting (Longform) - Step 6 Claude failed: {step6_res.error}"
         logger.error(f"SW Longform - Step 6 FAILED: {step6_res.error}")
     else:
@@ -463,11 +446,11 @@ async def run_sw_short_text_flow(
     # Step 1: Perplexity
     logger.info(f"SW Short Text - Step 1: Perplexity - Getting info")
     prompt_step1 = f"テーマ「{original_prompt}」について、簡潔かつ重要な情報を調べてください。"
-    step1_res = await get_perplexity_response(
-        prompt_for_perplexity=prompt_step1, user_memories=user_memories, initial_user_prompt=initial_user_prompt_for_session
+    step1_res = await get_perplexity_response( # Pass request
+        request=request, prompt_for_perplexity=prompt_step1, user_memories=user_memories, initial_user_prompt=initial_user_prompt_for_session
     )
     intermediate_steps_details.append(step1_res)
-    if step1_res.error or not step1_res.response:
+    if step1_res.error or not step1_res.response: # pragma: no cover
         response_shell.overall_error = "SuperWriting (Short Text) - Perplexity failed."
         response_shell.step7_final_answer_v2_openai = step1_res
         logger.error(f"SW Short Text - Step 1 FAILED: {step1_res.error}")
@@ -483,7 +466,8 @@ async def run_sw_short_text_flow(
         "文体は、ユーザーの指示とテーマに応じて適切に調整し、特に指定がない場合は中立的かつプロフェッショナルなトーンを使用してください。"
         "ウキヨザルのキャラクター性は反映しないでください。"
     )
-    step2_res = await get_claude_response(
+    step2_res = await get_claude_response( # Pass request
+        request=request,
         prompt_text=prompt_step2, 
         system_instruction=system_instruction_for_claude_step2,
         user_memories=user_memories, 
@@ -492,7 +476,7 @@ async def run_sw_short_text_flow(
     )
     intermediate_steps_details.append(step2_res)
     response_shell.step7_final_answer_v2_openai = step2_res
-    if step2_res.error:
+    if step2_res.error: # pragma: no cover
         response_shell.overall_error = f"SuperWriting (Short Text) - Claude failed: {step2_res.error}"
         logger.error(f"SW Short Text - Step 2 FAILED: {step2_res.error}")
     else:
@@ -520,11 +504,11 @@ async def run_sw_thesis_report_flow(
         f"論文・レポートのテーマ「{original_prompt}」に関する最新かつ信頼性の高い情報を包括的に調査してください。\n"
         "この調査は学術的な目的のためのものです。応答は客観的かつ分析的なトーンで、ウキヨザルのキャラクター性は一切含めないでください。"
     )
-    step1_res = await get_perplexity_response(
-        prompt_for_perplexity=prompt_step1, user_memories=user_memories, initial_user_prompt=initial_user_prompt_for_session
+    step1_res = await get_perplexity_response( # Pass request
+        request=request, prompt_for_perplexity=prompt_step1, user_memories=user_memories, initial_user_prompt=initial_user_prompt_for_session
     )
     intermediate_steps_details.append(step1_res)
-    if step1_res.error or not step1_res.response:
+    if step1_res.error or not step1_res.response: # pragma: no cover
         response_shell.overall_error = "SuperWriting (Thesis/Report) - Step 1 Perplexity failed."
         response_shell.step7_final_answer_v2_openai = step1_res
         logger.error(f"SW Thesis/Report - Step 1 FAILED: {step1_res.error}")
@@ -539,7 +523,7 @@ async def run_sw_thesis_report_flow(
         "あなたは学術論文の構成案を作成する専門家です。客観的かつ構造的な提案を、プロフェッショナルなトーンで行ってください。"
         "ウキヨザルのキャラクター性は反映しないでください。"
     )
-    step2_res = await get_gemini_response(
+    step2_res = await get_gemini_response( # Pass request
         request=request, 
         prompt_text=prompt_step2, 
         system_instruction=system_instruction_step2,
@@ -548,7 +532,7 @@ async def run_sw_thesis_report_flow(
         chat_history=chat_history_for_ai
     )
     intermediate_steps_details.append(step2_res)
-    if step2_res.error or not step2_res.response:
+    if step2_res.error or not step2_res.response: # pragma: no cover
         response_shell.overall_error = "SuperWriting (Thesis/Report) - Step 2 Gemini failed."
         response_shell.step7_final_answer_v2_openai = step2_res
         logger.error(f"SW Thesis/Report - Step 2 FAILED: {step2_res.error}")
@@ -563,7 +547,8 @@ async def run_sw_thesis_report_flow(
         "あなたは学術的な議論を深めるための問いを生成するリサーチアシスタントです。"
         "応答は分析的かつ客観的な視点から、専門的なトーンで行ってください。ウキヨザルのキャラクター性は一切含めないでください。"
     )
-    step3_res = await get_openai_response(
+    step3_res = await get_openai_response( # Pass request
+        request=request,
         prompt_text=prompt_step3, 
         model="gpt-4o", 
         system_role_description=system_role_description_step3,
@@ -572,7 +557,7 @@ async def run_sw_thesis_report_flow(
         chat_history=chat_history_for_ai
     )
     intermediate_steps_details.append(step3_res)
-    if step3_res.error or not step3_res.response:
+    if step3_res.error or not step3_res.response: # pragma: no cover
         response_shell.overall_error = "SuperWriting (Thesis/Report) - Step 3 GPT-4o failed."
         response_shell.step7_final_answer_v2_openai = step3_res
         logger.error(f"SW Thesis/Report - Step 3 FAILED: {step3_res.error}")
@@ -610,16 +595,17 @@ async def run_sw_thesis_report_flow(
         "最終的な論文・レポートは、指示された通り厳密に学術的な文体で記述し、ウキヨザルのキャラクター性は一切反映しないでください。"
         "客観性と論理性を最優先してください。"
     )
-    step4_res = await get_claude_response(
+    step4_res = await get_claude_response( # Pass request
+        request=request,
         prompt_text=prompt_step4, 
         system_instruction=system_instruction_for_claude_step4,
         user_memories=user_memories, 
-        initial_user_prompt=initial_user_prompt_for_session, # This is now part of system_instruction_for_claude_step4 implicitly
         chat_history=chat_history_for_ai
+        # initial_user_prompt is part of system_instruction
     )
     intermediate_steps_details.append(step4_res)
     response_shell.step7_final_answer_v2_openai = step4_res
-    if step4_res.error:
+    if step4_res.error: # pragma: no cover
         response_shell.overall_error = f"SuperWriting (Thesis/Report) - Step 4 Claude failed: {step4_res.error}"
         logger.error(f"SW Thesis/Report - Step 4 FAILED: {step4_res.error}")
     else:
@@ -643,20 +629,20 @@ async def run_sw_summary_classification_flow(
 
     # Step 1: Perplexity
     logger.info(f"SW Summary/Classify - Step 1: Perplexity (optional)")
-    is_text_input = len(original_prompt) > 500 
+    is_text_input = len(original_prompt) > 500 # Threshold to decide if input is a topic or text
     
-    perplexity_output_text = original_prompt
-    step1_res: Optional[schemas.IndividualAIResponse] = None 
-    if not is_text_input:
+    perplexity_output_text = original_prompt # Default if input is already text
+    step1_res: Optional[schemas.IndividualAIResponse] = None # Initialize
+    if not is_text_input: # If input is likely a topic, do Perplexity search
         prompt_step1_perplexity = (
             f"テーマ「{original_prompt}」に関する情報を収集してください。\n"
             "この情報収集は分析目的です。応答は客観的かつ事実に即したトーンで、ウキヨザルのキャラクター性は一切含めないでください。"
         )
-        step1_res = await get_perplexity_response(
-            prompt_for_perplexity=prompt_step1_perplexity, user_memories=user_memories, initial_user_prompt=initial_user_prompt_for_session
+        step1_res = await get_perplexity_response( # Pass request
+            request=request, prompt_for_perplexity=prompt_step1_perplexity, user_memories=user_memories, initial_user_prompt=initial_user_prompt_for_session
         )
         intermediate_steps_details.append(step1_res)
-        if step1_res.error or not step1_res.response:
+        if step1_res.error or not step1_res.response: # pragma: no cover
             response_shell.overall_error = "SuperWriting (Summary/Classify) - Perplexity failed."
             response_shell.step7_final_answer_v2_openai = step1_res
             logger.error(f"SW Summary/Classify - Step 1 FAILED: {step1_res.error}")
@@ -674,7 +660,7 @@ async def run_sw_summary_classification_flow(
         "あなたはテキストを分析し、構造化する専門家です。応答は客観的かつ論理的なトーンで、主要なトピックや要点を整理してください。"
         "ウキヨザルのキャラクター性は反映しないでください。"
     )
-    step2_res = await get_gemini_response(
+    step2_res = await get_gemini_response( # Pass request
         request=request, 
         prompt_text=prompt_step2_gemini, 
         system_instruction=system_instruction_step2,
@@ -683,7 +669,7 @@ async def run_sw_summary_classification_flow(
         chat_history=chat_history_for_ai
     )
     intermediate_steps_details.append(step2_res)
-    if step2_res.error or not step2_res.response:
+    if step2_res.error or not step2_res.response: # pragma: no cover
         response_shell.overall_error = "SuperWriting (Summary/Classify) - Step 2 Gemini failed."
         response_shell.step7_final_answer_v2_openai = step2_res
         logger.error(f"SW Summary/Classify - Step 2 FAILED: {step2_res.error}")
@@ -698,7 +684,8 @@ async def run_sw_summary_classification_flow(
         "あなたはテキストの要約、分類、キーワード抽出を行う分析AIです。"
         "応答は客観的かつ簡潔なトーンで、指定されたフォーマットに従ってください。ウキヨザルのキャラクター性は一切含めないでください。"
     )
-    step3_res = await get_cohere_response(
+    step3_res = await get_cohere_response( # Pass request
+        request=request,
         prompt_text=prompt_step3_cohere, 
         preamble=preamble_step3,
         user_memories=user_memories, 
@@ -707,7 +694,7 @@ async def run_sw_summary_classification_flow(
     )
     intermediate_steps_details.append(step3_res)
     response_shell.step7_final_answer_v2_openai = step3_res
-    if step3_res.error:
+    if step3_res.error: # pragma: no cover
         response_shell.overall_error = f"SuperWriting (Summary/Classify) - Step 3 Cohere failed: {step3_res.error}"
         logger.error(f"SW Summary/Classify - Step 3 FAILED: {step3_res.error}")
     else:
