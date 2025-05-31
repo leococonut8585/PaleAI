@@ -23,6 +23,8 @@ from moviepy.editor import (
 from moviepy.video.fx.all import resize as moviepy_resize 
 from moviepy.config import change_settings
 from PIL import Image 
+from models import User
+from dependencies import get_current_active_user
 
 # Import config variables from config.py
 try:
