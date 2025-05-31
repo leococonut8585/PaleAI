@@ -2716,6 +2716,82 @@ async function moveSessionToFolder(sessionId, folderId) {
     // --- 初期化処理 ---
     document.addEventListener('DOMContentLoaded', () => {
 
+        if (registerButton) {
+            console.log('DOMContentLoaded: registerButton found, adding event listener.'); // ★追加（リスナー設定確認用）
+            registerButton.addEventListener('click', async () => {
+                console.log('registerButton: click event fired.'); // ★追加
+                const username = registerUsernameInput ? registerUsernameInput.value.trim() : '';
+                const email = registerEmailInput ? registerEmailInput.value.trim() : '';
+                const password = registerPasswordInput ? registerPasswordInput.value.trim() : '';
+                const selectedGenderElement = Array.from(genderInputs).find(r => r.checked);
+                const selectedGender = selectedGenderElement ? selectedGenderElement.value : null;
+                const color1 = color1Input ? color1Input.value : '#000000';
+                const color2 = color2Input ? color2Input.value : '#ffffff';
+
+                console.log('registerButton: Inputs - username:', username, 'email:', email, 'password_provided:', password ? 'Yes' : 'No', 'gender:', selectedGender, 'color1:', color1, 'color2:', color2); // ★追加
+
+                if (!username || !email || !password || !selectedGender) {
+                    alert('すべての必須項目を入力してください。');
+                    console.warn('registerButton: Validation failed - missing required fields.'); // ★追加
+                    return;
+                }
+
+                if (registerProgress) registerProgress.classList.remove('hidden');
+                console.log('registerButton: registerProgress shown.'); // ★追加
+                if (registerFormArea) registerFormArea.classList.add('hidden');
+                if (registerSuccess) registerSuccess.classList.add('hidden');
+
+                try {
+                    const payload = {
+                        username,
+                        email,
+                        password,
+                        gender: selectedGender,
+                        color1,
+                        color2
+                    };
+                    console.log('registerButton: API request payload:', payload); // ★追加
+
+                    console.log(`registerButton: Sending request to ${API_ENDPOINT_REGISTER}`); // ★追加
+                    const response = await fetch(API_ENDPOINT_REGISTER, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    console.log('registerButton: Response received, status:', response.status); // ★追加
+                    const responseData = await response.json(); // response.json() は一度しか呼べないことに注意
+                    console.log('registerButton: Response data:', responseData); // ★追加
+
+                    if (response.ok && responseData.profile_image_url) {
+                        console.log('registerButton: Registration successful.'); // ★追加
+                        if (registerProgress) registerProgress.classList.add('hidden');
+                        if (registerSuccess) registerSuccess.classList.remove('hidden');
+                        if (registerSuccessImage) {
+                            let profileImageUrl = responseData.profile_image_url;
+                            if (profileImageUrl.startsWith('/')) {
+                                profileImageUrl = API_BASE_URL + profileImageUrl;
+                            }
+                            registerSuccessImage.src = profileImageUrl;
+                            console.log('registerButton: Profile image URL set:', profileImageUrl); // ★追加
+                        }
+                        sessionStorage.setItem('prefillEmail', email);
+                        console.log('registerButton: prefillEmail saved to sessionStorage.'); // ★追加
+                    } else {
+                        console.error('registerButton: Registration API call not ok or missing profile_image_url. Detail:', responseData.detail); // ★追加
+                        throw new Error(responseData.detail || '登録に失敗しました。');
+                    }
+                } catch (error) {
+                    console.error('registerButton: Catch block - Registration error:', error.message, error); // ★追加
+                    if (registerProgress) registerProgress.classList.add('hidden');
+                    if (registerFormArea) registerFormArea.classList.remove('hidden');
+                    alert(`登録エラー: ${error.message}`);
+                }
+                console.log('registerButton: event listener finished.'); // ★追加
+            });
+        }
+
+
         if (loginButton) {
             loginButton.addEventListener('click', async () => {
                 console.log('loginButton: click event fired.');
