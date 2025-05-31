@@ -2714,6 +2714,92 @@ async function moveSessionToFolder(sessionId, folderId) {
     }
 
     // --- 初期化処理 ---
+
+    async function loadChatMessages(sessionId) {
+        console.warn(`loadChatMessages: Called for sessionId: ${sessionId}. This function is a STUB and does not actually load messages yet.`);
+        if (!sessionId || String(sessionId).startsWith('pending-')) {
+            console.log('loadChatMessages: Invalid or pending session ID, skipping load.');
+            return;
+        }
+
+        if (!chatMessagesContainer) {
+            console.error('loadChatMessages: chatMessagesContainer not found');
+            return;
+        }
+        // chatMessagesContainer.innerHTML = ''; // クリアは handleSessionSelection で行う
+
+        try {
+            console.log(`loadChatMessages: Fetching messages for session ${sessionId}`);
+            const response = await makeAuthenticatedRequest(`${API_ENDPOINT_CHAT_SESSIONS}/${sessionId}/messages`, { method: 'GET' });
+            if (response.ok) {
+                const messages = await response.json();
+                console.log(`loadChatMessages: Received ${messages.length} messages for session ${sessionId}:`, messages);
+                messages.forEach(msg => displayMessage(msg.content, msg.role, msg.ai_model, msg.id, msg.search_fragments, msg.search_summary_text, msg.search_mode_warnings)); // 渡せる情報を増やす
+            } else {
+                console.error(`loadChatMessages: Failed to load messages for session ${sessionId}, status: ${response.status}`);
+                displayMessage(`チャット履歴の読み込みに失敗しました (エラーコード: ${response.status})`, 'system');
+            }
+        } catch (error) {
+            console.error(`loadChatMessages: Error loading messages for session ${sessionId}:`, error);
+            displayMessage(`チャット履歴の読み込み中にエラーが発生しました。`, 'system');
+        }
+    }
+
+    async function handleSessionSelection(sessionId, isNewChat = false) {
+        console.log(`handleSessionSelection: Called with sessionId: ${sessionId}, isNewChat: ${isNewChat}`);
+        currentSessionId = sessionId;
+
+        if (chatMessagesContainer) {
+            chatMessagesContainer.innerHTML = ''; // メッセージ表示エリアをクリア
+        } else {
+            console.error('handleSessionSelection: chatMessagesContainer not found');
+            return;
+        }
+
+        if (chatArea) { // チャットエリア全体を表示
+            chatArea.classList.remove('hidden');
+        } else {
+            console.error('handleSessionSelection: chatArea not found');
+        }
+
+        // UIで選択されたセッションをハイライト
+        if (chatSessionListDiv) {
+            const allSessionElements = chatSessionListDiv.querySelectorAll('.session-element');
+            allSessionElements.forEach(el => el.classList.remove('session-button-active'));
+            const targetSessionElement = chatSessionListDiv.querySelector(`.session-element[data-session-id="${sessionId}"]`);
+            if (targetSessionElement) {
+                targetSessionElement.classList.add('session-button-active');
+            }
+        }
+
+        const selectedSession = allSessionsCache.find(s => String(s.id) === String(sessionId));
+        if (selectedSession) {
+            console.log('handleSessionSelection: Selected session data:', selectedSession);
+            activeSessionOriginalMode = normalizeMode(selectedSession.mode);
+            if (aiModeSelect) {
+                aiModeSelect.value = activeSessionOriginalMode;
+            }
+            toggleCharCountBox(); // モードに応じてUI要素の表示を切り替え
+            if (chatSearchInput) chatSearchInput.classList.remove('hidden');
+            if (cloneSessionBtn) cloneSessionBtn.classList.remove('hidden');
+
+        } else {
+            console.warn(`handleSessionSelection: Session with ID ${sessionId} not found in allSessionsCache.`);
+            // キャッシュにない場合、デフォルトモードにフォールバックするか、エラー処理
+            activeSessionOriginalMode = aiModeSelect ? normalizeMode(aiModeSelect.value) : 'balance';
+            toggleCharCountBox();
+        }
+
+        if (!isNewChat) { // 新規チャットでない場合のみメッセージをロード
+            await loadChatMessages(sessionId);
+        } else {
+            console.log('handleSessionSelection: New chat, skipping initial message load.');
+             // 新規チャットの場合でも、システムメッセージを表示し、モード選択を促すなどしても良い
+            displayMessage(`新しいチャット（モード: ${getModeDisplayName(activeSessionOriginalMode)}）を開始しました。プロンプトを入力してください。`, 'system');
+        }
+        if (promptTextarea) promptTextarea.focus();
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
 
         if (registerButton) {
@@ -3161,6 +3247,42 @@ async function moveSessionToFolder(sessionId, folderId) {
             });
         } else {
             console.error('DOMContentLoaded: showLoginLink NOT found.');
+        }
+
+        // const registerSuccessLogin = document.getElementById('registerSuccessLogin'); // Already defined globally
+        if (registerSuccessLogin) {
+            console.log('DOMContentLoaded: registerSuccessLogin found, adding event listener.');
+            registerSuccessLogin.addEventListener('click', (event) => {
+                event.preventDefault(); // Prevent default anchor/button behavior
+                console.log('registerSuccessLogin: click event fired.');
+
+                // ログインフォームを表示
+                toggleForms(false); // trueで登録フォーム、falseでログインフォーム表示
+                console.log('registerSuccessLogin: toggleForms(false) called.');
+
+                // sessionStorageから事前入力用のメールアドレスを取得
+                const prefillEmail = sessionStorage.getItem('prefillEmail');
+                if (prefillEmail && loginEmailInput) {
+                    loginEmailInput.value = prefillEmail;
+                    console.log('registerSuccessLogin: Email prefilled in login form:', prefillEmail);
+                    sessionStorage.removeItem('prefillEmail'); // 使用後は削除
+                    console.log('registerSuccessLogin: prefillEmail removed from sessionStorage.');
+                    loginEmailInput.focus(); // メール入力欄にフォーカス
+                } else if (!loginEmailInput) {
+                    console.warn('registerSuccessLogin: loginEmailInput not found for prefill.');
+                } else {
+                    console.log('registerSuccessLogin: No prefillEmail found in sessionStorage.');
+                }
+
+                // 新規登録成功メッセージなどを非表示にする (必要に応じて)
+                if (registerSuccess) {
+                     registerSuccess.classList.add('hidden');
+                     console.log('registerSuccessLogin: registerSuccess area hidden.');
+                }
+            });
+            console.log('DOMContentLoaded: registerSuccessLogin event listener ADDED.');
+        } else {
+            console.error('DOMContentLoaded: registerSuccessLogin button NOT found.');
         }
 
         // const registerSuccessLogin = document.getElementById('registerSuccessLogin'); // Already defined globally
