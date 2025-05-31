@@ -1302,6 +1302,18 @@
     function getToken() { return localStorage.getItem('paleio_token'); }
     function removeToken() { localStorage.removeItem('paleio_token'); }
 
+    function handleLogout() {
+        removeToken(); // ローカルストレージからトークンを削除
+        updateUIAfterLogout(); // UIをログアウト状態に更新
+        // 必要であれば、ここにサーバーへのログアウト通知API呼び出しを追加
+        console.log('User logged out.');
+        // ログインページにリダイレクトするか、UIの状態をログインフォーム表示に戻す
+        // updateUIAfterLogoutがこれを処理しているはずなので、追加のページ遷移は不要かもしれません。
+        // もしログインページへの明確な遷移が必要なら以下を有効化
+        // window.location.hash = ''; // URLハッシュをクリアするなど
+        // toggleForms(false); // ログインフォームを表示する関数があれば呼び出す
+    }
+
     async function makeAuthenticatedRequest(url, options = {}) {
         const token = getToken();
         const headers = { ...options.headers };
@@ -2867,6 +2879,15 @@ async function moveSessionToFolder(sessionId, folderId) {
             const isChecked = subtitlesEnabledCheckbox.checked;
             videoSubtitleSettings.classList.toggle('hidden', !isChecked);
             videoSubtitleStyleSettingsContainer.classList.toggle('hidden', !isChecked);
+        }
+
+        // Logout button event listener
+        // const logoutButton = document.getElementById('logoutButton'); // Already defined globally
+        if (logoutButton) {
+            logoutButton.addEventListener('click', (event) => {
+                event.preventDefault(); // Prevent default form submission or link behavior
+                handleLogout();
+            });
         }
     });
 </script>
