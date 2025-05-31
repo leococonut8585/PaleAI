@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, File, UploadFile, BackgroundTasks, HTTPException, Depends
+from fastapi import FastAPI, Request, File, UploadFile, BackgroundTasks, HTTPException, Depends, APIRouter
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -78,7 +78,9 @@ else:
 
 
 app = FastAPI() # This will be replaced by the app instance from main.py if imported
-# router = APIRouter() # Defined in main.py, this line should not be here if part of main app.
+# Define the router used by main.py. When this module is imported, `main.py`
+# expects a global `router` instance to include in the main application.
+router = APIRouter(prefix="/video", tags=["Video"])  # Added
 # For standalone testing of this file, we might need a local router.
 # However, the intent seems to be that this is part of a larger app.
 # If running this file directly, the `if __name__ == "__main__":` block handles app setup.
@@ -1750,8 +1752,9 @@ if __name__ != "__main__":
         # The above line is problematic if `app` is the FastAPI instance from this file,
         # and `router` is expected to be an APIRouter.
         # Assuming `router` will be correctly imported or assigned from `main.py`
-        from fastapi import APIRouter
-        router = APIRouter()
+        # `router` is already defined at the module level for use by main.py.
+        # If running in a standalone context where imports fail, re-use the
+        # existing router rather than replacing it.
 
 
     REPLICATE_MAX_POLL_ATTEMPTS = REPLICATE_MAX_POLL_ATTEMPTS if 'REPLICATE_MAX_POLL_ATTEMPTS' in globals() else 30
