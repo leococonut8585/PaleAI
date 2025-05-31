@@ -1335,7 +1335,11 @@
     let recordedChunks = [];
     let selectedImageForGeneration = null;
 
-    function saveToken(token) { localStorage.setItem('paleio_token', token); }
+    function saveToken(token) {
+        console.log('saveToken: function called with token (first 10 chars):', token ? token.substring(0, 10) + '...' : 'null/undefined');
+        localStorage.setItem('paleio_token', token);
+        console.log('saveToken: token saved to localStorage. Current value (first 10 chars):', localStorage.getItem('paleio_token') ? localStorage.getItem('paleio_token').substring(0, 10) + '...' : 'null/undefined');
+    }
     function getToken() { return localStorage.getItem('paleio_token'); }
     function removeToken() {
         console.log('removeToken: function called');
@@ -1521,32 +1525,42 @@
     }
 
     async function fetchCurrentUserAndSetupUI() {
+        console.log('fetchCurrentUserAndSetupUI: function called');
         const token = getToken();
+        console.log('fetchCurrentUserAndSetupUI: getToken returned (first 10 chars):', token ? token.substring(0, 10) + '...' : 'null/undefined');
         if (!token) {
+            console.log('fetchCurrentUserAndSetupUI: No token found, calling updateUIAfterLogout.');
             updateUIAfterLogout();
             return;
         }
 
         try {
+            console.log(`fetchCurrentUserAndSetupUI: Sending request to ${API_ENDPOINT_USERS_ME}`);
             const response = await makeAuthenticatedRequest(API_ENDPOINT_USERS_ME, { method: 'GET' });
+            console.log('fetchCurrentUserAndSetupUI: Response received from /users/me, status:', response.status);
+
             if (response.ok) {
                 const userData = await response.json();
+                console.log('fetchCurrentUserAndSetupUI: User data received:', userData);
+                console.log('fetchCurrentUserAndSetupUI: Calling updateUIAfterLogin...');
                 updateUIAfterLogin(userData);
+                console.log('fetchCurrentUserAndSetupUI: updateUIAfterLogin finished.');
             } else {
-                // 401 Unauthorized は makeAuthenticatedRequest 内で処理されるが、
-                // それ以外のエラー(403 Forbiddenなど)はこちらで処理
-                console.warn('Failed to fetch current user, status:', response.status);
-                removeToken(); // 無効なトークンかもしれないので削除
+                console.warn('fetchCurrentUserAndSetupUI: Failed to fetch current user, status:', response.status);
+                console.log('fetchCurrentUserAndSetupUI: Calling removeToken and updateUIAfterLogout due to non-ok response.');
+                removeToken();
                 updateUIAfterLogout();
             }
         } catch (error) {
-            // makeAuthenticatedRequest内で'auth'エラーが投げられた場合やネットワークエラー
-            console.error('Error fetching current user:', error);
-            if (error.message !== 'auth') { // 'auth'エラーの場合はmakeAuthenticatedRequest内でログアウト処理済み
+            console.error('fetchCurrentUserAndSetupUI: Error fetching current user:', error);
+            if (error.message !== 'auth') {
+                console.log('fetchCurrentUserAndSetupUI: Error was not "auth", calling removeToken.');
                 removeToken();
             }
+            console.log('fetchCurrentUserAndSetupUI: Calling updateUIAfterLogout due to error.');
             updateUIAfterLogout();
         }
+        console.log('fetchCurrentUserAndSetupUI: function finished');
     }
 
 function displayMessage(content, role, aiModelName = null, messageId = null, searchFragments = null, searchSummary = null, searchModeWarnings = null) {
@@ -2702,6 +2716,68 @@ async function moveSessionToFolder(sessionId, folderId) {
 
     // --- 初期化処理 ---
     document.addEventListener('DOMContentLoaded', () => {
+
+        if (loginButton) {
+            loginButton.addEventListener('click', async () => {
+                console.log('loginButton: click event fired.');
+                const email = loginEmailInput.value.trim();
+                const password = loginPasswordInput.value.trim();
+                console.log(`loginButton: email='${email}', password provided='${password ? 'Yes' : 'No'}'`);
+
+                if (!email || !password) {
+                    alert('メールアドレス（またはユーザー名）とパスワードを入力してください。');
+                    console.warn('loginButton: Email or password empty.');
+                    return;
+                }
+
+                try {
+                    const formData = new URLSearchParams();
+                    formData.append('username', email);
+                    formData.append('password', password);
+                    console.log('loginButton: FormData prepared:', formData.toString());
+
+                    console.log(`loginButton: Sending request to ${API_ENDPOINT_LOGIN}`);
+                    const response = await fetch(API_ENDPOINT_LOGIN, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: formData.toString()
+                    });
+
+                    console.log('loginButton: Response received, status:', response.status);
+                    const responseText = await response.text();
+                    console.log('loginButton: Response body (text):', responseText);
+
+                    if (response.ok) {
+                        const data = JSON.parse(responseText);
+                        console.log('loginButton: Login successful, token data:', data);
+
+                        console.log('loginButton: Calling saveToken...');
+                        saveToken(data.access_token);
+
+                        console.log('loginButton: Calling fetchCurrentUserAndSetupUI...');
+                        await fetchCurrentUserAndSetupUI();
+                        console.log('loginButton: fetchCurrentUserAndSetupUI finished.');
+                    } else {
+                        let errorDetail = 'ログインに失敗しました。ユーザー名またはパスワードを確認してください。';
+                        try {
+                            const errorData = JSON.parse(responseText);
+                            errorDetail = errorData.detail || errorDetail;
+                        } catch (e) {
+                            console.warn('loginButton: Could not parse error response as JSON.', e);
+                        }
+                        console.error('loginButton: Login failed, detail:', errorDetail);
+                        alert(errorDetail);
+                    }
+                } catch (error) {
+                    console.error('loginButton: Login request error:', error);
+                    alert('ログインリクエスト中にエラーが発生しました。');
+                }
+            });
+        }
+
+
         // Initialize DOM element variables for subtitle styles
         videoSubtitleStyleSettingsContainer = document.getElementById('videoSubtitleStyleSettingsContainer'); 
         subtitleFontNameInput = document.getElementById('subtitleFontName');
