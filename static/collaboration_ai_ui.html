@@ -1,4 +1,3 @@
-```html
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -3060,6 +3059,32 @@ async function moveSessionToFolder(sessionId, folderId) {
             console.log('DOMContentLoaded: logoutButton event listener added.');
         } else {
             console.error('DOMContentLoaded: logoutButton NOT found.');
+        }
+
+        // --- Toggle between Login and Register Forms ---
+        // const showRegisterLink = document.getElementById('showRegisterLink'); // Already defined globally
+        // const showLoginLink = document.getElementById('showLoginLink'); // Already defined globally
+
+        if (showRegisterLink) {
+            console.log('DOMContentLoaded: showRegisterLink found, adding event listener.');
+            showRegisterLink.addEventListener('click', (event) => {
+                event.preventDefault(); // Prevent default anchor behavior
+                console.log('showRegisterLink: click event fired.');
+                toggleForms(true); // Show register form
+            });
+        } else {
+            console.error('DOMContentLoaded: showRegisterLink NOT found.');
+        }
+
+        if (showLoginLink) {
+            console.log('DOMContentLoaded: showLoginLink found, adding event listener.');
+            showLoginLink.addEventListener('click', (event) => {
+                event.preventDefault(); // Prevent default anchor behavior
+                console.log('showLoginLink: click event fired.');
+                toggleForms(false); // Show login form
+            });
+        } else {
+            console.error('DOMContentLoaded: showLoginLink NOT found.');
         }
     });
 </script>
