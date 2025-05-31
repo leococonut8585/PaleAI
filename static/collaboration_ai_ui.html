@@ -1172,6 +1172,18 @@
         // TODO: Implement logic to dynamically add/remove imagePromptInput groups based on imageBatchCountSelect.value.
     }
 
+    function handleImageGeneration() {
+        console.warn('handleImageGeneration function is called but not yet fully implemented. Image generation will not proceed.');
+        // TODO: Implement actual image generation logic here.
+        // This would typically involve:
+        // 1. Getting values from imagePromptInput, imageGenerationModeSelect, etc.
+        // 2. Getting selectedFile if required by the mode.
+        // 3. Constructing a FormData or JSON payload.
+        // 4. Calling makeAuthenticatedRequest to the image generation API endpoint.
+        // 5. Handling the response (displaying images or errors).
+        alert('画像生成機能は現在開発中です。');
+    }
+
     if (aiModeSelect) {
         aiModeSelect.addEventListener('change', async () => {
             const newModeSelectedByUser = aiModeSelect.value;
