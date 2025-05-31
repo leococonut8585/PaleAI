@@ -1710,19 +1710,21 @@ async def serve_generated_video_debug_file(task_id: str, filename: str):
 # Placeholder for main.py imports if they are not resolved (for standalone testing)
 if __name__ != "__main__": 
     try:
-        from main import get_claude_response, IndividualAIResponse, app as main_app, router # Added router
-        from fastapi.middleware.cors import CORSMiddleware # Added
+        from ai_clients import get_claude_response # Corrected import
+        from schemas import IndividualAIResponse      # Corrected import
+        from main import app as main_app, router      # This line remains
+        from fastapi.middleware.cors import CORSMiddleware
         from models import User 
         from dependencies import get_current_active_user 
     except ImportError as e:
-        logger.warning(f"Could not import from main/models/dependencies: {e}. Using placeholders.")
+        logger.warning(f"Could not import from main/models/dependencies/ai_clients/schemas: {e}. Using placeholders.")
         
-        class IndividualAIResponse:
-            def __init__(self, response: Optional[str], error: Optional[str] = None):
+        class IndividualAIResponse: # type: ignore
+            def __init__(self, response: Optional[str], error: Optional[str] = None): # type: ignore
                 self.response = response
                 self.error = error
 
-        async def get_claude_response(request: Request, prompt_text: str, system_instruction: str, model: str) -> IndividualAIResponse:
+        async def get_claude_response(request: Request, prompt_text: str, system_instruction: str, model: str) -> IndividualAIResponse: # type: ignore
             logger.error("Mocked get_claude_response called.")
             mock_claude_output = {
                 "scenes": [{"scene_description": "A mock beautiful sunset.", "duration_seconds": 5, "narration_segment_indices": [0], "subtitle_indices": [0]},
@@ -1733,42 +1735,34 @@ if __name__ != "__main__":
             }
             return IndividualAIResponse(response=json.dumps(mock_claude_output))
 
-        class User: 
+        class User: # type: ignore
             id: int = 1
             email: str = "test@example.com"
         
-        async def get_current_active_user() -> User: 
+        async def get_current_active_user() -> User: # type: ignore
             return User()
 
-        class MockAppState:
+        class MockAppState: # type: ignore
             def __init__(self):
                 self.deepl_translator = None 
         
-        class MockApp:
+        class MockApp: # type: ignore
             def __init__(self):
                 self.state = MockAppState()
-                self.router = None # Placeholder for router if needed by main_app instance
+                self.router = None
 
-        main_app = MockApp()
-        # router = app # Use the local router if main one is not available.
-        # The above line is problematic if `app` is the FastAPI instance from this file,
-        # and `router` is expected to be an APIRouter.
-        # Assuming `router` will be correctly imported or assigned from `main.py`
-        # `router` is already defined at the module level for use by main.py.
-        # If running in a standalone context where imports fail, re-use the
-        # existing router rather than replacing it.
+        main_app = MockApp() # type: ignore
 
 
     REPLICATE_MAX_POLL_ATTEMPTS = REPLICATE_MAX_POLL_ATTEMPTS if 'REPLICATE_MAX_POLL_ATTEMPTS' in globals() else 30
     FFMPEG_COMMAND = FFMPEG_COMMAND if 'FFMPEG_COMMAND' in globals() else "ffmpeg"
 
-else: 
+else: # pragma: no cover
     import uvicorn
     from fastapi.staticfiles import StaticFiles
-    from fastapi.middleware.cors import CORSMiddleware # Added for standalone main
+    # CORSMiddleware already imported at the top level
     
-    # Ensure STATIC_DIR is defined for standalone execution
-    STATIC_DIR = "static" # Or Path("static") if you prefer Path objects consistently
+    STATIC_DIR = "static"
     
     STATIC_VIDEO_DIR_ROOT.mkdir(parents=True, exist_ok=True)
     TEMP_DIR_ROOT.mkdir(parents=True, exist_ok=True)
@@ -1777,7 +1771,6 @@ else:
     if not static_parent_dir_for_main.exists():
         static_parent_dir_for_main.mkdir(parents=True, exist_ok=True)
     
-    # Add CORS middleware when running standalone
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -1788,7 +1781,7 @@ else:
     
     app.mount(f"/{STATIC_DIR}", StaticFiles(directory=STATIC_DIR), name="static_files_root")
 
-    class MockAppState: # Ensure app.state exists even when standalone
+    class MockAppState:
         def __init__(self):
             self.deepl_translator = None 
     app.state = MockAppState()
