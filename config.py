@@ -1,4 +1,3 @@
-
 import os
 from dotenv import load_dotenv
 
@@ -44,4 +43,3 @@ DEEPL_LANG_MAP = {
     "zh": "ZH",
     # Add more as needed
 }
-```
