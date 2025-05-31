@@ -21,6 +21,13 @@ bcrypt
 moviepy
 Pillow
 python-jose[cryptography]
+grpcio-status==1.63.2
+google-generativeai
+cohere
+perplexipy
+aiofiles
+python-pptx
+
 
 # FastAPI Utilities
 python-multipart
