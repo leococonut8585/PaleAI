@@ -1418,6 +1418,34 @@
         toggleCharCountBox();
     }
 
+    async function fetchCurrentUserAndSetupUI() {
+        const token = getToken();
+        if (!token) {
+            updateUIAfterLogout();
+            return;
+        }
+
+        try {
+            const response = await makeAuthenticatedRequest(API_ENDPOINT_USERS_ME, { method: 'GET' });
+            if (response.ok) {
+                const userData = await response.json();
+                updateUIAfterLogin(userData);
+            } else {
+                // 401 Unauthorized は makeAuthenticatedRequest 内で処理されるが、
+                // それ以外のエラー(403 Forbiddenなど)はこちらで処理
+                console.warn('Failed to fetch current user, status:', response.status);
+                removeToken(); // 無効なトークンかもしれないので削除
+                updateUIAfterLogout();
+            }
+        } catch (error) {
+            // makeAuthenticatedRequest内で'auth'エラーが投げられた場合やネットワークエラー
+            console.error('Error fetching current user:', error);
+            if (error.message !== 'auth') { // 'auth'エラーの場合はmakeAuthenticatedRequest内でログアウト処理済み
+                removeToken();
+            }
+            updateUIAfterLogout();
+        }
+    }
 
 function displayMessage(content, role, aiModelName = null, messageId = null, searchFragments = null, searchSummary = null, searchModeWarnings = null) {
     if (!chatMessagesContainer) return;
@@ -2155,7 +2183,7 @@ function displayMessage(content, role, aiModelName = null, messageId = null, sea
                     await loadChatSessions(); 
                     alert('セッションを削除しました。');
                 } else {
-                    const err = await response.json().catch(() => ({ detail: 'セッション削除失敗' }));
+                    const err = await res.json().catch(() => ({ detail: 'セッション削除失敗' }));
                     throw new Error(err.detail);
                 }
             } catch (error) {
@@ -2536,9 +2564,9 @@ async function moveSessionToFolder(sessionId, folderId) {
     }
 
     if (addScenePromptBtn) { 
-        let scenePromptCounter = 0; 
+        let scenePromptIdx = 0; // Renamed from scenePromptCounter to avoid conflict
         addScenePromptBtn.addEventListener('click', () => {
-            scenePromptCounter++;
+            scenePromptIdx++; // Use the renamed counter
             const scenePromptsList = document.getElementById('scene-prompts-list');
             if (!scenePromptsList) {
                 console.error("Element with ID 'scene-prompts-list' not found.");
@@ -2663,7 +2691,7 @@ async function moveSessionToFolder(sessionId, folderId) {
         toggleCharCountBox(); 
 
         if (imageGenerationModeSelect) {
-            imageGenerationModeSelect.addEventListener('change', () => {
+             imageGenerationModeSelect.addEventListener('change', () => {
                 updateImageUploadButtonVisibility();
                 updateImageSettingOptions();
             });
