@@ -1708,86 +1708,86 @@ async def serve_generated_video_debug_file(task_id: str, filename: str):
     return FileResponse(path=str(file_path), media_type=media_type, filename=filename)
 
 # Placeholder for main.py imports if they are not resolved (for standalone testing)
-if __name__ != "__main__": 
-    try:
-        from ai_clients import get_claude_response # Corrected import
-        from schemas import IndividualAIResponse      # Corrected import
-        from main import app as main_app, router      # This line remains
-        from fastapi.middleware.cors import CORSMiddleware
-        from models import User 
-        from dependencies import get_current_active_user 
-    except ImportError as e:
-        logger.warning(f"Could not import from main/models/dependencies/ai_clients/schemas: {e}. Using placeholders.")
+# if __name__ != "__main__":
+#     try:
+#         from ai_clients import get_claude_response # Corrected import
+#         from schemas import IndividualAIResponse      # Corrected import
+#         from main import app as main_app, router      # This line remains
+#         from fastapi.middleware.cors import CORSMiddleware
+#         from models import User
+#         from dependencies import get_current_active_user
+#     except ImportError as e:
+#         logger.warning(f"Could not import from main/models/dependencies/ai_clients/schemas: {e}. Using placeholders.")
         
-        class IndividualAIResponse: # type: ignore
-            def __init__(self, response: Optional[str], error: Optional[str] = None): # type: ignore
-                self.response = response
-                self.error = error
+#         class IndividualAIResponse: # type: ignore
+#             def __init__(self, response: Optional[str], error: Optional[str] = None): # type: ignore
+#                 self.response = response
+#                 self.error = error
 
-        async def get_claude_response(request: Request, prompt_text: str, system_instruction: str, model: str) -> IndividualAIResponse: # type: ignore
-            logger.error("Mocked get_claude_response called.")
-            mock_claude_output = {
-                "scenes": [{"scene_description": "A mock beautiful sunset.", "duration_seconds": 5, "narration_segment_indices": [0], "subtitle_indices": [0]},
-                           {"scene_description": "Mock city traffic.", "duration_seconds": 5, "narration_segment_indices": [1], "subtitle_indices": [1]}],
-                "narration": {"full_script": "Mock narration.", "segments": [{"text": "Mock segment 1."}, {"text": "Mock segment 2."}]},
-                "subtitles": [{"text": "Mock sub 1.", "timing_instructions": "scene 1"}, {"text": "Mock sub 2.", "timing_instructions": "scene 2"}],
-                "bgm": {"description": "Mock upbeat electronic music."}
-            }
-            return IndividualAIResponse(response=json.dumps(mock_claude_output))
+#         async def get_claude_response(request: Request, prompt_text: str, system_instruction: str, model: str) -> IndividualAIResponse: # type: ignore
+#             logger.error("Mocked get_claude_response called.")
+#             mock_claude_output = {
+#                 "scenes": [{"scene_description": "A mock beautiful sunset.", "duration_seconds": 5, "narration_segment_indices": [0], "subtitle_indices": [0]},
+#                            {"scene_description": "Mock city traffic.", "duration_seconds": 5, "narration_segment_indices": [1], "subtitle_indices": [1]}],
+#                 "narration": {"full_script": "Mock narration.", "segments": [{"text": "Mock segment 1."}, {"text": "Mock segment 2."}]},
+#                 "subtitles": [{"text": "Mock sub 1.", "timing_instructions": "scene 1"}, {"text": "Mock sub 2.", "timing_instructions": "scene 2"}],
+#                 "bgm": {"description": "Mock upbeat electronic music."}
+#             }
+#             return IndividualAIResponse(response=json.dumps(mock_claude_output))
 
-        class User: # type: ignore
-            id: int = 1
-            email: str = "test@example.com"
+#         class User: # type: ignore
+#             id: int = 1
+#             email: str = "test@example.com"
         
-        async def get_current_active_user() -> User: # type: ignore
-            return User()
+#         async def get_current_active_user() -> User: # type: ignore
+#             return User()
 
-        class MockAppState: # type: ignore
-            def __init__(self):
-                self.deepl_translator = None 
+#         class MockAppState: # type: ignore
+#             def __init__(self):
+#                 self.deepl_translator = None
         
-        class MockApp: # type: ignore
-            def __init__(self):
-                self.state = MockAppState()
-                self.router = None
+#         class MockApp: # type: ignore
+#             def __init__(self):
+#                 self.state = MockAppState()
+#                 self.router = None
 
-        main_app = MockApp() # type: ignore
+#         main_app = MockApp() # type: ignore
 
 
-    REPLICATE_MAX_POLL_ATTEMPTS = REPLICATE_MAX_POLL_ATTEMPTS if 'REPLICATE_MAX_POLL_ATTEMPTS' in globals() else 30
-    FFMPEG_COMMAND = FFMPEG_COMMAND if 'FFMPEG_COMMAND' in globals() else "ffmpeg"
+#     REPLICATE_MAX_POLL_ATTEMPTS = REPLICATE_MAX_POLL_ATTEMPTS if 'REPLICATE_MAX_POLL_ATTEMPTS' in globals() else 30
+#     FFMPEG_COMMAND = FFMPEG_COMMAND if 'FFMPEG_COMMAND' in globals() else "ffmpeg"
 
-else: # pragma: no cover
-    import uvicorn
-    from fastapi.staticfiles import StaticFiles
-    # CORSMiddleware already imported at the top level
+# else: # pragma: no cover
+#     import uvicorn
+#     from fastapi.staticfiles import StaticFiles
+#     # CORSMiddleware already imported at the top level
     
-    STATIC_DIR = "static"
+#     STATIC_DIR = "static"
     
-    STATIC_VIDEO_DIR_ROOT.mkdir(parents=True, exist_ok=True)
-    TEMP_DIR_ROOT.mkdir(parents=True, exist_ok=True)
+#     STATIC_VIDEO_DIR_ROOT.mkdir(parents=True, exist_ok=True)
+#     TEMP_DIR_ROOT.mkdir(parents=True, exist_ok=True)
     
-    static_parent_dir_for_main = Path(STATIC_DIR) 
-    if not static_parent_dir_for_main.exists():
-        static_parent_dir_for_main.mkdir(parents=True, exist_ok=True)
+#     static_parent_dir_for_main = Path(STATIC_DIR)
+#     if not static_parent_dir_for_main.exists():
+#         static_parent_dir_for_main.mkdir(parents=True, exist_ok=True)
     
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+#     app.add_middleware(
+#         CORSMiddleware,
+#         allow_origins=["*"],
+#         allow_credentials=True,
+#         allow_methods=["*"],
+#         allow_headers=["*"],
+#     )
     
-    app.mount(f"/{STATIC_DIR}", StaticFiles(directory=STATIC_DIR), name="static_files_root")
+#     app.mount(f"/{STATIC_DIR}", StaticFiles(directory=STATIC_DIR), name="static_files_root")
 
-    class MockAppState:
-        def __init__(self):
-            self.deepl_translator = None 
-    app.state = MockAppState()
+#     class MockAppState:
+#         def __init__(self):
+#             self.deepl_translator = None
+#     app.state = MockAppState()
     
-    logger.info(f"Serving static files from base directory: {STATIC_DIR}")
-    logger.info(f"Generated videos will be in: {STATIC_VIDEO_DIR_ROOT}")
-    logger.info(f"Static files URL prefix for generated content: /static/{STATIC_VIDEO_DIR_BASE.name}")
+#     logger.info(f"Serving static files from base directory: {STATIC_DIR}")
+#     logger.info(f"Generated videos will be in: {STATIC_VIDEO_DIR_ROOT}")
+#     logger.info(f"Static files URL prefix for generated content: /static/{STATIC_VIDEO_DIR_BASE.name}")
     
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+#     uvicorn.run(app, host="0.0.0.0", port=8001)
