@@ -302,7 +302,7 @@ async def get_claude_response(
 
     api_params: Dict[str, Any] = {
         "model": model,
-        "max_tokens": 150000, # Increased token limit for Claude
+        "max_tokens": 8192, # Adjusted to a more reasonable value below the 32000 limit
         "messages": messages_for_api,
         "temperature": 0.6, # Claude の推奨温度に合わせる (0.0-1.0)
     }

@@ -1334,6 +1334,90 @@
     let recordedChunks = [];
     let selectedImageForGeneration = null;
 
+    // --- グローバルヘルパー関数 (DOM非依存または上記DOM要素に依存するがDOMContentLoaded前でもOKなもの) ---
+    async function handleSessionSelection(sessionId, isNewChat = false) {
+            console.log(`handleSessionSelection: Called with sessionId: ${sessionId}, isNewChat: ${isNewChat}`);
+            currentSessionId = sessionId;
+
+            if (chatMessagesContainer) { // chatMessagesContainer は上記で取得済みのはず
+                chatMessagesContainer.innerHTML = '';
+            } else {
+                console.error('handleSessionSelection: chatMessagesContainer not found');
+                return;
+            }
+
+            if (chatArea) { // チャットエリア全体を表示
+                chatArea.classList.remove('hidden');
+            } else {
+                console.error('handleSessionSelection: chatArea not found');
+            }
+
+            if (chatSessionListDiv) {
+                const allSessionElements = chatSessionListDiv.querySelectorAll('.session-element');
+                allSessionElements.forEach(el => el.classList.remove('session-button-active'));
+                const targetSessionElement = chatSessionListDiv.querySelector(`.session-element[data-session-id="${sessionId}"]`);
+                if (targetSessionElement) {
+                    targetSessionElement.classList.add('session-button-active');
+                }
+            }
+
+            const selectedSession = allSessionsCache.find(s => String(s.id) === String(sessionId));
+            if (selectedSession) {
+                console.log('handleSessionSelection: Selected session data:', selectedSession);
+                activeSessionOriginalMode = normalizeMode(selectedSession.mode);
+                if (aiModeSelect) {
+                    aiModeSelect.value = activeSessionOriginalMode;
+                }
+                toggleCharCountBox();
+                if (chatSearchInput) chatSearchInput.classList.remove('hidden');
+                if (cloneSessionBtn) cloneSessionBtn.classList.remove('hidden');
+            } else {
+                console.warn(`handleSessionSelection: Session with ID ${sessionId} not found in allSessionsCache. Assuming new or pending session.`);
+                // 新規または保留中のセッションの場合、現在のUIのモード選択を維持
+                activeSessionOriginalMode = aiModeSelect ? normalizeMode(aiModeSelect.value) : 'balance';
+                toggleCharCountBox();
+            }
+
+            if (!isNewChat && sessionId && !String(sessionId).startsWith('pending-')) {
+                await loadChatMessages(sessionId); // loadChatMessages もこのスコープから見えるようにする
+            } else {
+                console.log('handleSessionSelection: New or pending chat, skipping initial message load via loadChatMessages.');
+                if (isNewChat) { // isNewChat フラグがある場合のみ新規チャットメッセージを表示
+                     displayMessage(`新しいチャット（モード: ${getModeDisplayName(activeSessionOriginalMode)}）を開始しました。プロンプトを入力してください。`, 'system');
+                }
+            }
+            if (promptTextarea) promptTextarea.focus();
+            console.log('handleSessionSelection: Function finished.');
+        }
+
+        async function loadChatMessages(sessionId) {
+            console.warn(`loadChatMessages: Called for sessionId: ${sessionId}.`);
+            if (!sessionId || String(sessionId).startsWith('pending-')) {
+                console.log('loadChatMessages: Invalid or pending session ID, skipping load.');
+                return;
+            }
+            if (!chatMessagesContainer) {
+                console.error('loadChatMessages: chatMessagesContainer not found');
+                return;
+            }
+
+            try {
+                console.log(`loadChatMessages: Fetching messages for session ${sessionId}`);
+                const response = await makeAuthenticatedRequest(`${API_ENDPOINT_CHAT_SESSIONS}/${sessionId}/messages`, { method: 'GET' });
+                if (response.ok) {
+                    const messages = await response.json();
+                    console.log(`loadChatMessages: Received ${messages.length} messages for session ${sessionId}:`, messages);
+                    messages.forEach(msg => displayMessage(msg.content, msg.role, msg.ai_model, msg.id, msg.search_fragments, msg.search_summary_text, msg.search_mode_warnings));
+                } else {
+                    console.error(`loadChatMessages: Failed to load messages for session ${sessionId}, status: ${response.status}`);
+                    displayMessage(`チャット履歴の読み込みに失敗しました (エラーコード: ${response.status})`, 'system');
+                }
+            } catch (error) {
+                console.error(`loadChatMessages: Error loading messages for session ${sessionId}:`, error);
+                displayMessage(`チャット履歴の読み込み中にエラーが発生しました。`, 'system');
+            }
+        }
+
     function saveToken(token) {
         console.log('saveToken: function called with token (first 10 chars):', token ? token.substring(0, 10) + '...' : 'null/undefined');
         localStorage.setItem('paleio_token', token);
@@ -2718,91 +2802,6 @@ async function moveSessionToFolder(sessionId, folderId) {
     }
 
     // --- 初期化処理 ---
-
-    async function loadChatMessages(sessionId) {
-            console.warn(`loadChatMessages: Called for sessionId: ${sessionId}. This function is a STUB and does not actually load messages yet.`);
-            if (!sessionId || String(sessionId).startsWith('pending-')) {
-                console.log('loadChatMessages: Invalid or pending session ID, skipping load.');
-                return;
-            }
-
-            if (!chatMessagesContainer) {
-                console.error('loadChatMessages: chatMessagesContainer not found');
-                return;
-            }
-
-            try {
-                console.log(`loadChatMessages: Fetching messages for session ${sessionId}`);
-                const response = await makeAuthenticatedRequest(`${API_ENDPOINT_CHAT_SESSIONS}/${sessionId}/messages`, { method: 'GET' });
-                if (response.ok) {
-                    const messages = await response.json();
-                    console.log(`loadChatMessages: Received ${messages.length} messages for session ${sessionId}:`, messages);
-                    // messages.forEach(msg => displayMessage(msg.content, msg.role, msg.ai_model, msg.id)); // displayMessageの引数を増やす必要あり
-                    messages.forEach(msg => displayMessage(msg.content, msg.role, msg.ai_model, msg.id, msg.search_fragments, msg.search_summary_text, msg.search_mode_warnings));
-                } else {
-                    console.error(`loadChatMessages: Failed to load messages for session ${sessionId}, status: ${response.status}`);
-                    displayMessage(`チャット履歴の読み込みに失敗しました (エラーコード: ${response.status})`, 'system');
-                }
-            } catch (error) {
-                console.error(`loadChatMessages: Error loading messages for session ${sessionId}:`, error);
-                displayMessage(`チャット履歴の読み込み中にエラーが発生しました。`, 'system');
-            }
-        }
-
-    async function handleSessionSelection(sessionId, isNewChat = false) {
-            console.log(`handleSessionSelection: Called with sessionId: ${sessionId}, isNewChat: ${isNewChat}`);
-            currentSessionId = sessionId;
-
-            if (chatMessagesContainer) {
-                chatMessagesContainer.innerHTML = ''; // メッセージ表示エリアをクリア
-            } else {
-                console.error('handleSessionSelection: chatMessagesContainer not found');
-                return;
-            }
-
-            if (chatArea) { // チャットエリア全体を表示
-                chatArea.classList.remove('hidden');
-            } else {
-                console.error('handleSessionSelection: chatArea not found');
-            }
-
-            if (chatSessionListDiv) {
-                const allSessionElements = chatSessionListDiv.querySelectorAll('.session-element');
-                allSessionElements.forEach(el => el.classList.remove('session-button-active'));
-                const targetSessionElement = chatSessionListDiv.querySelector(`.session-element[data-session-id="${sessionId}"]`);
-                if (targetSessionElement) {
-                    targetSessionElement.classList.add('session-button-active');
-                }
-            }
-
-            const selectedSession = allSessionsCache.find(s => String(s.id) === String(sessionId));
-            if (selectedSession) {
-                console.log('handleSessionSelection: Selected session data:', selectedSession);
-                activeSessionOriginalMode = normalizeMode(selectedSession.mode);
-                if (aiModeSelect) {
-                    aiModeSelect.value = activeSessionOriginalMode;
-                }
-                toggleCharCountBox();
-                if (chatSearchInput) chatSearchInput.classList.remove('hidden');
-                if (cloneSessionBtn) cloneSessionBtn.classList.remove('hidden');
-            } else {
-                console.warn(`handleSessionSelection: Session with ID ${sessionId} not found in allSessionsCache. Assuming new or pending session.`);
-                // 新規または保留中のセッションの場合、現在のUIのモード選択を維持
-                activeSessionOriginalMode = aiModeSelect ? normalizeMode(aiModeSelect.value) : 'balance';
-                toggleCharCountBox();
-            }
-
-            if (!isNewChat && sessionId && !String(sessionId).startsWith('pending-')) {
-                await loadChatMessages(sessionId);
-            } else {
-                console.log('handleSessionSelection: New or pending chat, skipping initial message load via loadChatMessages.');
-                if (isNewChat) { // isNewChat フラグがある場合のみ新規チャットメッセージを表示
-                     displayMessage(`新しいチャット（モード: ${getModeDisplayName(activeSessionOriginalMode)}）を開始しました。プロンプトを入力してください。`, 'system');
-                }
-            }
-            if (promptTextarea) promptTextarea.focus();
-            console.log('handleSessionSelection: Function finished.');
-        }
 
     document.addEventListener('DOMContentLoaded', () => {
 
