@@ -14,8 +14,7 @@ elevenlabs
 assemblyai
 deepl
 stability-sdk
-passlib
-bcrypt
+passlib[bcrypt]
 
 # Media Processing
 moviepy
