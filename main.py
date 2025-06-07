@@ -89,6 +89,12 @@ os.makedirs(GENERATED_FILES_DIR, exist_ok=True)
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+@app.get("/", response_class=FileResponse)
+async def read_index(request: Request):
+    # Return the main UI file.
+    # Ensure the path is correct relative to where main.py is executed.
+    # Assuming 'static' directory is at the same level as main.py.
+    return FileResponse("static/collaboration_ai_ui.html")
 
 # models.Base.metadata.create_all(bind=engine)
 # --- CORSミDLEWAREの設定 ---
