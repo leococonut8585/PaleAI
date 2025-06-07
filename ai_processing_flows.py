@@ -226,9 +226,10 @@ async def run_super_writing_orchestrator_flow(
     logger.info(f"Super Writing Orchestrator: Genre='{genre}', Prompt='{original_prompt[:100]}...'")
     # All sub-flows will receive the `request` object from this orchestrator.
     if genre == "longform_composition":
-        return await run_sw_longform_composition_flow(
+        # Now, longform_composition uses the new iterative flow
+        return await run_iterative_super_drafting_flow(
             original_prompt, response_shell, chat_history_for_ai,
-            initial_user_prompt_for_session, user_memories, desired_char_count, request # Pass request
+            initial_user_prompt_for_session, user_memories, desired_char_count, request
         )
     elif genre == "short_text":
         return await run_sw_short_text_flow(
@@ -245,6 +246,7 @@ async def run_super_writing_orchestrator_flow(
             original_prompt, response_shell, chat_history_for_ai,
             initial_user_prompt_for_session, user_memories, request # Pass request
         )
+    # Removed elif for "iterative_super_drafting" as "longform_composition" now uses it.
     else: # pragma: no cover
         error_msg = f"Unknown genre: {genre} for Super Writing Mode."
         logger.error(error_msg) 
@@ -705,3 +707,294 @@ async def run_sw_summary_classification_flow(
 
 # --- END OF NEW SUPERWRITING FLOWS ---
 
+import math
+
+async def run_iterative_super_drafting_flow(
+    original_prompt: str,
+    response_shell: schemas.CollaborativeResponseV2,
+    chat_history_for_ai: List[Dict[str, str]],
+    initial_user_prompt_for_session: Optional[str],
+    user_memories: Optional[List[schemas.UserMemoryResponse]],
+    desired_char_count: Optional[int],
+    request: Request,
+) -> schemas.CollaborativeResponseV2:
+    logger = logging.getLogger(__name__)
+    logger.info(f"Executing run_iterative_super_drafting_flow for prompt: {original_prompt[:100]}...")
+
+    intermediate_steps_details: List[schemas.IndividualAIResponse] = []
+
+    # Initialization
+    DEFAULT_TOTAL_CHARS = 100000
+    MAX_CHARS_PER_CHUNK = 10000
+    MIN_CHARS_PER_CHUNK = 1000
+
+    if desired_char_count is None or desired_char_count < MIN_CHARS_PER_CHUNK:
+        actual_desired_char_count = DEFAULT_TOTAL_CHARS
+        logger.warning(f"Desired char count {desired_char_count} is too small or None. Using default: {actual_desired_char_count}")
+    else:
+        actual_desired_char_count = desired_char_count
+
+    if actual_desired_char_count <= MAX_CHARS_PER_CHUNK:
+        num_chunks = 1
+        target_chars_per_chunk = actual_desired_char_count
+    else:
+        num_chunks = math.ceil(actual_desired_char_count / MAX_CHARS_PER_CHUNK)
+        target_chars_per_chunk = math.ceil(actual_desired_char_count / num_chunks)
+
+    if target_chars_per_chunk < MIN_CHARS_PER_CHUNK:
+        target_chars_per_chunk = MIN_CHARS_PER_CHUNK
+        logger.warning(f"Calculated target_chars_per_chunk {target_chars_per_chunk} was too small. Adjusted to {MIN_CHARS_PER_CHUNK}")
+        # Recalculate num_chunks if target_chars_per_chunk was adjusted, to ensure total is still met
+        num_chunks = math.ceil(actual_desired_char_count / target_chars_per_chunk)
+
+
+    logger.info(f"Total Chars: {actual_desired_char_count}, Chunks: {num_chunks}, Target per Chunk: {target_chars_per_chunk}")
+
+    all_generated_text = ""
+    completed_chunks_data: List[schemas.IndividualAIResponse] = []
+
+    # Iterative Generation Loop
+    for current_chunk_num in range(1, num_chunks + 1):
+        logger.info(f"Starting chunk {current_chunk_num}/{num_chunks}")
+        current_chunk_text = ""
+        max_retries_char_count = 3
+        max_retries_consistency = 2
+
+        # Context for current chunk
+        context_for_current_chunk = (
+            f"Initial User Request: {initial_user_prompt_for_session}\n\n"
+            f"Overall Topic: {original_prompt}\n\n"
+            f"Previously Generated Text (ensure continuity with this, this is the last part of it):\n"
+            f"{all_generated_text[-10000:] if len(all_generated_text) > 10000 else all_generated_text}"
+            f"{'... (truncated previous text)' if len(all_generated_text) > 10000 else ''}"
+        )
+
+        # Step 1: Gemini Draft
+        gemini_draft_prompt = (
+            f"{context_for_current_chunk}\n\n"
+            f"Please write the next part of the text, aiming for approximately {target_chars_per_chunk} characters. "
+            f"This is chunk {current_chunk_num} of {num_chunks}."
+            "Focus on generating new content for the current chunk, building upon the previously generated text if available."
+        )
+        logger.info(f"Chunk {current_chunk_num} - Step 1: Gemini Draft")
+        gemini_response = await get_gemini_response(
+            request=request,
+            prompt_text=gemini_draft_prompt,
+            model_name="gemini-2.5-pro-preview-05-06", # Using specified model
+            chat_history=chat_history_for_ai,
+            initial_user_prompt=initial_user_prompt_for_session,
+            user_memories=user_memories,
+            # System instruction can be generic or specific if needed
+            system_instruction="You are an AI assistant helping to draft a long text in chunks. Ensure continuity with previous text if provided."
+        )
+        intermediate_steps_details.append(gemini_response)
+
+        if gemini_response.error or not gemini_response.response:
+            logger.error(f"Chunk {current_chunk_num} - Gemini Draft failed or returned no response: {gemini_response.error}")
+            # Decide on error handling: for now, log and use empty string, or potentially break/return.
+            # response_shell.overall_error = f"Error in Gemini Draft for chunk {current_chunk_num}: {gemini_response.error}"
+            # response_shell.ultra_writing_mode_details = intermediate_steps_details
+            # return response_shell # Example of early exit
+            current_chunk_text = "" # Fallback to empty if critical error
+        else:
+            current_chunk_text = gemini_response.response
+            logger.info(f"Chunk {current_chunk_num} - Gemini Draft successful. Length: {len(current_chunk_text)}")
+
+
+        # Step 2: Claude Refine
+        if current_chunk_text: # Only refine if there's text from Gemini
+            claude_refine_prompt = (
+                f"{context_for_current_chunk}\n\n"
+                f"AI-Generated Draft to Refine:\n{current_chunk_text}\n\n"
+                f"Please refine this draft to be more engaging, well-structured, and stylistically appealing, "
+                f"while ensuring the character count does not decrease significantly from the target of {target_chars_per_chunk} characters. "
+                f"This is for chunk {current_chunk_num} of {num_chunks}."
+            )
+            logger.info(f"Chunk {current_chunk_num} - Step 2: Claude Refine")
+            claude_response = await get_claude_response(
+                request=request,
+                prompt_text=claude_refine_prompt,
+                model="claude-opus-4-20250514", # Using specified model
+                chat_history=chat_history_for_ai,
+                initial_user_prompt=initial_user_prompt_for_session,
+                user_memories=user_memories,
+                system_instruction="You are an AI assistant refining a draft. Focus on improving engagement, structure, and style."
+            )
+            intermediate_steps_details.append(claude_response)
+
+            if claude_response.error or not claude_response.response:
+                logger.warning(f"Chunk {current_chunk_num} - Claude Refine failed or returned no response: {claude_response.error}. Using text from Gemini draft.")
+            else:
+                current_chunk_text = claude_response.response
+                logger.info(f"Chunk {current_chunk_num} - Claude Refine successful. Length: {len(current_chunk_text)}")
+        else:
+            logger.warning(f"Chunk {current_chunk_num} - Skipping Claude Refine as Gemini draft was empty.")
+
+
+        # Step 3: Character Count Check & Expansion Loop
+        logger.info(f"Chunk {current_chunk_num} - Step 3: Character Count Check & Expansion Loop")
+        for i in range(max_retries_char_count):
+            logger.info(f"Chunk {current_chunk_num} - Char Count Check Attempt {i+1}/{max_retries_char_count}")
+            # Simple length check first (more reliable than asking AI)
+            if len(current_chunk_text) >= target_chars_per_chunk * 0.8: # Allow 20% leeway
+                 logger.info(f"Chunk {current_chunk_num} - Length {len(current_chunk_text)} is sufficient (>= 80% of {target_chars_per_chunk}).")
+                 break # Length is fine
+
+            # If still too short, ask Gemini to verify (as per plan, though direct check is better)
+            gemini_check_length_prompt = (
+                f"The following text is chunk {current_chunk_num} of {num_chunks}. "
+                f"The target length is {target_chars_per_chunk} characters. Current text (length {len(current_chunk_text)}):\n{current_chunk_text}\n\n"
+                f"Is the length of this text significantly less than {target_chars_per_chunk} characters? Answer with only 'YES' or 'NO'. "
+                f"If it's reasonably close (e.g. 80% or more) or over, answer 'NO'."
+            )
+            gemini_length_check_response = await get_gemini_response(
+                request=request,
+                prompt_text=gemini_check_length_prompt,
+                model_name="gemini-2.5-pro-preview-05-06",
+                # Less context needed for simple check
+            )
+            intermediate_steps_details.append(gemini_length_check_response)
+
+            if gemini_length_check_response.error:
+                logger.warning(f"Chunk {current_chunk_num} - Gemini length check failed: {gemini_length_check_response.error}. Assuming length is OK to avoid loop error.")
+                break
+
+            is_too_short_str = gemini_length_check_response.response.strip().upper()
+            logger.info(f"Chunk {current_chunk_num} - Gemini length check response: '{is_too_short_str}'")
+
+            if "YES" in is_too_short_str or len(current_chunk_text) < target_chars_per_chunk * 0.5: # Add a hard threshold too
+                logger.info(f"Chunk {current_chunk_num} - Text is too short (Gemini: {is_too_short_str}, Actual: {len(current_chunk_text)}). Attempting expansion with Claude.")
+                claude_expand_prompt = (
+                    f"{context_for_current_chunk}\n\n"
+                    f"Previously Generated Text for this Chunk (too short, current length {len(current_chunk_text)}):\n{current_chunk_text}\n\n"
+                    f"Please expand this text significantly to meet the target of approximately {target_chars_per_chunk} characters for chunk {current_chunk_num} of {num_chunks}. "
+                    f"Add more details, examples, or elaborations as appropriate. Ensure the expansion is coherent and maintains quality."
+                )
+                claude_expand_response = await get_claude_response(
+                    request=request,
+                    prompt_text=claude_expand_prompt,
+                    model="claude-opus-4-20250514",
+                    system_instruction="You are an AI assistant expanding text to meet a target length. Add relevant details and ensure coherence.",
+                    # Pass other relevant params like history, user_memories if needed for context
+                    chat_history=chat_history_for_ai,
+                    initial_user_prompt=initial_user_prompt_for_session,
+                    user_memories=user_memories,
+                )
+                intermediate_steps_details.append(claude_expand_response)
+
+                if claude_expand_response.error or not claude_expand_response.response:
+                    logger.warning(f"Chunk {current_chunk_num} - Claude expansion failed: {claude_expand_response.error}. Using previous text.")
+                    break # Break if expansion fails
+                else:
+                    current_chunk_text = claude_expand_response.response
+                    logger.info(f"Chunk {current_chunk_num} - Claude expansion successful. New length: {len(current_chunk_text)}")
+                    # Continue to re-check length in the next iteration of this loop
+            else: # Gemini says 'NO' or length is fine
+                logger.info(f"Chunk {current_chunk_num} - Length is considered sufficient by Gemini or direct check. Actual: {len(current_chunk_text)}.")
+                break # Break from character count loop
+
+        if len(current_chunk_text) < target_chars_per_chunk * 0.5: # Final check
+             logger.warning(f"Chunk {current_chunk_num} - After expansion attempts, length {len(current_chunk_text)} is still significantly less than target {target_chars_per_chunk}.")
+
+
+        # Step 4: Consistency Check & Fix Loop
+        logger.info(f"Chunk {current_chunk_num} - Step 4: Consistency Check & Fix Loop")
+        for i in range(max_retries_consistency):
+            logger.info(f"Chunk {current_chunk_num} - Consistency Check Attempt {i+1}/{max_retries_consistency}")
+            gemini_check_consistency_prompt = (
+                f"Initial User Request: {initial_user_prompt_for_session}\n"
+                f"Overall Topic: {original_prompt}\n"
+                f"Previously Generated Text (ensure continuity with this, this is the last part of it):\n{all_generated_text[-10000:] if len(all_generated_text) > 10000 else all_generated_text}{'... (truncated previous text)' if len(all_generated_text) > 10000 else ''}\n\n"
+                f"Current Chunk Draft (chunk {current_chunk_num} of {num_chunks}):\n{current_chunk_text}\n\n"
+                f"Review the 'Current Chunk Draft'. Are there any plot holes, setting errors, character inconsistencies, or factual contradictions "
+                f"when compared to the 'Previously Generated Text' or the 'Initial User Request' and 'Overall Topic'? "
+                f"If major issues exist, describe them briefly (e.g., 'The character John was previously described as a doctor, but is now a pilot.'). "
+                f"If no major issues, answer ONLY with the exact phrase 'NO MAJOR ISSUES'."
+            )
+            gemini_consistency_response = await get_gemini_response(
+                request=request,
+                prompt_text=gemini_check_consistency_prompt,
+                model_name="gemini-2.5-pro-preview-05-06", # Powerful model for consistency
+            )
+            intermediate_steps_details.append(gemini_consistency_response)
+
+            if gemini_consistency_response.error:
+                logger.warning(f"Chunk {current_chunk_num} - Gemini consistency check failed: {gemini_consistency_response.error}. Assuming no major issues to avoid loop error.")
+                break
+
+            consistency_issues = gemini_consistency_response.response.strip()
+            logger.info(f"Chunk {current_chunk_num} - Gemini consistency check response: '{consistency_issues}'")
+
+            if consistency_issues != "NO MAJOR ISSUES":
+                logger.info(f"Chunk {current_chunk_num} - Consistency issues found: {consistency_issues}. Attempting fix with Claude.")
+                claude_fix_prompt = (
+                    f"{context_for_current_chunk}\n\n" # context_for_current_chunk already has previous text snippet
+                    f"Text of Current Chunk (chunk {current_chunk_num} of {num_chunks}):\n{current_chunk_text}\n\n"
+                    f"An automated check found the following consistency issues with previously generated text or overall request: '{consistency_issues}'.\n"
+                    f"Please revise the 'Text of Current Chunk' to address these issues while maintaining its core content and "
+                    f"target length of approximately {target_chars_per_chunk} characters."
+                )
+                claude_fix_response = await get_claude_response(
+                    request=request,
+                    prompt_text=claude_fix_prompt,
+                    model="claude-opus-4-20250514",
+                    system_instruction="You are an AI assistant revising text to fix consistency issues. Ensure the revised text is coherent and addresses the identified problems.",
+                    chat_history=chat_history_for_ai, # Provide history for broader context
+                    initial_user_prompt=initial_user_prompt_for_session,
+                    user_memories=user_memories,
+                )
+                intermediate_steps_details.append(claude_fix_response)
+
+                if claude_fix_response.error or not claude_fix_response.response:
+                    logger.warning(f"Chunk {current_chunk_num} - Claude consistency fix failed: {claude_fix_response.error}. Using previous text.")
+                    break # Break if fix fails
+                else:
+                    old_len = len(current_chunk_text)
+                    current_chunk_text = claude_fix_response.response
+                    new_len = len(current_chunk_text)
+                    logger.info(f"Chunk {current_chunk_num} - Claude consistency fix successful. Length changed from {old_len} to {new_len}.")
+                    # As per spec, log length change but don't explicitly re-run length check loop here for simplicity.
+                    # A more robust solution might re-trigger length check or integrate it.
+                    # Continue to re-check consistency in the next iteration of this loop.
+            else: # Gemini says 'NO MAJOR ISSUES'
+                logger.info(f"Chunk {current_chunk_num} - No major consistency issues found.")
+                break # Break from consistency loop
+
+        # Store Finalized Chunk
+        logger.info(f"Completed processing for chunk {current_chunk_num}/{num_chunks}. Final length: {len(current_chunk_text)}")
+        chunk_data = schemas.IndividualAIResponse(
+            source=f"Iterative Super Drafting - Chunk {current_chunk_num}/{num_chunks}",
+            response=current_chunk_text,
+            # error=None, # Assuming if we reach here, chunk is considered successful for now
+        )
+        completed_chunks_data.append(chunk_data)
+        all_generated_text += current_chunk_text + "\n\n" # Separator for next iteration's context
+
+    # Finalize and Return
+    # The prompt asks for `final_combined_text = "".join(chunk.response for chunk in completed_chunks_data)`
+    # However, `all_generated_text` already has them joined with "\n\n".
+    # Using `all_generated_text` might be better if specific separators are desired.
+    # For now, sticking to the explicit join as requested for the final shell, but `all_generated_text` was used for context.
+    final_combined_text = ""
+    for chunk in completed_chunks_data:
+        if chunk.response: # Ensure only non-empty responses are joined
+             final_combined_text += chunk.response + "\n\n" # Using \n\n as separator, can be adjusted
+
+    # Trim trailing newlines if any
+    final_combined_text = final_combined_text.strip()
+
+
+    response_shell.step7_final_answer_v2_openai = schemas.IndividualAIResponse(
+        source="Iterative Super Drafting (Final)", response=final_combined_text
+    )
+    response_shell.ultra_writing_mode_details = intermediate_steps_details
+
+    if not final_combined_text and not response_shell.overall_error : # If no text and no major error logged
+        response_shell.overall_error = "Iterative Super Drafting completed but generated no content."
+        logger.error("Iterative Super Drafting generated no final content.")
+    elif not final_combined_text and response_shell.overall_error:
+        logger.error(f"Iterative Super Drafting failed to generate content and error was: {response_shell.overall_error}")
+    else:
+        logger.info(f"Iterative Super Drafting flow completed. Total length: {len(final_combined_text)}")
+
+    return response_shell
